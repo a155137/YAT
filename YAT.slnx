@@ -8,6 +8,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/YAT.Analytics.Tests/YAT.Analytics.Tests.csproj" />
+    <Project Path="tests/YAT.App.Tests/YAT.App.Tests.csproj" />
     <Project Path="tests/YAT.Application.Tests/YAT.Application.Tests.csproj" />
     <Project Path="tests/YAT.Domain.Tests/YAT.Domain.Tests.csproj" />
     <Project Path="tests/YAT.Infrastructure.Tests/YAT.Infrastructure.Tests.csproj" />

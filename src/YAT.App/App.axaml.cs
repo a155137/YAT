@@ -23,7 +23,7 @@ public partial class App : AvaloniaApplication
         {
             desktop.MainWindow = new MainWindow
             {
-                DataContext = new MainViewModel(),
+                DataContext = Composition.CreateMainWindowViewModel(),
             };
         }
 

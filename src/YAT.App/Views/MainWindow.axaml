@@ -1,22 +1,149 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:YAT.app.ViewModels"
+        xmlns:entities="using:YAT.Domain.Entities"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
         x:Class="YAT.app.Views.MainWindow"
-        x:DataType="vm:MainViewModel"
+        x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="YAT.app">
+        Width="1100" Height="700"
+        Title="YAT">
 
-    <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainViewModel />
-    </Design.DataContext>
+    <!-- The runtime DataContext is built by CompositionRoot with real Application handlers (see App.axaml.cs). -->
 
-    <TextBox Text="{Binding Greeting}"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center" />
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="E_xit" Click="OnExitClick" />
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="_Project Panel"
+                          ToggleType="CheckBox"
+                          IsChecked="{Binding IsProjectPanelVisible, Mode=OneWay}"
+                          Command="{Binding ToggleProjectPanelCommand}" />
+            </MenuItem>
+        </Menu>
+
+        <Border DockPanel.Dock="Top"
+                Padding="12,6"
+                BorderThickness="0,1"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="No Project"
+                           Opacity="0.6"
+                           IsVisible="{Binding !HasCurrentProject}" />
+                <TextBlock Text="{Binding CurrentProject.Name, FallbackValue={x:Null}}"
+                           FontWeight="SemiBold"
+                           IsVisible="{Binding HasCurrentProject}" />
+                <TextBlock Text="›"
+                           Opacity="0.6"
+                           IsVisible="{Binding SelectedWorksheet, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock Text="{Binding SelectedWorksheet.Name, FallbackValue={x:Null}}"
+                           IsVisible="{Binding SelectedWorksheet, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </Border>
+
+        <Grid ColumnDefinitions="Auto,*">
+            <Border Grid.Column="0"
+                    Width="300"
+                    BorderThickness="0,0,1,0"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                    IsVisible="{Binding IsProjectPanelVisible}">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="12,8,4,0">
+                        <TextBlock Text="Project"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Content="×"
+                                ToolTip.Tip="Hide Project Panel"
+                                Background="Transparent"
+                                Command="{Binding ToggleProjectPanelCommand}" />
+                    </Grid>
+
+                    <ScrollViewer>
+                        <StackPanel Margin="12" Spacing="16">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="New Project" FontWeight="SemiBold" />
+                                <TextBox Text="{Binding ProjectName}" PlaceholderText="Project name" />
+                                <TextBox Text="{Binding ProjectDescription}" PlaceholderText="Description (optional)" />
+                                <Button Content="Create Project"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        Command="{Binding CreateProjectCommand}" />
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding ErrorMessage}"
+                                       Foreground="#D13438"
+                                       TextWrapping="Wrap"
+                                       IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Current Project" FontWeight="SemiBold" />
+                                <TextBlock Text="No Project yet."
+                                           Opacity="0.6"
+                                           IsVisible="{Binding !HasCurrentProject}" />
+                                <TextBlock Text="{Binding CurrentProject.Name, FallbackValue={x:Null}}"
+                                           TextWrapping="Wrap"
+                                           IsVisible="{Binding HasCurrentProject}" />
+                                <TextBlock Text="{Binding CurrentProject.Description, FallbackValue={x:Null}}"
+                                           Opacity="0.7"
+                                           TextWrapping="Wrap"
+                                           IsVisible="{Binding CurrentProject.Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Worksheets" FontWeight="SemiBold" />
+                                <TextBox Text="{Binding WorksheetName}"
+                                         PlaceholderText="Worksheet name"
+                                         IsEnabled="{Binding HasCurrentProject}" />
+                                <Button Content="Create Worksheet"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        Command="{Binding CreateWorksheetCommand}" />
+                                <ListBox ItemsSource="{Binding Worksheets}"
+                                         SelectedItem="{Binding SelectedWorksheet}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="entities:Worksheet">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" />
+                                                <TextBlock FontSize="11" Opacity="0.6">
+                                                    <Run Text="{Binding RowCount}" />
+                                                    <Run Text="rows ·" />
+                                                    <Run Text="{Binding ColumnCount}" />
+                                                    <Run Text="columns" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Column="1" Padding="24">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+                    <TextBlock Text="Worksheet workspace"
+                               FontSize="20"
+                               Opacity="0.5"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="No Worksheet selected"
+                               Opacity="0.5"
+                               HorizontalAlignment="Center"
+                               IsVisible="{Binding SelectedWorksheet, Converter={x:Static ObjectConverters.IsNull}}" />
+                    <TextBlock Text="{Binding SelectedWorksheet.Name, FallbackValue={x:Null}}"
+                               FontSize="16"
+                               HorizontalAlignment="Center"
+                               IsVisible="{Binding SelectedWorksheet, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
 
 </Window>
