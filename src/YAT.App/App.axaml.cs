@@ -3,10 +3,11 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using YAT.app.ViewModels;
 using YAT.app.Views;
+using AvaloniaApplication = Avalonia.Application;
 
 namespace YAT.app;
 
-public partial class App : Application
+public partial class App : AvaloniaApplication
 {
     public override void Initialize()
     {
