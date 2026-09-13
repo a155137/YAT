@@ -8,4 +8,7 @@ public interface IWorksheetColumnRepository
     Task<IReadOnlyList<WorksheetColumn>> GetByWorksheetIdAsync(Guid worksheetId, CancellationToken cancellationToken);
 
     Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken);
+
+    // Replaces the stored column that has the same Id. Throws EntityNotFoundException when no such column exists.
+    Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken);
 }

@@ -1,4 +1,3 @@
-using System.Globalization;
 using YAT.Domain.Enums;
 
 namespace YAT.Application.Ingestion;
@@ -52,9 +51,5 @@ public sealed class ColumnDataTypeDetector
         }
     }
 
-    // Invariant culture keeps detection independent of Windows regional settings. Decimal point and
-    // exponent are allowed; thousands separators are not. NaN, Infinity and out-of-range values are not numeric.
-    private static bool IsNumeric(string cell) =>
-        double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-        && double.IsFinite(value);
+    private static bool IsNumeric(string cell) => NumericCellParser.TryParse(cell, out _);
 }

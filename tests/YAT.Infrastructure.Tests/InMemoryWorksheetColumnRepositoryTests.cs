@@ -1,3 +1,4 @@
+using YAT.Application.Exceptions;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
@@ -93,6 +94,33 @@ public class InMemoryWorksheetColumnRepositoryTests
         var column = Assert.Single(await repository.GetByWorksheetIdAsync(worksheetId, Token));
         Assert.Equal("Ioff", column.Name);
         Assert.Equal(3, column.Index);
+    }
+
+    [Fact]
+    public async Task UpdateReplacesTheColumnWithTheSameId()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var id = Guid.NewGuid();
+        var worksheetId = Guid.NewGuid();
+        await repository.AddAsync(Column(id, worksheetId, 2, "Vth"), Token);
+        var replacement = Column(id, worksheetId, 2, "Lot");
+        replacement.DataType = WorksheetDataType.String;
+
+        await repository.UpdateAsync(replacement, Token);
+
+        Assert.Same(replacement, Assert.Single(await repository.GetByWorksheetIdAsync(worksheetId, Token)));
+    }
+
+    [Fact]
+    public async Task UpdateOfUnknownColumnThrowsAndStoresNothing()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var column = Column(Guid.NewGuid(), Guid.NewGuid(), 0, "Vth");
+
+        var exception = await Assert.ThrowsAsync<EntityNotFoundException>(() => repository.UpdateAsync(column, Token));
+
+        Assert.Equal(column.Id, exception.Id);
+        Assert.Empty(await repository.GetByWorksheetIdAsync(column.WorksheetId, Token));
     }
 
     [Fact]

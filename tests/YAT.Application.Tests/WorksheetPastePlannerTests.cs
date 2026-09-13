@@ -319,11 +319,46 @@ public class WorksheetPastePlannerTests
     }
 
     [Fact]
-    public void LeavesBlankHeadersAsParsed()
+    public void TrimsHeadersButKeepsInternalWhitespace()
     {
-        var plan = CreatePlanner().Plan(WorksheetId, Columns("No"), 1, HeadersOnly("", "Reg1", ""));
+        var plan = CreatePlanner().Plan(WorksheetId, Columns(), 0, HeadersOnly("  SITE ", " Reg 1  ", "Vth"));
 
-        Assert.Equal(["", "Reg1", ""], FinalHeaders(plan));
+        Assert.Equal(["SITE", "Reg 1", "Vth"], FinalHeaders(plan));
+        Assert.Equal(["  SITE ", " Reg 1  ", "Vth"], plan.Columns.Select(column => column.OriginalHeader));
+    }
+
+    [Fact]
+    public void NamesBlankHeadersAfterOneBasedTargetPosition()
+    {
+        var plan = CreatePlanner().Plan(WorksheetId, Columns("No"), 1, HeadersOnly("", "Reg1", "   "));
+
+        Assert.Equal(["Column2", "Reg1", "Column4"], FinalHeaders(plan));
+        Assert.Equal(["", "Reg1", "   "], plan.Columns.Select(column => column.OriginalHeader));
+    }
+
+    [Fact]
+    public void NamesBlankHeaderAtMaximumColumnIndexWithoutOverflow()
+    {
+        // A whitespace-only header needs a data row: the parser rejects whitespace-only text.
+        var plan = CreatePlanner().Plan(WorksheetId, Columns(), int.MaxValue, Parse(" \n1"));
+
+        Assert.Equal(["Column2147483648"], FinalHeaders(plan));
+    }
+
+    [Fact]
+    public void ResolvesDuplicatesAfterTrimming()
+    {
+        var plan = CreatePlanner().Plan(WorksheetId, Columns("SITE"), 1, HeadersOnly(" site ", "SITE  "));
+
+        Assert.Equal(["site_1", "SITE_2"], FinalHeaders(plan));
+    }
+
+    [Fact]
+    public void ResolvesDuplicatesOfBlankHeaderFallbackNames()
+    {
+        var plan = CreatePlanner().Plan(WorksheetId, Columns("No", "Column3"), 2, HeadersOnly("", "column3"));
+
+        Assert.Equal(["Column3_1", "column3_2"], FinalHeaders(plan));
     }
 
     [Fact]

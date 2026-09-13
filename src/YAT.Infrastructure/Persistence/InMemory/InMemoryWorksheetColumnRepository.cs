@@ -1,4 +1,5 @@
 using YAT.Application.Abstractions.Persistence;
+using YAT.Application.Exceptions;
 using YAT.Domain.Entities;
 
 namespace YAT.Infrastructure.Persistence.InMemory;
@@ -19,6 +20,17 @@ public sealed class InMemoryWorksheetColumnRepository : IWorksheetColumnReposito
 
     public Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken)
     {
+        _columns[column.Id] = column;
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken)
+    {
+        if (!_columns.ContainsKey(column.Id))
+        {
+            return Task.FromException(new EntityNotFoundException(nameof(WorksheetColumn), column.Id));
+        }
+
         _columns[column.Id] = column;
         return Task.CompletedTask;
     }

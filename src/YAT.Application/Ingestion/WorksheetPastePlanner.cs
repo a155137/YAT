@@ -6,6 +6,7 @@ namespace YAT.Application.Ingestion;
 
 // Plans a column-oriented paste: incoming columns are placed sequentially from startColumnIndex,
 // whether those targets overlap existing columns, follow the last one, or lie beyond it.
+// Header names are cleaned (trim, blank fallback) before duplicate-name resolution.
 public sealed class WorksheetPastePlanner
 {
     private readonly ColumnDataTypeDetector _dataTypeDetector;
@@ -48,12 +49,13 @@ public sealed class WorksheetPastePlanner
         for (var sourceIndex = 0; sourceIndex < columnCount; sourceIndex++)
         {
             var header = data.Headers[sourceIndex];
-            var finalHeader = ResolveUniqueName(header, namesInScope);
+            var targetIndex = startColumnIndex + sourceIndex;
+            var finalHeader = ResolveUniqueName(CleanHeader(header, targetIndex), namesInScope);
             namesInScope.Add(finalHeader);
 
             columns[sourceIndex] = new PlannedPasteColumn(
                 sourceIndex,
-                startColumnIndex + sourceIndex,
+                targetIndex,
                 header,
                 finalHeader,
                 dataTypes[sourceIndex]);
@@ -62,12 +64,19 @@ public sealed class WorksheetPastePlanner
         return new WorksheetPastePlan(worksheetId, startColumnIndex, columnCount, data.Rows.Count, Array.AsReadOnly(columns));
     }
 
+    // Leading and trailing whitespace is removed; internal whitespace is kept. A blank header is named after
+    // its 1-based target worksheet position, e.g. "Column4" for target index 3. The raw header stays in OriginalHeader.
+    private static string CleanHeader(string header, int targetIndex)
+    {
+        var trimmed = header.Trim();
+        return trimmed.Length > 0 ? trimmed : $"Column{(long)targetIndex + 1}";
+    }
+
     // Case-insensitive. On a clash the result is "<header>_<max existing suffix + 1>", keeping the
-    // incoming casing; suffix gaps are never reused. Blank headers are left as parsed (Task #007 policy).
+    // incoming casing; suffix gaps are never reused.
     private static string ResolveUniqueName(string header, IReadOnlyList<string> namesInScope)
     {
-        if (string.IsNullOrWhiteSpace(header)
-            || !namesInScope.Contains(header, StringComparer.OrdinalIgnoreCase))
+        if (!namesInScope.Contains(header, StringComparer.OrdinalIgnoreCase))
         {
             return header;
         }
