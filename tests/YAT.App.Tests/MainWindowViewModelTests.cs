@@ -8,9 +8,13 @@ public class MainWindowViewModelTests
 {
     private static readonly DateTimeOffset Now = new(2026, 5, 1, 12, 0, 0, TimeSpan.Zero);
 
-    // Built through the real CompositionRoot: real Application handlers over in-memory repositories.
+    // Built through the real CompositionRoot: real Application handlers over a ProjectSession's in-memory repositories.
     private static MainWindowViewModel CreateViewModel()
-        => new CompositionRoot(new FixedTimeProvider(Now)).CreateMainWindowViewModel();
+    {
+        var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
+        var projectSession = compositionRoot.CreateProjectSession(":memory:");
+        return compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(projectSession));
+    }
 
     private static async Task<MainWindowViewModel> CreateViewModelWithProjectAsync(string name = "ALS_2026_09")
     {

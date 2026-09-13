@@ -3,9 +3,8 @@ using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YAT.Application.Exceptions;
-using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
-using YAT.Application.Features.Worksheets.CreateWorksheet;
+using YAT.app.Composition;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
 using CreateProjectRequest = YAT.Application.Features.Projects.CreateProject.CreateProjectCommand;
@@ -23,22 +22,15 @@ public partial class MainWindowViewModel : ViewModelBase
         .. Enum.GetValues<ColumnSemanticType>().Select(type => new SemanticTypeOption(type, type.ToString())),
     ];
 
-    private readonly CreateProjectHandler _createProject;
-    private readonly CreateWorksheetHandler _createWorksheet;
-    private readonly AddWorksheetColumnHandler _addWorksheetColumn;
+    private readonly MainWindowSession _session;
 
     // Column metadata added in this UI session, keyed by Worksheet Id. Never row data.
-    // Needed because IWorksheetColumnRepository has no read API yet.
+    // UI state only: columns are persisted through MainWindowSession, but selection does not re-read them yet.
     private readonly Dictionary<Guid, ObservableCollection<WorksheetColumn>> _columnsByWorksheet = [];
 
-    public MainWindowViewModel(
-        CreateProjectHandler createProject,
-        CreateWorksheetHandler createWorksheet,
-        AddWorksheetColumnHandler addWorksheetColumn)
+    public MainWindowViewModel(MainWindowSession session)
     {
-        _createProject = createProject;
-        _createWorksheet = createWorksheet;
-        _addWorksheetColumn = addWorksheetColumn;
+        _session = session;
     }
 
     [ObservableProperty]
@@ -167,7 +159,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             var description = string.IsNullOrWhiteSpace(ProjectDescription) ? null : ProjectDescription;
-            var project = await _createProject.HandleAsync(
+            var project = await _session.CreateProjectAsync(
                 new CreateProjectRequest(ProjectName, description), cancellationToken);
 
             // One active Project at a time: switching clears the session Worksheet list and column state.
@@ -208,7 +200,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            var worksheet = await _createWorksheet.HandleAsync(
+            var worksheet = await _session.CreateWorksheetAsync(
                 new CreateWorksheetRequest(CurrentProject.Id, WorksheetName), cancellationToken);
 
             Worksheets.Add(worksheet);
@@ -251,7 +243,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             // Temporary policy: indices are assigned sequentially from the visible column list.
             var unit = string.IsNullOrWhiteSpace(ColumnUnit) ? null : ColumnUnit;
-            var column = await _addWorksheetColumn.HandleAsync(
+            var column = await _session.AddWorksheetColumnAsync(
                 new AddWorksheetColumnCommand(
                     worksheet.Id, columns.Count, ColumnName, SelectedColumnDataType, SelectedColumnSemanticType, unit),
                 cancellationToken);

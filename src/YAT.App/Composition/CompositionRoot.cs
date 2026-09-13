@@ -8,26 +8,19 @@ using YAT.Infrastructure.Persistence.InMemory;
 
 namespace YAT.app.Composition;
 
+// Manual wiring only: constructs, wires and returns. Worksheet and column repositories are created solely
+// as part of a ProjectSession; the UI reaches them through a MainWindowSession built over that session.
 public sealed class CompositionRoot
 {
+    private readonly TimeProvider _timeProvider;
+
+    // Projects are not project-scoped: one repository for the application, shared by every MainWindowSession.
+    private readonly InMemoryProjectRepository _projects = new();
+
     public CompositionRoot(TimeProvider timeProvider)
     {
-        var projects = new InMemoryProjectRepository();
-        var worksheets = new InMemoryWorksheetRepository();
-        var worksheetColumns = new InMemoryWorksheetColumnRepository();
-
-        CreateProject = new CreateProjectHandler(projects, timeProvider);
-        CreateWorksheet = new CreateWorksheetHandler(projects, worksheets, timeProvider);
-        AddWorksheetColumn = new AddWorksheetColumnHandler(worksheets, worksheetColumns);
+        _timeProvider = timeProvider;
     }
-
-    public CreateProjectHandler CreateProject { get; }
-
-    public CreateWorksheetHandler CreateWorksheet { get; }
-
-    public AddWorksheetColumnHandler AddWorksheetColumn { get; }
-
-    public MainWindowViewModel CreateMainWindowViewModel() => new(CreateProject, CreateWorksheet, AddWorksheetColumn);
 
     // Constructs and wires one project scope whose raw data lives in the DuckDB database at databasePath.
     // Every call creates new metadata repositories and a new raw store; nothing is shared between sessions.
@@ -41,5 +34,22 @@ public sealed class CompositionRoot
         var pasteExecution = new PasteExecutionService(worksheets, worksheetColumns, rawDataStore);
 
         return new ProjectSession(worksheets, worksheetColumns, rawDataStore, pasteExecution);
+    }
+
+    // The UI operations run against the given session's own repositories; the caller keeps owning the session.
+    public MainWindowSession CreateMainWindowSession(ProjectSession projectSession)
+    {
+        ArgumentNullException.ThrowIfNull(projectSession);
+
+        return new MainWindowSession(
+            new CreateProjectHandler(_projects, _timeProvider),
+            new CreateWorksheetHandler(_projects, projectSession.Worksheets, _timeProvider),
+            new AddWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns));
+    }
+
+    public MainWindowViewModel CreateMainWindowViewModel(MainWindowSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return new MainWindowViewModel(session);
     }
 }
