@@ -6,4 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
+
+  <!--
+    V1 runtime support is Windows x64. Only executables that consume native dependencies (DuckDB, SkiaSharp)
+    target a runtime identifier, so they do not copy native payloads for every platform. Libraries and pure
+    test projects stay RID-neutral. Override with -p:YatRuntimeIdentifier=<rid>.
+  -->
+  <PropertyGroup>
+    <YatRuntimeIdentifier Condition="'$(YatRuntimeIdentifier)' == ''">win-x64</YatRuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(MSBuildProjectName)' == 'YAT.App' Or '$(MSBuildProjectName)' == 'YAT.App.Tests' Or '$(MSBuildProjectName)' == 'YAT.Infrastructure.Tests'">$(YatRuntimeIdentifier)</RuntimeIdentifier>
+  </PropertyGroup>
 </Project>

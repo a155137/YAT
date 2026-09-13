@@ -68,6 +68,27 @@ public class RawDataBlockTests
         Assert.Throws<ArgumentNullException>(() => new StringRawDataColumn(Guid.NewGuid(), null!));
     }
 
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void NumericColumnRejectsNonFiniteValues(double value)
+    {
+        var exception = Assert.Throws<ArgumentException>(() => new NumericRawDataColumn(Guid.NewGuid(), [1, null, value]));
+
+        Assert.Equal("values", exception.ParamName);
+        Assert.Contains("Row 2", exception.Message);
+    }
+
+    [Fact]
+    public void NumericColumnAcceptsFiniteExtremesAndMissingValues()
+    {
+        var column = new NumericRawDataColumn(Guid.NewGuid(), [double.MaxValue, double.MinValue, double.Epsilon, -0.0, null]);
+
+        Assert.Equal(5, column.RowCount);
+        Assert.Null(column.Values[4]);
+    }
+
     [Fact]
     public void BlockAcceptsRectangularColumnsOfMixedTypes()
     {

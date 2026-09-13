@@ -3,4 +3,12 @@
     <ProjectReference Include="..\YAT.Application\YAT.Application.csproj" />
     <ProjectReference Include="..\YAT.Domain\YAT.Domain.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DuckDB.NET.Data.Full" Version="[1.5.5]" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="YAT.Infrastructure.Tests" />
+  </ItemGroup>
 </Project>

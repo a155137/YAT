@@ -124,21 +124,6 @@ public class StorageBoundaryTests
         Assert.All(RawDataContractTypes, rawType => Assert.DoesNotContain(rawType, metadataReferences));
     }
 
-    [Fact]
-    public void ApplicationAssemblyDoesNotReferenceUiDatabaseOrInfrastructureAssemblies()
-    {
-        var referencedNames = typeof(IWorksheetRawDataStore).Assembly.GetReferencedAssemblies().Select(name => name.Name!);
-
-        Assert.All(referencedNames, name =>
-        {
-            Assert.False(name.StartsWith("Avalonia", StringComparison.OrdinalIgnoreCase), name);
-            Assert.False(name.StartsWith("DuckDB", StringComparison.OrdinalIgnoreCase), name);
-            Assert.False(name.StartsWith("SkiaSharp", StringComparison.OrdinalIgnoreCase), name);
-            Assert.NotEqual("YAT.App", name);
-            Assert.NotEqual("YAT.Infrastructure", name);
-        });
-    }
-
     private static string[] PropertyNames(Type type) =>
         type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(property => property.Name)

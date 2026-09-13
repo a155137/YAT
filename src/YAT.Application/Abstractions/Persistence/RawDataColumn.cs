@@ -19,13 +19,24 @@ public abstract class RawDataColumn
     public abstract int RowCount { get; }
 }
 
+// Numeric values must be finite; a missing cell is null, never NaN or Infinity.
 public sealed class NumericRawDataColumn : RawDataColumn
 {
     public NumericRawDataColumn(Guid columnId, IReadOnlyList<double?> values)
         : base(columnId)
     {
         ArgumentNullException.ThrowIfNull(values);
-        Values = Array.AsReadOnly(values.ToArray());
+
+        var copy = values.ToArray();
+        for (var rowIndex = 0; rowIndex < copy.Length; rowIndex++)
+        {
+            if (copy[rowIndex] is { } value && !double.IsFinite(value))
+            {
+                throw new ArgumentException($"Row {rowIndex} contains a non-finite numeric value ({value}).", nameof(values));
+            }
+        }
+
+        Values = Array.AsReadOnly(copy);
     }
 
     public override WorksheetDataType DataType => WorksheetDataType.Numeric;
