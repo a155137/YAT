@@ -22,6 +22,10 @@ public partial class MainWindowViewModel : ViewModelBase
         .. Enum.GetValues<ColumnSemanticType>().Select(type => new SemanticTypeOption(type, type.ToString())),
     ];
 
+    public const string DefaultProjectName = "Untitled Project";
+
+    public const string DefaultWorksheetName = "Sheet1";
+
     private readonly MainWindowSession _session;
 
     // Column metadata added in this UI session, keyed by Worksheet Id. Never row data.
@@ -31,6 +35,29 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(MainWindowSession session)
     {
         _session = session;
+    }
+
+    // Startup workspace, like a new Excel workbook: an untitled Project with Sheet1 selected, ready for Ctrl+V.
+    // Runs the same commands a user would, so the resulting state is identical to creating both by hand.
+    // Does nothing once a Project exists.
+    public async Task CreateDefaultWorkspaceAsync()
+    {
+        if (CurrentProject is not null)
+        {
+            return;
+        }
+
+        ProjectName = DefaultProjectName;
+        ProjectDescription = string.Empty;
+        await CreateProjectCommand.ExecuteAsync(null);
+
+        if (CurrentProject is null)
+        {
+            return;
+        }
+
+        WorksheetName = DefaultWorksheetName;
+        await CreateWorksheetCommand.ExecuteAsync(null);
     }
 
     [ObservableProperty]
