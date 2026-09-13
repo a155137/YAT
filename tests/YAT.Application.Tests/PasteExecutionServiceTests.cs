@@ -213,8 +213,12 @@ public class PasteExecutionServiceTests
         var stored = await fixture.StoredColumnsAsync();
         Assert.Same(no, stored[0]);
         Assert.Same(site, stored[2]);
-        Assert.Equal(("No", WorksheetDataType.Numeric, ColumnSemanticType.Lot, "u"), (no.Name, no.DataType, no.SemanticType, no.Unit));
-        Assert.Equal(("SITE", WorksheetDataType.String), (site.Name, site.DataType));
+        Assert.Equal("No", no.Name);
+        Assert.Equal(WorksheetDataType.Numeric, no.DataType);
+        Assert.Equal(ColumnSemanticType.Lot, no.SemanticType);
+        Assert.Equal("u", no.Unit);
+        Assert.Equal("SITE", site.Name);
+        Assert.Equal(WorksheetDataType.String, site.DataType);
         Assert.Equal(["Reg1"], fixture.Columns.Updated.Select(column => column.Name));
         Assert.Equal([stored[1].Id], fixture.SingleWrittenBlock.Columns.Select(column => column.ColumnId));
     }
@@ -323,7 +327,7 @@ public class PasteExecutionServiceTests
     [Theory]
     [InlineData(" ")]
     [InlineData("   ")]
-    [InlineData(" ")]
+    [InlineData("\u00A0")]
     public async Task WhitespaceOnlyCellBecomesNull(string whitespace)
     {
         var fixture = new Fixture();
@@ -341,7 +345,7 @@ public class PasteExecutionServiceTests
     {
         var fixture = new Fixture();
 
-        var result = await fixture.PasteAsync("Lot\n N123 \nLot A\n\tx\n".Replace("\n\tx\n", "\n"));
+        var result = await fixture.PasteAsync("Lot\n N123 \nLot A\n");
 
         Assert.Equal([" N123 ", "Lot A"], StringValues(fixture.SingleWrittenBlock, result.Columns[0].ColumnId));
     }
@@ -608,8 +612,7 @@ public class PasteExecutionServiceTests
             typeof(PasteExecutionResult).GetConstructors().Single().GetParameters().Select(parameter => parameter.ParameterType));
         Assert.Equal(
             [typeof(Guid), typeof(int), typeof(string), typeof(WorksheetDataType), typeof(bool)],
-            typeof(PastedColumn).GetConstructors().Single(constructor => constructor.GetParameters().Length > 1)
-                .GetParameters().Select(parameter => parameter.ParameterType));
+            typeof(PastedColumn).GetConstructors().Single().GetParameters().Select(parameter => parameter.ParameterType));
         Assert.DoesNotContain(
             typeof(PasteExecutionResult).GetProperties().Concat(typeof(PastedColumn).GetProperties()),
             property => typeof(RawDataBlock).IsAssignableFrom(property.PropertyType)
