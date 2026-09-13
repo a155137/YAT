@@ -1,3 +1,5 @@
 <Solution>
-  <Project Path="YAT.app/YAT.app.csproj" Id="d4d79f79-fe71-413c-b4c4-106f0faca98b" />
+  <Folder Name="/src/">
+    <Project Path="src/YAT.App/YAT.App.csproj" />
+  </Folder>
 </Solution>
