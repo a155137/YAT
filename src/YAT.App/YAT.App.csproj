@@ -26,5 +26,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\YAT.Application\YAT.Application.csproj" />
+    <ProjectReference Include="..\YAT.Infrastructure\YAT.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

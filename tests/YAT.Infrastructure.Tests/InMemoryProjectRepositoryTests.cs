@@ -1,0 +1,60 @@
+using YAT.Domain.Entities;
+using YAT.Infrastructure.Persistence.InMemory;
+
+namespace YAT.Infrastructure.Tests;
+
+public class InMemoryProjectRepositoryTests
+{
+    private static CancellationToken Token => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task ReturnsTheStoredInstance()
+    {
+        var repository = new InMemoryProjectRepository();
+        var project = new Project { Id = Guid.NewGuid(), Name = "Yield Review" };
+
+        await repository.AddAsync(project, Token);
+        var found = await repository.GetByIdAsync(project.Id, Token);
+
+        Assert.Same(project, found);
+    }
+
+    [Fact]
+    public async Task ReturnsNullForUnknownId()
+    {
+        var repository = new InMemoryProjectRepository();
+
+        var found = await repository.GetByIdAsync(Guid.NewGuid(), Token);
+
+        Assert.Null(found);
+    }
+
+    [Fact]
+    public async Task OverwritesEntryWithTheSameId()
+    {
+        var repository = new InMemoryProjectRepository();
+        var id = Guid.NewGuid();
+        var original = new Project { Id = id, Name = "Original" };
+        var replacement = new Project { Id = id, Name = "Replacement" };
+
+        await repository.AddAsync(original, Token);
+        await repository.AddAsync(replacement, Token);
+        var found = await repository.GetByIdAsync(id, Token);
+
+        Assert.Same(replacement, found);
+    }
+
+    [Fact]
+    public async Task KeepsProjectsWithDistinctIdsSeparate()
+    {
+        var repository = new InMemoryProjectRepository();
+        var first = new Project { Id = Guid.NewGuid(), Name = "First" };
+        var second = new Project { Id = Guid.NewGuid(), Name = "Second" };
+
+        await repository.AddAsync(first, Token);
+        await repository.AddAsync(second, Token);
+
+        Assert.Same(first, await repository.GetByIdAsync(first.Id, Token));
+        Assert.Same(second, await repository.GetByIdAsync(second.Id, Token));
+    }
+}
