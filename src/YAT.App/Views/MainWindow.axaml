@@ -148,88 +148,61 @@
                         <TextBlock Opacity="0.6" Text="{Binding SelectedWorksheetSummary}" />
                     </StackPanel>
 
-                    <Border DockPanel.Dock="Top"
-                            Margin="0,16,0,0"
-                            Padding="12"
-                            CornerRadius="4"
-                            BorderThickness="1"
-                            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="Add Column" FontWeight="SemiBold" />
-                            <WrapPanel ItemSpacing="12" LineSpacing="8">
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Name" FontSize="12" Opacity="0.7" />
-                                    <TextBox Width="180" Text="{Binding ColumnName}" PlaceholderText="Column name" />
-                                </StackPanel>
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Data Type" FontSize="12" Opacity="0.7" />
-                                    <ComboBox Width="140"
-                                              ItemsSource="{Binding DataTypeOptions}"
-                                              SelectedItem="{Binding SelectedColumnDataType}" />
-                                </StackPanel>
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Semantic Type" FontSize="12" Opacity="0.7" />
-                                    <ComboBox Width="160"
-                                              ItemsSource="{Binding SemanticTypeOptions}"
-                                              SelectedItem="{Binding SelectedSemanticTypeOption}">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:SemanticTypeOption">
-                                                <TextBlock Text="{Binding Label}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                </StackPanel>
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Unit" FontSize="12" Opacity="0.7" />
-                                    <TextBox Width="100" Text="{Binding ColumnUnit}" PlaceholderText="Optional" />
-                                </StackPanel>
-                                <Button Content="Add Column"
-                                        VerticalAlignment="Bottom"
-                                        Command="{Binding AddColumnCommand}" />
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-
-                    <TextBlock DockPanel.Dock="Top"
-                               Margin="0,20,0,6"
-                               Text="Columns"
-                               FontWeight="SemiBold" />
-
-                    <Grid DockPanel.Dock="Top"
-                          Margin="8,0"
-                          ColumnDefinitions="60,2*,*,*,*">
-                        <TextBlock Grid.Column="0" Text="Index" FontSize="12" Opacity="0.6" />
-                        <TextBlock Grid.Column="1" Text="Name" FontSize="12" Opacity="0.6" />
-                        <TextBlock Grid.Column="2" Text="Data Type" FontSize="12" Opacity="0.6" />
-                        <TextBlock Grid.Column="3" Text="Semantic Type" FontSize="12" Opacity="0.6" />
-                        <TextBlock Grid.Column="4" Text="Unit" FontSize="12" Opacity="0.6" />
-                    </Grid>
-
-                    <Border DockPanel.Dock="Top"
-                            Margin="0,4,0,0"
-                            BorderThickness="0,1,0,0"
-                            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" />
-
                     <Panel>
-                        <TextBlock Margin="8"
-                                   Text="No columns yet."
-                                   Opacity="0.6"
-                                   IsVisible="{Binding !SelectedWorksheetColumns.Count, FallbackValue=False}" />
-                        <ScrollViewer>
-                            <ItemsControl ItemsSource="{Binding SelectedWorksheetColumns}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="entities:WorksheetColumn">
-                                        <Grid Margin="8,6" ColumnDefinitions="60,2*,*,*,*">
-                                            <TextBlock Grid.Column="0" Text="{Binding Index}" />
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="2" Text="{Binding DataType}" />
-                                            <TextBlock Grid.Column="3" Text="{Binding SemanticType}" />
-                                            <TextBlock Grid.Column="4" Text="{Binding Unit}" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        <!-- Empty Worksheet: data is expected to arrive by pasting from Excel, not manual schema entry. -->
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="6"
+                                    IsVisible="{Binding !SelectedWorksheetColumns.Count, FallbackValue=False}">
+                            <TextBlock Text="Paste data from Excel to begin"
+                                       FontSize="18"
+                                       Opacity="0.7"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="Clipboard import will be available in the next step"
+                                       FontSize="12"
+                                       Opacity="0.5"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+
+                        <!-- Read-only schema metadata, shown only when the Worksheet has columns. -->
+                        <DockPanel Margin="0,20,0,0"
+                                   IsVisible="{Binding !!SelectedWorksheetColumns.Count, FallbackValue=False}">
+                            <TextBlock DockPanel.Dock="Top"
+                                       Margin="0,0,0,6"
+                                       Text="Columns"
+                                       FontWeight="SemiBold" />
+
+                            <Grid DockPanel.Dock="Top"
+                                  Margin="8,0"
+                                  ColumnDefinitions="60,2*,*,*,*">
+                                <TextBlock Grid.Column="0" Text="Index" FontSize="12" Opacity="0.6" />
+                                <TextBlock Grid.Column="1" Text="Name" FontSize="12" Opacity="0.6" />
+                                <TextBlock Grid.Column="2" Text="Data Type" FontSize="12" Opacity="0.6" />
+                                <TextBlock Grid.Column="3" Text="Semantic Type" FontSize="12" Opacity="0.6" />
+                                <TextBlock Grid.Column="4" Text="Unit" FontSize="12" Opacity="0.6" />
+                            </Grid>
+
+                            <Border DockPanel.Dock="Top"
+                                    Margin="0,4,0,0"
+                                    BorderThickness="0,1,0,0"
+                                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+                            <ScrollViewer>
+                                <ItemsControl ItemsSource="{Binding SelectedWorksheetColumns}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="entities:WorksheetColumn">
+                                            <Grid Margin="8,6" ColumnDefinitions="60,2*,*,*,*">
+                                                <TextBlock Grid.Column="0" Text="{Binding Index}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="2" Text="{Binding DataType}" />
+                                                <TextBlock Grid.Column="3" Text="{Binding SemanticType}" />
+                                                <TextBlock Grid.Column="4" Text="{Binding Unit}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
                     </Panel>
                 </DockPanel>
             </Panel>

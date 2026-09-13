@@ -76,6 +76,8 @@ public partial class MainWindowViewModel : ViewModelBase
         ? null
         : $"{CountLabel(SelectedWorksheet.RowCount, "row")} · {CountLabel(SelectedWorksheetColumns?.Count ?? 0, "column")}";
 
+    // Manual column-creation inputs and AddColumnCommand are not exposed in the Worksheet UI
+    // (columns are expected to come from pasted data); retained for future ingestion/schema wiring and tests.
     [ObservableProperty]
     public partial string ColumnName { get; set; } = string.Empty;
 
