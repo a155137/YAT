@@ -1,3 +1,4 @@
+using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
 using YAT.Infrastructure.Persistence.InMemory;
@@ -8,12 +9,14 @@ public class InMemoryWorksheetColumnRepositoryTests
 {
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    private static WorksheetColumn Column(Guid id, int index) => new()
+    private static WorksheetColumn Column(Guid id, int index) => Column(id, Guid.NewGuid(), index, "Vth");
+
+    private static WorksheetColumn Column(Guid id, Guid worksheetId, int index, string name) => new()
     {
         Id = id,
-        WorksheetId = Guid.NewGuid(),
+        WorksheetId = worksheetId,
         Index = index,
-        Name = "Vth",
+        Name = name,
         DataType = WorksheetDataType.Numeric
     };
 
@@ -34,5 +37,80 @@ public class InMemoryWorksheetColumnRepositoryTests
 
         await repository.AddAsync(Column(id, 0), Token);
         await repository.AddAsync(Column(id, 1), Token);
+    }
+
+    [Fact]
+    public async Task ReturnsOnlyTheWorksheetsColumnsOrderedByIndex()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var worksheetId = Guid.NewGuid();
+        var otherWorksheetId = Guid.NewGuid();
+
+        await repository.AddAsync(Column(Guid.NewGuid(), worksheetId, 2, "SITE"), Token);
+        await repository.AddAsync(Column(Guid.NewGuid(), otherWorksheetId, 0, "Lot"), Token);
+        await repository.AddAsync(Column(Guid.NewGuid(), worksheetId, 0, "No"), Token);
+        await repository.AddAsync(Column(Guid.NewGuid(), worksheetId, 1, "Bin"), Token);
+
+        var columns = await repository.GetByWorksheetIdAsync(worksheetId, Token);
+
+        Assert.Equal(["No", "Bin", "SITE"], columns.Select(column => column.Name));
+        Assert.All(columns, column => Assert.Equal(worksheetId, column.WorksheetId));
+    }
+
+    [Fact]
+    public async Task ReturnsEmptyListForWorksheetWithoutColumns()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        await repository.AddAsync(Column(Guid.NewGuid(), 0), Token);
+
+        var columns = await repository.GetByWorksheetIdAsync(Guid.NewGuid(), Token);
+
+        Assert.Empty(columns);
+    }
+
+    [Fact]
+    public async Task ReturnsTheSameInstanceThatWasAdded()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var column = Column(Guid.NewGuid(), Guid.NewGuid(), 0, "Vth");
+        await repository.AddAsync(column, Token);
+
+        var columns = await repository.GetByWorksheetIdAsync(column.WorksheetId, Token);
+
+        Assert.Same(column, Assert.Single(columns));
+    }
+
+    [Fact]
+    public async Task RepeatedAddOfTheSameIdIsReadBackOnce()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var id = Guid.NewGuid();
+        var worksheetId = Guid.NewGuid();
+
+        await repository.AddAsync(Column(id, worksheetId, 0, "Vth"), Token);
+        await repository.AddAsync(Column(id, worksheetId, 3, "Ioff"), Token);
+
+        var column = Assert.Single(await repository.GetByWorksheetIdAsync(worksheetId, Token));
+        Assert.Equal("Ioff", column.Name);
+        Assert.Equal(3, column.Index);
+    }
+
+    [Fact]
+    public async Task ColumnsAddedThroughTheHandlerAreReadableWithoutUiState()
+    {
+        var worksheets = new InMemoryWorksheetRepository();
+        var columns = new InMemoryWorksheetColumnRepository();
+        var worksheet = new Worksheet { Id = Guid.NewGuid(), Name = "WAT_Lot_A" };
+        await worksheets.AddAsync(worksheet, Token);
+        var handler = new AddWorksheetColumnHandler(worksheets, columns);
+
+        var bin = await handler.HandleAsync(
+            new AddWorksheetColumnCommand(worksheet.Id, 1, "Bin", WorksheetDataType.Numeric, null, null), Token);
+        var no = await handler.HandleAsync(
+            new AddWorksheetColumnCommand(worksheet.Id, 0, "No", WorksheetDataType.Numeric, null, null), Token);
+
+        var stored = await columns.GetByWorksheetIdAsync(worksheet.Id, Token);
+
+        Assert.Equal([no.Id, bin.Id], stored.Select(column => column.Id));
     }
 }
