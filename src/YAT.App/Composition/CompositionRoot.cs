@@ -25,5 +25,5 @@ public sealed class CompositionRoot
 
     public AddWorksheetColumnHandler AddWorksheetColumn { get; }
 
-    public MainWindowViewModel CreateMainWindowViewModel() => new(CreateProject, CreateWorksheet);
+    public MainWindowViewModel CreateMainWindowViewModel() => new(CreateProject, CreateWorksheet, AddWorksheetColumn);
 }
