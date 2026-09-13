@@ -23,7 +23,8 @@ public class MainWindowSessionCompositionTests
         {
             var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
             ProjectSession = compositionRoot.CreateProjectSession(":memory:");
-            ViewModel = compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(ProjectSession));
+            ViewModel = compositionRoot.CreateMainWindowViewModel(
+                compositionRoot.CreateMainWindowSession(ProjectSession, new FakeClipboardTextReader()));
         }
 
         public ProjectSession ProjectSession { get; }
@@ -134,6 +135,8 @@ public class MainWindowSessionCompositionTests
             "YAT.Application.Features",
             "YAT.Application.Ingestion",
             "YAT.Infrastructure",
+            "YAT.app.Clipboard",
+            "Avalonia",
             "DuckDB"
         ];
         Type[] forbiddenTypes = [typeof(CompositionRoot), typeof(ProjectSession)];
@@ -160,6 +163,7 @@ public class MainWindowSessionCompositionTests
             "YAT.Application.Features.Projects.CreateProject",
             "YAT.Application.Features.Worksheets.CreateWorksheet",
             "YAT.Application.Features.Worksheets.AddWorksheetColumn",
+            "YAT.app.Composition",
             "YAT.Domain.Entities"
         ];
 
@@ -170,12 +174,28 @@ public class MainWindowSessionCompositionTests
             .ToArray();
 
         Assert.Empty(exposedTypes.Select(type => type.Namespace).Distinct().Except(allowedNamespaces));
+        Assert.DoesNotContain(exposedTypes, type => type == typeof(ProjectSession) || type == typeof(CompositionRoot));
         Assert.Empty(typeof(MainWindowSession).GetProperties());
         Assert.Empty(typeof(MainWindowSession).GetConstructors());
+
+        // Paste orchestration privately uses the session's column repository and paste execution (Task #015),
+        // but never holds the ProjectSession itself, the raw data store or the worksheet repository.
         Assert.DoesNotContain(
             typeof(MainWindowSession).GetFields(InstanceFields),
             field => typeof(ProjectSession).IsAssignableFrom(field.FieldType)
-                || field.FieldType.Namespace == typeof(IWorksheetRepository).Namespace);
+                || typeof(IWorksheetRawDataStore).IsAssignableFrom(field.FieldType)
+                || typeof(IWorksheetRepository).IsAssignableFrom(field.FieldType));
+    }
+
+    [Fact]
+    public void ClipboardPasteResultCarriesOnlyMetadata()
+    {
+        Assert.Equal(
+            [("IsPasted", typeof(bool)), ("WorksheetColumns", typeof(IReadOnlyList<WorksheetColumn>))],
+            typeof(ClipboardPasteResult).GetProperties()
+                .Select(property => (property.Name, property.PropertyType))
+                .OrderBy(property => property.Name, StringComparer.Ordinal));
+        Assert.Empty(typeof(ClipboardPasteResult).GetConstructors());
     }
 
     // 7
@@ -200,10 +220,12 @@ public class MainWindowSessionCompositionTests
     }
 
     [Fact]
-    public void CreatingMainWindowSessionRequiresProjectSession()
+    public void CreatingMainWindowSessionRequiresProjectSessionAndClipboard()
     {
         var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
+        using var projectSession = compositionRoot.CreateProjectSession(":memory:");
 
-        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(null!));
+        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(null!, new FakeClipboardTextReader()));
+        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(projectSession, null!));
     }
 }

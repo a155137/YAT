@@ -1,6 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using YAT.app.Clipboard;
 using YAT.app.Composition;
 using YAT.app.ViewModels;
 using YAT.app.Views;
@@ -28,10 +29,11 @@ public partial class App : AvaloniaApplication
             var projectSession = Composition.CreateProjectSession(RuntimeProjectDatabase);
             desktop.Exit += (_, _) => projectSession.Dispose();
 
-            desktop.MainWindow = new MainWindow
-            {
-                DataContext = Composition.CreateMainWindowViewModel(Composition.CreateMainWindowSession(projectSession)),
-            };
+            // The clipboard belongs to the window, so the window exists before the session that reads from it.
+            var mainWindow = new MainWindow();
+            var session = Composition.CreateMainWindowSession(projectSession, new AvaloniaClipboardTextReader(mainWindow));
+            mainWindow.DataContext = Composition.CreateMainWindowViewModel(session);
+            desktop.MainWindow = mainWindow;
         }
 
         base.OnFrameworkInitializationCompleted();

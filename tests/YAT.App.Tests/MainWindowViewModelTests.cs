@@ -13,7 +13,8 @@ public class MainWindowViewModelTests
     {
         var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
         var projectSession = compositionRoot.CreateProjectSession(":memory:");
-        return compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(projectSession));
+        return compositionRoot.CreateMainWindowViewModel(
+            compositionRoot.CreateMainWindowSession(projectSession, new FakeClipboardTextReader()));
     }
 
     private static async Task<MainWindowViewModel> CreateViewModelWithProjectAsync(string name = "ALS_2026_09")

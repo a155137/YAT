@@ -146,6 +146,9 @@
                             <Run Text="{Binding SelectedWorksheet.Name, FallbackValue={x:Null}}" />
                         </TextBlock>
                         <TextBlock Opacity="0.6" Text="{Binding SelectedWorksheetSummary}" />
+                        <TextBlock Text="Pasting…"
+                                   Opacity="0.6"
+                                   IsVisible="{Binding IsPasteInProgress}" />
                     </StackPanel>
 
                     <Panel>
@@ -158,22 +161,28 @@
                                        FontSize="18"
                                        Opacity="0.7"
                                        HorizontalAlignment="Center" />
-                            <TextBlock Text="Clipboard import will be available in the next step"
+                            <TextBlock Text="Copy cells including the header row, then press Ctrl+V"
                                        FontSize="12"
                                        Opacity="0.5"
                                        HorizontalAlignment="Center" />
                         </StackPanel>
 
-                        <!-- Read-only schema metadata, shown only when the Worksheet has columns. -->
+                        <!-- Read-only schema metadata, shown only when the Worksheet has columns.
+                             The selected column is the Ctrl+V paste target; with no selection, paste appends. -->
                         <DockPanel Margin="0,20,0,0"
                                    IsVisible="{Binding !!SelectedWorksheetColumns.Count, FallbackValue=False}">
                             <TextBlock DockPanel.Dock="Top"
                                        Margin="0,0,0,6"
                                        Text="Columns"
                                        FontWeight="SemiBold" />
+                            <TextBlock DockPanel.Dock="Top"
+                                       Margin="0,0,0,6"
+                                       FontSize="12"
+                                       Opacity="0.5"
+                                       Text="Ctrl+V pastes columns starting at the selected column, or after the last column when none is selected." />
 
                             <Grid DockPanel.Dock="Top"
-                                  Margin="8,0"
+                                  Margin="12,0"
                                   ColumnDefinitions="60,2*,*,*,*">
                                 <TextBlock Grid.Column="0" Text="Index" FontSize="12" Opacity="0.6" />
                                 <TextBlock Grid.Column="1" Text="Name" FontSize="12" Opacity="0.6" />
@@ -187,21 +196,22 @@
                                     BorderThickness="0,1,0,0"
                                     BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" />
 
-                            <ScrollViewer>
-                                <ItemsControl ItemsSource="{Binding SelectedWorksheetColumns}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="entities:WorksheetColumn">
-                                            <Grid Margin="8,6" ColumnDefinitions="60,2*,*,*,*">
-                                                <TextBlock Grid.Column="0" Text="{Binding Index}" />
-                                                <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="2" Text="{Binding DataType}" />
-                                                <TextBlock Grid.Column="3" Text="{Binding SemanticType}" />
-                                                <TextBlock Grid.Column="4" Text="{Binding Unit}" />
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
+                            <ListBox ItemsSource="{Binding SelectedWorksheetColumns}"
+                                     SelectedItem="{Binding SelectedColumn}"
+                                     SelectionMode="Single,Toggle"
+                                     Background="Transparent">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="entities:WorksheetColumn">
+                                        <Grid ColumnDefinitions="60,2*,*,*,*">
+                                            <TextBlock Grid.Column="0" Text="{Binding Index}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="2" Text="{Binding DataType}" />
+                                            <TextBlock Grid.Column="3" Text="{Binding SemanticType}" />
+                                            <TextBlock Grid.Column="4" Text="{Binding Unit}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
                         </DockPanel>
                     </Panel>
                 </DockPanel>

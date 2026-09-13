@@ -2,6 +2,7 @@ using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Ingestion;
+using YAT.app.Clipboard;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
 using YAT.Infrastructure.Persistence.InMemory;
@@ -36,15 +37,22 @@ public sealed class CompositionRoot
         return new ProjectSession(worksheets, worksheetColumns, rawDataStore, pasteExecution);
     }
 
-    // The UI operations run against the given session's own repositories; the caller keeps owning the session.
-    public MainWindowSession CreateMainWindowSession(ProjectSession projectSession)
+    // The UI operations run against the given session's own repositories and paste execution; the caller keeps
+    // owning the session. The clipboard reader is supplied by the UI because it is tied to a window.
+    public MainWindowSession CreateMainWindowSession(ProjectSession projectSession, IClipboardTextReader clipboard)
     {
         ArgumentNullException.ThrowIfNull(projectSession);
+        ArgumentNullException.ThrowIfNull(clipboard);
 
         return new MainWindowSession(
             new CreateProjectHandler(_projects, _timeProvider),
             new CreateWorksheetHandler(_projects, projectSession.Worksheets, _timeProvider),
-            new AddWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns));
+            new AddWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns),
+            clipboard,
+            new TabularTextParser(),
+            new WorksheetPastePlanner(new ColumnDataTypeDetector()),
+            projectSession.PasteExecution,
+            projectSession.WorksheetColumns);
     }
 
     public MainWindowViewModel CreateMainWindowViewModel(MainWindowSession session)

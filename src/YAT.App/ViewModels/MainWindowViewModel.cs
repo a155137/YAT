@@ -55,7 +55,15 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectedWorksheetSummary))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
     public partial Worksheet? SelectedWorksheet { get; set; }
+
+    // Paste target: when set, pasted columns start at its Index; otherwise they are appended after the last column.
+    [ObservableProperty]
+    public partial WorksheetColumn? SelectedColumn { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsPasteInProgress { get; private set; }
 
     // The selected Worksheet's column collection; its Count is the visible column count
     // (Worksheet.ColumnCount is intentionally not updated by AddWorksheetColumnHandler).
@@ -103,12 +111,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
     [NotifyCanExecuteChangedFor(nameof(CreateWorksheetCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
     public partial bool IsBusy { get; private set; }
 
     partial void OnSelectedWorksheetChanged(Worksheet? value)
     {
         // An error raised for the previously selected Worksheet no longer applies.
         ErrorMessage = null;
+        SelectedColumn = null;
 
         if (value is null)
         {
@@ -264,6 +274,67 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     private bool CanAddColumn() => !IsBusy && SelectedWorksheet is not null;
+
+    [RelayCommand(CanExecute = nameof(CanPaste))]
+    private async Task PasteAsync(CancellationToken cancellationToken)
+    {
+        // One paste at a time, and never alongside another operation: a repeated Ctrl+V is ignored, not queued.
+        if (IsBusy || SelectedWorksheet is null || SelectedWorksheetColumns is null)
+        {
+            return;
+        }
+
+        // Capture the target so a selection change during the await cannot misroute the result.
+        var worksheet = SelectedWorksheet;
+        var columns = SelectedWorksheetColumns;
+        var selectedColumn = SelectedColumn;
+
+        IsBusy = true;
+        IsPasteInProgress = true;
+        try
+        {
+            var result = await _session.PasteFromClipboardAsync(worksheet.Id, selectedColumn?.Index, cancellationToken);
+            if (!result.IsPasted)
+            {
+                return;
+            }
+
+            // Refresh from the metadata the session reloaded from the repository, never from pasted cells.
+            columns.Clear();
+            foreach (var column in result.WorksheetColumns)
+            {
+                columns.Add(column);
+            }
+
+            ErrorMessage = null;
+
+            // Clearing the collection drops the list selection; restore it by Id, since pasting keeps column Ids.
+            if (ReferenceEquals(SelectedWorksheetColumns, columns))
+            {
+                SelectedColumn = selectedColumn is null ? null : columns.FirstOrDefault(column => column.Id == selectedColumn.Id);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not an error; the UI state stays as it was.
+        }
+        catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
+        {
+            ErrorMessage = ex.Message;
+        }
+        catch (RawDataStorageException)
+        {
+            // Storage details stay out of the UI.
+            ErrorMessage = "The pasted data could not be stored.";
+        }
+        finally
+        {
+            IsPasteInProgress = false;
+            IsBusy = false;
+        }
+    }
+
+    private bool CanPaste() => !IsBusy && SelectedWorksheet is not null;
 
     [RelayCommand]
     private void ToggleProjectPanel() => IsProjectPanelVisible = !IsProjectPanelVisible;
