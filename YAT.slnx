@@ -1,5 +1,14 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/YAT.Analytics/YAT.Analytics.csproj" />
     <Project Path="src/YAT.App/YAT.App.csproj" />
+    <Project Path="src/YAT.Application/YAT.Application.csproj" />
+    <Project Path="src/YAT.Domain/YAT.Domain.csproj" />
+    <Project Path="src/YAT.Infrastructure/YAT.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/YAT.Analytics.Tests/YAT.Analytics.Tests.csproj" />
+    <Project Path="tests/YAT.Application.Tests/YAT.Application.Tests.csproj" />
+    <Project Path="tests/YAT.Domain.Tests/YAT.Domain.Tests.csproj" />
   </Folder>
 </Solution>

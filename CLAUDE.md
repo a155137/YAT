@@ -88,3 +88,59 @@ Keep YAT offline-first. Do not commit changes unless explicitly instructed.
 
 
 
+\## Pending Items
+
+
+
+\* YAT.App → YAT.Infrastructure Composition Root exception: allowed in future, but limited to Program.cs and DI registration extension methods. ViewModels and Views must never depend on Infrastructure directly. Not yet established.
+
+\* Architecture testing: deferred. A mechanism to enforce the dependency rules above should be in place before DuckDB is introduced. Tooling not yet selected.
+
+\* YAT.Infrastructure.Tests: deferred. To be created together with the DuckDB integration.
+
+
+## Task & Review Workflow
+
+Work only within the current PM-approved task scope.
+
+### Small Tasks
+
+For low-risk, localized changes:
+
+1. Implement the complete task.
+2. Build / test / run as applicable.
+3. Report the final result.
+4. Stop for PM review before commit.
+
+Only **one review** is normally required.
+
+### Large Tasks
+
+For architectural, cross-project, or high-impact changes:
+
+1. Inspect the repository and propose an implementation plan.
+2. Stop for PM architecture review.
+3. After approval, implement the complete task.
+4. Build / test / run.
+5. Stop for final PM review before commit.
+
+Normally **no more than two reviews** are required.
+
+### Stop Early Only When
+
+Stop and ask PM before continuing if:
+
+* architecture or project dependencies must change;
+* an unapproved NuGet package is required;
+* task scope must expand;
+* destructive or unexpected repository changes are required;
+* build/test issues cannot be resolved within the approved design;
+* existing PM decisions conflict with the repository.
+
+Do not stop for routine file creation, expected build steps, or implementation details already covered by the approved task.
+
+Never commit unless explicitly approved by the PM.
+
+
+
+

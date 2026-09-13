@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\YAT.Application\YAT.Application.csproj" />
+    <ProjectReference Include="..\YAT.Domain\YAT.Domain.csproj" />
+  </ItemGroup>
+</Project>
