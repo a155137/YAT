@@ -18,12 +18,15 @@ public partial class MainWindow : Window
     private readonly Dictionary<TableViewColumn, Guid> _gridColumnIds = [];
     private MainWindowViewModel? _viewModel;
     private IReadOnlyList<WorksheetGridColumn> _shownGridColumns = [];
+    private readonly ColumnHeaderDragSelection _headerDrag = new();
 
     public MainWindow()
     {
         InitializeComponent();
         WorksheetGrid.AddHandler(PointerPressedEvent, OnWorksheetGridPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+        WorksheetGrid.AddHandler(PointerMovedEvent, OnWorksheetGridPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
         WorksheetGrid.AddHandler(PointerReleasedEvent, OnWorksheetGridPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+        WorksheetGrid.AddHandler(PointerCaptureLostEvent, OnWorksheetGridPointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void OnExitClick(object? sender, RoutedEventArgs e) => Close();
@@ -179,21 +182,70 @@ public partial class MainWindow : Window
         }
     }
 
-    // A right-button press on a header prepares the selection before its context menu opens (on release):
-    // an unselected column becomes the only selection, a selected column keeps the whole selection.
+    // Header presses:
+    // - right button: prepares the selection before the context menu opens (on release) — an unselected column
+    //   becomes the only selection, a selected column keeps the whole selection;
+    // - plain left button (not on a resize grip): selects that column and starts a drag selection anchored on it.
+    // Ctrl/Cmd and Shift clicks are applied on release.
     private void OnWorksheetGridPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.GetCurrentPoint(WorksheetGrid).Properties.IsRightButtonPressed
-            && TryGetHeaderColumnId(e.Source, out var columnId))
+        var properties = e.GetCurrentPoint(WorksheetGrid).Properties;
+        var columnId = GetHeaderColumnId(e.Source as Visual);
+
+        if (properties.IsRightButtonPressed)
         {
-            _viewModel!.SelectColumnForContextMenu(columnId);
+            _headerDrag.End();
+            if (columnId is { } rightClicked && !IsOnResizeGrip(e.Source as Visual))
+            {
+                _viewModel!.SelectColumnForContextMenu(rightClicked);
+            }
+
+            return;
+        }
+
+        if (_headerDrag.TryStart(columnId, properties.IsLeftButtonPressed, IsOnResizeGrip(e.Source as Visual), e.KeyModifiers))
+        {
+            _viewModel!.SelectColumn(_headerDrag.AnchorColumnId!.Value);
         }
     }
 
-    // A left click on a column header (not on its resize gripper) selects columns: plain, Ctrl (toggle) or Shift (range).
+    // During a header drag, the selection follows the header under the pointer (live, in either direction).
+    private void OnWorksheetGridPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_headerDrag.IsDragging)
+        {
+            return;
+        }
+
+        if (!e.GetCurrentPoint(WorksheetGrid).Properties.IsLeftButtonPressed)
+        {
+            _headerDrag.End();
+            return;
+        }
+
+        var underPointer = WorksheetGrid.InputHitTest(e.GetPosition(WorksheetGrid)) as Visual;
+        if (_headerDrag.TryMoveTo(GetHeaderColumnId(underPointer)))
+        {
+            _viewModel!.SelectColumnRange(_headerDrag.AnchorColumnId!.Value, _headerDrag.CurrentColumnId!.Value);
+        }
+    }
+
+    // Left release: ends a drag (its selection is already applied), or applies a Ctrl/Cmd (toggle) or Shift (range)
+    // click on a header. Presses on a resize grip never select.
     private void OnWorksheetGridPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (e.InitialPressMouseButton != MouseButton.Left || !TryGetHeaderColumnId(e.Source, out var columnId))
+        if (e.InitialPressMouseButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        if (_headerDrag.IsDragging)
+        {
+            _headerDrag.End();
+            return;
+        }
+
+        if (IsOnResizeGrip(e.Source as Visual) || GetHeaderColumnId(e.Source as Visual) is not { } columnId)
         {
             return;
         }
@@ -206,19 +258,18 @@ public partial class MainWindow : Window
             case ColumnHeaderClick.Extend:
                 _viewModel!.ExtendColumnSelection(columnId);
                 break;
-            default:
-                _viewModel!.SelectColumn(columnId);
-                break;
         }
     }
 
-    private bool TryGetHeaderColumnId(object? eventSource, out Guid columnId)
-    {
-        columnId = Guid.Empty;
-        return _viewModel is not null
-            && eventSource is Visual source
-            && source.FindAncestorOfType<Thumb>(includeSelf: true) is null
-            && source.FindAncestorOfType<TableViewColumnHeader>(includeSelf: true)?.Column is { } column
-            && _gridColumnIds.TryGetValue(column, out columnId);
-    }
+    private void OnWorksheetGridPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => _headerDrag.End();
+
+    // The worksheet column whose header contains the visual, if any (including its resize grip).
+    private Guid? GetHeaderColumnId(Visual? visual) =>
+        _viewModel is not null
+        && visual?.FindAncestorOfType<TableViewColumnHeader>(includeSelf: true)?.Column is { } column
+        && _gridColumnIds.TryGetValue(column, out var columnId)
+            ? columnId
+            : null;
+
+    private static bool IsOnResizeGrip(Visual? visual) => visual?.FindAncestorOfType<Thumb>(includeSelf: true) is not null;
 }

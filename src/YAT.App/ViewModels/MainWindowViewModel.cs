@@ -337,18 +337,26 @@ public partial class MainWindowViewModel : ViewModelBase
     // stays the anchor. Without an active column it acts like a plain click.
     public void ExtendColumnSelection(Guid columnId)
     {
-        if (FindColumn(columnId) is not { } column)
+        if (ActiveColumn is { } anchor)
+        {
+            SelectColumnRange(anchor.Id, columnId);
+        }
+        else
+        {
+            SelectColumn(columnId);
+        }
+    }
+
+    // Header drag (and Shift+Click): selects every column whose Index lies between the anchor and the current column,
+    // in either direction; the anchor becomes the active column.
+    public void SelectColumnRange(Guid anchorColumnId, Guid currentColumnId)
+    {
+        if (FindColumn(anchorColumnId) is not { } anchor || FindColumn(currentColumnId) is not { } current)
         {
             return;
         }
 
-        if (ActiveColumn is not { } anchor)
-        {
-            SetColumnSelection([column], column);
-            return;
-        }
-
-        var (first, last) = (Math.Min(anchor.Index, column.Index), Math.Max(anchor.Index, column.Index));
+        var (first, last) = (Math.Min(anchor.Index, current.Index), Math.Max(anchor.Index, current.Index));
         SetColumnSelection(SelectedWorksheetColumns!.Where(candidate => candidate.Index >= first && candidate.Index <= last), anchor);
     }
 
