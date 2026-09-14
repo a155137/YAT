@@ -24,7 +24,7 @@ public class MainWindowSessionCompositionTests
             var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
             ProjectSession = compositionRoot.CreateProjectSession(":memory:");
             ViewModel = compositionRoot.CreateMainWindowViewModel(
-                compositionRoot.CreateMainWindowSession(ProjectSession, new FakeClipboardTextReader()));
+                compositionRoot.CreateMainWindowSession(ProjectSession, new FakeClipboard(), new FakeClipboard()));
         }
 
         public ProjectSession ProjectSession { get; }
@@ -226,7 +226,8 @@ public class MainWindowSessionCompositionTests
         var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
         using var projectSession = compositionRoot.CreateProjectSession(":memory:");
 
-        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(null!, new FakeClipboardTextReader()));
-        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(projectSession, null!));
+        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(null!, new FakeClipboard(), new FakeClipboard()));
+        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(projectSession, null!, new FakeClipboard()));
+        Assert.Throws<ArgumentNullException>(() => compositionRoot.CreateMainWindowSession(projectSession, new FakeClipboard(), null!));
     }
 }

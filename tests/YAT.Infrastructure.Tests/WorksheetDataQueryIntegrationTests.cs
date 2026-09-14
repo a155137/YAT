@@ -38,6 +38,33 @@ public class WorksheetDataQueryIntegrationTests
     }
 
     [Fact]
+    public async Task ExportsPastedColumnsAsTsvAcrossBlocksAndReadChunks()
+    {
+        using var composition = new Composition();
+        await composition.Worksheets.AddAsync(composition.Worksheet, Token);
+        var rowCount = WorksheetColumnsTsvExporter.ReadChunkRowCount + 7;
+        var reg = string.Join("\n", Enumerable.Range(0, rowCount).Select(row => (row * 0.5).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        await composition.PasteAsync("Reg\n" + reg, startColumnIndex: 0);
+        await composition.PasteAsync("SITE\tLot\tBin\n1\tN1\t3\n2\t\t4\n", startColumnIndex: 1);
+        var columns = await composition.Columns.GetByWorksheetIdAsync(composition.Worksheet.Id, Token);
+        var exporter = new WorksheetColumnsTsvExporter(composition.Worksheets, composition.Columns, composition.RawStore);
+
+        // Bin and Reg, requested out of order, across two blocks; Reg spans two read chunks.
+        var text = await exporter.ExportAsync(composition.Worksheet.Id, [columns[3].Id, columns[0].Id], Token);
+
+        var lines = text.Split("\r\n");
+        Assert.Equal(rowCount + 2, lines.Length);
+        Assert.Equal("Reg\tBin", lines[0]);
+        Assert.Equal("0\t3", lines[1]);
+        Assert.Equal("0.5\t4", lines[2]);
+        Assert.Equal("1\t", lines[3]);
+        Assert.Equal($"{((rowCount - 1) * 0.5).ToString(System.Globalization.CultureInfo.InvariantCulture)}\t", lines[^2]);
+
+        var shortText = await exporter.ExportAsync(composition.Worksheet.Id, [columns[1].Id, columns[2].Id], Token);
+        Assert.Equal("SITE\tLot\r\n1\tN1\r\n2\t\r\n", shortText);
+    }
+
+    [Fact]
     public async Task PagesPastedDataWithMetadataOnlyColumnsAndNullPadding()
     {
         using var composition = new Composition();

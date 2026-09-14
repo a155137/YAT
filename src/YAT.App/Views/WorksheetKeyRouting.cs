@@ -17,6 +17,13 @@ public static class WorksheetKeyRouting
         && modifiers == KeyModifiers.None
         && !IsInTextEditor(source);
 
+    // The platform copy gesture (Ctrl+C on Windows) copies the selected worksheet columns, unless focus is inside a
+    // text box or the key was already handled: text boxes keep normal text copy.
+    public static bool IsCopyColumnsGesture(bool matchesCopyGesture, bool handled, object? source) =>
+        !handled
+        && matchesCopyGesture
+        && !IsInTextEditor(source);
+
     // Header click modifiers: Shift extends a range from the active column, Ctrl (Cmd on macOS) toggles one column,
     // a plain click selects only that column. Shift takes precedence when both are held.
     public static ColumnHeaderClick GetHeaderClick(KeyModifiers modifiers) =>

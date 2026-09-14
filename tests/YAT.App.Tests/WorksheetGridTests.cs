@@ -26,10 +26,10 @@ public class WorksheetGridTests
         {
             var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
             ProjectSession = compositionRoot.CreateProjectSession(databasePath);
-            ViewModel = compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(ProjectSession, Clipboard));
+            ViewModel = compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(ProjectSession, Clipboard, Clipboard));
         }
 
-        public FakeClipboardTextReader Clipboard { get; } = new();
+        public FakeClipboard Clipboard { get; } = new();
 
         public ProjectSession ProjectSession { get; }
 

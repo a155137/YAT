@@ -40,23 +40,29 @@ public sealed class CompositionRoot
     }
 
     // The UI operations run against the given session's own repositories and paste execution; the caller keeps
-    // owning the session. The clipboard reader is supplied by the UI because it is tied to a window.
-    public MainWindowSession CreateMainWindowSession(ProjectSession projectSession, IClipboardTextReader clipboard)
+    // owning the session. The clipboard reader and writer are supplied by the UI because they are tied to a window.
+    public MainWindowSession CreateMainWindowSession(
+        ProjectSession projectSession,
+        IClipboardTextReader clipboardReader,
+        IClipboardTextWriter clipboardWriter)
     {
         ArgumentNullException.ThrowIfNull(projectSession);
-        ArgumentNullException.ThrowIfNull(clipboard);
+        ArgumentNullException.ThrowIfNull(clipboardReader);
+        ArgumentNullException.ThrowIfNull(clipboardWriter);
 
         return new MainWindowSession(
             new CreateProjectHandler(_projects, _timeProvider),
             new CreateWorksheetHandler(_projects, projectSession.Worksheets, _timeProvider),
             new AddWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns),
-            clipboard,
+            clipboardReader,
+            clipboardWriter,
             new TabularTextParser(),
             new WorksheetPastePlanner(new ColumnDataTypeDetector()),
             projectSession.PasteExecution,
             projectSession.WorksheetColumns,
             new WorksheetDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
-            new DeleteWorksheetColumnsHandler(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore));
+            new DeleteWorksheetColumnsHandler(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
+            new WorksheetColumnsTsvExporter(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore));
     }
 
     public MainWindowViewModel CreateMainWindowViewModel(MainWindowSession session)

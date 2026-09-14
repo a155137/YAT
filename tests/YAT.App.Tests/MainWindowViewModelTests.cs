@@ -13,8 +13,9 @@ public class MainWindowViewModelTests
     {
         var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
         var projectSession = compositionRoot.CreateProjectSession(":memory:");
+        var clipboard = new FakeClipboard();
         return compositionRoot.CreateMainWindowViewModel(
-            compositionRoot.CreateMainWindowSession(projectSession, new FakeClipboardTextReader()));
+            compositionRoot.CreateMainWindowSession(projectSession, clipboard, clipboard));
     }
 
     private static async Task<MainWindowViewModel> CreateViewModelWithProjectAsync(string name = "ALS_2026_09")

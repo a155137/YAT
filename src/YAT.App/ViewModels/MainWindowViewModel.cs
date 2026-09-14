@@ -87,6 +87,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedColumnsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopySelectedColumnsCommand))]
     [NotifyCanExecuteChangedFor(nameof(PreviousPageCommand))]
     [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
     public partial Worksheet? SelectedWorksheet { get; set; }
@@ -99,10 +100,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DeleteSelectedColumnsMenuText))]
+    [NotifyPropertyChangedFor(nameof(CopySelectedColumnsMenuText))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedColumnsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopySelectedColumnsCommand))]
     public partial IReadOnlyList<WorksheetColumn> SelectedColumns { get; private set; } = [];
 
-    // Header context menu text: "Delete Column" or "Delete N Columns".
+    // Header context menu texts: "Copy Column" / "Copy N Columns" and "Delete Column" / "Delete N Columns".
+    public string CopySelectedColumnsMenuText =>
+        SelectedColumns.Count <= 1 ? "Copy Column" : $"Copy {SelectedColumns.Count} Columns";
+
     public string DeleteSelectedColumnsMenuText =>
         SelectedColumns.Count <= 1 ? "Delete Column" : $"Delete {SelectedColumns.Count} Columns";
 
@@ -196,6 +202,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedColumnsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopySelectedColumnsCommand))]
     public partial bool IsBusy { get; private set; }
 
     partial void OnSelectedWorksheetChanged(Worksheet? value)
@@ -658,6 +665,47 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     private bool CanDeleteSelectedColumns() => !IsBusy && SelectedWorksheet is not null && SelectedColumns.Count > 0;
+
+    // Copies the selected columns (header + all values, in worksheet Index order) to the clipboard as tab-separated
+    // text for spreadsheets. Used by both Ctrl+C and the header context menu. With no selection this is a no-op.
+    // The values never pass through this ViewModel: the session builds the text and writes the clipboard.
+    [RelayCommand(CanExecute = nameof(CanCopySelectedColumns))]
+    private async Task CopySelectedColumnsAsync(CancellationToken cancellationToken)
+    {
+        if (IsBusy || SelectedWorksheet is null || SelectedColumns.Count == 0)
+        {
+            return;
+        }
+
+        var worksheet = SelectedWorksheet;
+        var copiedColumnIds = SelectedColumns.Select(column => column.Id).ToArray();
+
+        IsBusy = true;
+        try
+        {
+            await _session.CopyColumnsToClipboardAsync(worksheet.Id, copiedColumnIds, cancellationToken);
+            ErrorMessage = null;
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not an error; the clipboard is left unchanged.
+        }
+        catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
+        {
+            ErrorMessage = ex.Message;
+        }
+        catch (RawDataStorageException)
+        {
+            // Storage details stay out of the UI.
+            ErrorMessage = copiedColumnIds.Length == 1 ? "The column could not be copied." : "The columns could not be copied.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanCopySelectedColumns() => !IsBusy && SelectedWorksheet is not null && SelectedColumns.Count > 0;
 
     [RelayCommand]
     private void ToggleProjectPanel() => IsProjectPanelVisible = !IsProjectPanelVisible;

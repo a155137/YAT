@@ -15,8 +15,9 @@ public class WorksheetColumnWorkflowTests
     {
         var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
         var projectSession = compositionRoot.CreateProjectSession(":memory:");
+        var clipboard = new FakeClipboard();
         return compositionRoot.CreateMainWindowViewModel(
-            compositionRoot.CreateMainWindowSession(projectSession, new FakeClipboardTextReader()));
+            compositionRoot.CreateMainWindowSession(projectSession, clipboard, clipboard));
     }
 
     private static async Task<MainWindowViewModel> CreateViewModelWithWorksheetAsync(string worksheetName = "WAT_Lot_A")

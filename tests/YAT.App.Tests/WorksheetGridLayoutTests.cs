@@ -132,8 +132,8 @@ public class WorksheetGridLayoutTests
     {
         var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
         using var projectSession = compositionRoot.CreateProjectSession(":memory:");
-        var clipboard = new FakeClipboardTextReader();
-        var viewModel = compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(projectSession, clipboard));
+        var clipboard = new FakeClipboard();
+        var viewModel = compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(projectSession, clipboard, clipboard));
         await viewModel.CreateDefaultWorkspaceAsync();
         await viewModel.GridLoadTask;
         clipboard.Text = "No\tBin\tSITE\n1\t1\t1\n";

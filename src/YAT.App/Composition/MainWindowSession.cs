@@ -27,12 +27,14 @@ public sealed class MainWindowSession
     private readonly CreateWorksheetHandler _createWorksheet;
     private readonly AddWorksheetColumnHandler _addWorksheetColumn;
     private readonly IClipboardTextReader _clipboard;
+    private readonly IClipboardTextWriter _clipboardWriter;
     private readonly TabularTextParser _parser;
     private readonly WorksheetPastePlanner _planner;
     private readonly PasteExecutionService _pasteExecution;
     private readonly IWorksheetColumnRepository _worksheetColumns;
     private readonly WorksheetDataQueryService _dataQuery;
     private readonly DeleteWorksheetColumnsHandler _deleteWorksheetColumns;
+    private readonly WorksheetColumnsTsvExporter _columnsExporter;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     internal MainWindowSession(
@@ -40,23 +42,27 @@ public sealed class MainWindowSession
         CreateWorksheetHandler createWorksheet,
         AddWorksheetColumnHandler addWorksheetColumn,
         IClipboardTextReader clipboard,
+        IClipboardTextWriter clipboardWriter,
         TabularTextParser parser,
         WorksheetPastePlanner planner,
         PasteExecutionService pasteExecution,
         IWorksheetColumnRepository worksheetColumns,
         WorksheetDataQueryService dataQuery,
-        DeleteWorksheetColumnsHandler deleteWorksheetColumns)
+        DeleteWorksheetColumnsHandler deleteWorksheetColumns,
+        WorksheetColumnsTsvExporter columnsExporter)
     {
         _createProject = createProject;
         _createWorksheet = createWorksheet;
         _addWorksheetColumn = addWorksheetColumn;
         _clipboard = clipboard;
+        _clipboardWriter = clipboardWriter;
         _parser = parser;
         _planner = planner;
         _pasteExecution = pasteExecution;
         _worksheetColumns = worksheetColumns;
         _dataQuery = dataQuery;
         _deleteWorksheetColumns = deleteWorksheetColumns;
+        _columnsExporter = columnsExporter;
     }
 
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>
@@ -86,6 +92,18 @@ public sealed class MainWindowSession
         return await RunExclusiveAsync(
             () => Task.Run(() => PasteTextAsync(worksheetId, activeColumnIndex, text, cancellationToken), cancellationToken),
             cancellationToken);
+    }
+
+    // Copies whole columns (header + values, in worksheet Index order) to the clipboard as tab-separated text that
+    // spreadsheets paste as columns. The text is built off the UI thread from chunked raw reads; the clipboard is
+    // written on the calling (UI) thread, and only once the whole text has been built.
+    public async Task CopyColumnsToClipboardAsync(Guid worksheetId, IReadOnlyList<Guid> columnIds, CancellationToken cancellationToken)
+    {
+        var text = await RunExclusiveAsync(
+            () => Task.Run(() => _columnsExporter.ExportAsync(worksheetId, columnIds, cancellationToken), cancellationToken),
+            cancellationToken);
+
+        await _clipboardWriter.WriteTextAsync(text, cancellationToken);
     }
 
     // Deletes the given columns as a whole, in one batch (one raw delete, metadata deletes, one reindex), off the UI

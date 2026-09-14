@@ -2,11 +2,14 @@ using YAT.app.Clipboard;
 
 namespace YAT.App.Tests.TestDoubles;
 
-internal sealed class FakeClipboardTextReader : IClipboardTextReader
+internal sealed class FakeClipboard : IClipboardTextReader, IClipboardTextWriter
 {
+    // What a read returns; a write replaces it, as the system clipboard does.
     public string? Text { get; set; }
 
     public int ReadCount { get; private set; }
+
+    public List<string> Writes { get; } = [];
 
     // When set, a read waits for this task (or for cancellation) before returning Text.
     public Task? Gate { get; set; }
@@ -22,5 +25,13 @@ internal sealed class FakeClipboardTextReader : IClipboardTextReader
 
         cancellationToken.ThrowIfCancellationRequested();
         return Text;
+    }
+
+    public Task WriteTextAsync(string text, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Writes.Add(text);
+        Text = text;
+        return Task.CompletedTask;
     }
 }

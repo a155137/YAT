@@ -31,7 +31,8 @@ public partial class App : AvaloniaApplication
 
             // The clipboard belongs to the window, so the window exists before the session that reads from it.
             var mainWindow = new MainWindow();
-            var session = Composition.CreateMainWindowSession(projectSession, new AvaloniaClipboardTextReader(mainWindow));
+            var clipboard = new AvaloniaClipboard(mainWindow);
+            var session = Composition.CreateMainWindowSession(projectSession, clipboard, clipboard);
             var viewModel = Composition.CreateMainWindowViewModel(session);
 
             // Start with "Untitled Project" / "Sheet1". The metadata repositories are in-memory, so this normally

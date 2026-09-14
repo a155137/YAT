@@ -47,9 +47,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (this.GetPlatformSettings()?.HotkeyConfiguration.Paste.Any(gesture => gesture.Matches(e)) == true)
+        var hotkeys = this.GetPlatformSettings()?.HotkeyConfiguration;
+        if (hotkeys?.Paste.Any(gesture => gesture.Matches(e)) == true)
         {
             e.Handled = TryExecute(viewModel.PasteCommand);
+        }
+        else if (WorksheetKeyRouting.IsCopyColumnsGesture(hotkeys?.Copy.Any(gesture => gesture.Matches(e)) == true, e.Handled, e.Source))
+        {
+            e.Handled = TryExecute(viewModel.CopySelectedColumnsCommand);
         }
         else if (WorksheetKeyRouting.IsDeleteColumnsGesture(e.Key, e.KeyModifiers, e.Handled, e.Source))
         {
@@ -147,8 +152,9 @@ public partial class MainWindow : Window
         UpdateHeaderSelection();
     }
 
-    // "Delete Column" / "Delete N Columns": the same command the Delete key runs. Bound to the ViewModel explicitly,
-    // because header content does not inherit the window's DataContext (it sits outside the window's logical tree).
+    // "Copy Column" / "Copy N Columns" and "Delete Column" / "Delete N Columns": the same commands Ctrl+C and Delete run.
+    // Bound to the ViewModel explicitly, because header content does not inherit the window's DataContext (it sits
+    // outside the window's logical tree).
     private ContextMenu? CreateHeaderContextMenu()
     {
         if (_viewModel is null)
@@ -156,10 +162,14 @@ public partial class MainWindow : Window
             return null;
         }
 
+        var copyItem = new MenuItem { Command = _viewModel.CopySelectedColumnsCommand };
+        copyItem.Bind(MenuItem.HeaderProperty, new ReflectionBinding(nameof(MainWindowViewModel.CopySelectedColumnsMenuText)) { Source = _viewModel });
+
         var deleteItem = new MenuItem { Command = _viewModel.DeleteSelectedColumnsCommand };
         deleteItem.Bind(MenuItem.HeaderProperty, new ReflectionBinding(nameof(MainWindowViewModel.DeleteSelectedColumnsMenuText)) { Source = _viewModel });
 
         var menu = new ContextMenu();
+        menu.Items.Add(copyItem);
         menu.Items.Add(deleteItem);
         return menu;
     }
