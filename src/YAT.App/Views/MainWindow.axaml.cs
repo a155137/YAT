@@ -5,7 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Media;
+using Avalonia.Layout;
 using Avalonia.VisualTree;
 using YAT.app.Composition;
 using YAT.app.ViewModels;
@@ -14,9 +14,6 @@ namespace YAT.app.Views;
 
 public partial class MainWindow : Window
 {
-    private const double RowNumberColumnWidth = 56;
-    private const double DataColumnWidth = 110;
-
     // Grid column → worksheet column id, for header clicks. Rebuilt with the columns.
     private readonly Dictionary<TableViewColumn, Guid> _gridColumnIds = [];
     private MainWindowViewModel? _viewModel;
@@ -97,41 +94,54 @@ public partial class MainWindow : Window
         _gridColumnIds.Clear();
         WorksheetGrid.Columns.Clear();
 
-        WorksheetGrid.Columns.Add(new TableViewColumn
-        {
-            Header = string.Empty,
-            Binding = new ReflectionBinding(nameof(WorksheetGridRow.RowNumber)),
-            Width = new GridLength(RowNumberColumnWidth),
-            CanUserResize = false
-        });
+        var rowNumberHeader = WorksheetGridLayout.CreateHeader(null);
+        AddGridColumn(
+            new TableViewColumn
+            {
+                Header = rowNumberHeader,
+                Binding = new ReflectionBinding(nameof(WorksheetGridRow.RowNumber)),
+                Width = new GridLength(WorksheetGridLayout.RowNumberColumnWidth),
+                HorizontalContentAlignment = HorizontalAlignment.Right,
+                CanUserResize = false
+            },
+            rowNumberHeader);
 
         for (var position = 0; position < gridColumns.Count; position++)
         {
+            var gridColumn = gridColumns[position];
+            var header = WorksheetGridLayout.CreateHeader(gridColumn);
             var column = new TableViewColumn
             {
-                Header = new TextBlock { Text = gridColumns[position].Name },
+                Header = header,
                 Binding = new ReflectionBinding($"{nameof(WorksheetGridRow.Cells)}[{position}]"),
-                Width = new GridLength(DataColumnWidth)
+                Width = new GridLength(WorksheetGridLayout.GetColumnWidth(gridColumn)),
+                HorizontalContentAlignment = WorksheetGridLayout.GetCellAlignment(gridColumn.DataType)
             };
 
-            _gridColumnIds[column] = gridColumns[position].ColumnId;
-            WorksheetGrid.Columns.Add(column);
+            _gridColumnIds[column] = gridColumn.ColumnId;
+            AddGridColumn(column, header);
         }
 
         UpdateHeaderSelection();
     }
 
-    // The selected paste-target column has a bold, underlined header.
+    // The column's content alignment applies to its header as well, so the header element cannot stretch by itself;
+    // it follows the column's actual width instead, keeping its background and underline across the full header.
+    private void AddGridColumn(TableViewColumn column, Border header)
+    {
+        header.Bind(WidthProperty, column.GetObservable(TableViewColumn.ActualWidthProperty));
+        WorksheetGrid.Columns.Add(column);
+    }
+
+    // Highlights the header of the selected paste-target column.
     private void UpdateHeaderSelection()
     {
         var selectedId = _viewModel?.SelectedColumn?.Id;
         foreach (var (column, columnId) in _gridColumnIds)
         {
-            if (column.Header is TextBlock header)
+            if (column.Header is Border header)
             {
-                var isSelected = columnId == selectedId;
-                header.FontWeight = isSelected ? FontWeight.Bold : FontWeight.Normal;
-                header.TextDecorations = isSelected ? TextDecorations.Underline : null;
+                WorksheetGridLayout.SetPasteTarget(header, columnId == selectedId);
             }
         }
     }

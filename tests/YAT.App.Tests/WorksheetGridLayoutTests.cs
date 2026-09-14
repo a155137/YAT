@@ -1,0 +1,124 @@
+using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
+using YAT.App.Tests.TestDoubles;
+using YAT.app.Composition;
+using YAT.app.ViewModels;
+using YAT.app.Views;
+using YAT.Domain.Enums;
+
+namespace YAT.App.Tests;
+
+// Presentation rules of the worksheet grid. Rules only: no rendering, no pixel measurements.
+public class WorksheetGridLayoutTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 5, 1, 12, 0, 0, TimeSpan.Zero);
+
+    private static WorksheetGridColumn Column(string name, WorksheetDataType dataType) =>
+        new(Guid.NewGuid(), 0, name, dataType);
+
+    // 1
+    [Fact]
+    public void NumericCellsAlignRightAndOtherCellsAlignLeft()
+    {
+        Assert.Equal(HorizontalAlignment.Right, WorksheetGridLayout.GetCellAlignment(WorksheetDataType.Numeric));
+        Assert.Equal(HorizontalAlignment.Left, WorksheetGridLayout.GetCellAlignment(WorksheetDataType.String));
+        Assert.Equal(HorizontalAlignment.Left, WorksheetGridLayout.GetCellAlignment(WorksheetDataType.DateTime));
+        Assert.Equal(HorizontalAlignment.Left, WorksheetGridLayout.GetCellAlignment(WorksheetDataType.Boolean));
+    }
+
+    // 2
+    [Fact]
+    public void ColumnWidthDependsOnlyOnNameAndDataType()
+    {
+        var first = Column("Reg2", WorksheetDataType.Numeric);
+        var second = new WorksheetGridColumn(Guid.NewGuid(), 7, "Reg2", WorksheetDataType.Numeric);
+
+        Assert.Equal(WorksheetGridLayout.GetColumnWidth(first), WorksheetGridLayout.GetColumnWidth(second));
+        Assert.Equal(WorksheetGridLayout.GetColumnWidth(first), WorksheetGridLayout.GetColumnWidth(first));
+    }
+
+    [Theory]
+    [InlineData("No", WorksheetDataType.Numeric, 88)]
+    [InlineData("Lot", WorksheetDataType.String, 96)]
+    [InlineData("Temperature_Deg_C", WorksheetDataType.Numeric, 148)]
+    [InlineData("Temperature_Deg_C", WorksheetDataType.String, 148)]
+    [InlineData("A_very_long_parameter_name_from_the_tester", WorksheetDataType.Numeric, 160)]
+    [InlineData("A_very_long_parameter_name_from_the_tester", WorksheetDataType.String, 240)]
+    public void ColumnWidthFollowsTheHeaderWithinPerTypeLimits(string name, WorksheetDataType dataType, double expectedWidth)
+    {
+        Assert.Equal(expectedWidth, WorksheetGridLayout.GetColumnWidth(Column(name, dataType)));
+    }
+
+    [Fact]
+    public void ShortTextColumnsStartWiderThanShortNumericColumns()
+    {
+        Assert.True(
+            WorksheetGridLayout.GetColumnWidth(Column("Lot", WorksheetDataType.String))
+            > WorksheetGridLayout.GetColumnWidth(Column("Bin", WorksheetDataType.Numeric)));
+    }
+
+    // 3
+    [Fact]
+    public void HeaderPasteTargetStateTracksSelection()
+    {
+        var header = WorksheetGridLayout.CreateHeader(Column("SITE", WorksheetDataType.Numeric));
+        var text = Assert.IsType<TextBlock>(header.Child);
+
+        Assert.Equal("SITE", text.Text);
+        Assert.Contains(WorksheetGridLayout.HeaderClass, header.Classes);
+        Assert.False(WorksheetGridLayout.IsPasteTarget(header));
+        Assert.Equal(FontWeight.Normal, text.FontWeight);
+
+        WorksheetGridLayout.SetPasteTarget(header, true);
+        Assert.True(WorksheetGridLayout.IsPasteTarget(header));
+        Assert.Equal(FontWeight.SemiBold, text.FontWeight);
+
+        WorksheetGridLayout.SetPasteTarget(header, false);
+        Assert.False(WorksheetGridLayout.IsPasteTarget(header));
+        Assert.Equal(FontWeight.Normal, text.FontWeight);
+    }
+
+    [Fact]
+    public void RowNumberHeaderIsAnEmptyHeader()
+    {
+        var header = WorksheetGridLayout.CreateHeader(null);
+
+        Assert.Equal(string.Empty, Assert.IsType<TextBlock>(header.Child).Text);
+        Assert.False(WorksheetGridLayout.IsPasteTarget(header));
+    }
+
+    // 3, 4: the window restyles headers when SelectedColumn changes; header clicks and paste keep driving it.
+    [Fact]
+    public async Task HeaderSelectionRaisesSelectedColumnChangesAndStillTargetsPaste()
+    {
+        var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
+        using var projectSession = compositionRoot.CreateProjectSession(":memory:");
+        var clipboard = new FakeClipboardTextReader();
+        var viewModel = compositionRoot.CreateMainWindowViewModel(compositionRoot.CreateMainWindowSession(projectSession, clipboard));
+        await viewModel.CreateDefaultWorkspaceAsync();
+        await viewModel.GridLoadTask;
+        clipboard.Text = "No\tBin\tSITE\n1\t1\t1\n";
+        await viewModel.PasteCommand.ExecuteAsync(null);
+
+        var notifications = 0;
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainWindowViewModel.SelectedColumn))
+            {
+                notifications++;
+            }
+        };
+
+        var bin = viewModel.GridColumns[1];
+        viewModel.ToggleColumnSelectionCommand.Execute(bin.ColumnId);
+        Assert.Equal(1, notifications);
+
+        clipboard.Text = "Lot\nN1\n";
+        await viewModel.PasteCommand.ExecuteAsync(null);
+
+        Assert.Equal(["No", "Lot", "SITE"], viewModel.GridColumns.Select(column => column.Name));
+        Assert.Equal(bin.ColumnId, viewModel.SelectedColumn?.Id);
+        Assert.True(notifications >= 2);
+    }
+}
