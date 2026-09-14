@@ -6,6 +6,7 @@ using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Styling;
 using Avalonia.VisualTree;
 using YAT.app.Composition;
 using YAT.app.ViewModels;
@@ -14,6 +15,9 @@ namespace YAT.app.Views;
 
 public partial class MainWindow : Window
 {
+    // Window resource (MainWindow.axaml): cell theme for the cells of selected worksheet columns.
+    private const string SelectedCellThemeKey = "SelectedWorksheetCellTheme";
+
     // Grid column → worksheet column id, for header clicks. Rebuilt with the columns.
     private readonly Dictionary<TableViewColumn, Guid> _gridColumnIds = [];
     private MainWindowViewModel? _viewModel;
@@ -168,18 +172,15 @@ public partial class MainWindow : Window
         WorksheetGrid.Columns.Add(column);
     }
 
-    // Marks each header as normal, selected, or active (selected and the Ctrl+V start).
+    // Marks each column as normal, selected, or active (selected and the Ctrl+V start): its header and its visible cells.
     private void UpdateHeaderSelection()
     {
-        var activeId = _viewModel?.ActiveColumn?.Id;
-        IReadOnlySet<Guid> selectedIds = _viewModel?.SelectedColumns.Select(column => column.Id).ToHashSet() ?? [];
-        foreach (var (column, columnId) in _gridColumnIds)
-        {
-            if (column.Header is Border header)
-            {
-                WorksheetGridLayout.SetHeaderState(header, WorksheetGridLayout.GetHeaderState(columnId, activeId, selectedIds));
-            }
-        }
+        var selectedCellTheme = this.TryFindResource(SelectedCellThemeKey, ActualThemeVariant, out var theme) ? theme as ControlTheme : null;
+        WorksheetGridLayout.ApplyColumnStates(
+            _gridColumnIds,
+            _viewModel?.ActiveColumn?.Id,
+            _viewModel?.SelectedColumns.Select(column => column.Id) ?? [],
+            selectedCellTheme);
     }
 
     // Header presses:

@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
 using YAT.app.Composition;
 using YAT.Domain.Enums;
 
@@ -136,6 +137,42 @@ public static class WorksheetGridLayout
         }
 
         text.FontWeight = state == ColumnHeaderState.Normal ? FontWeight.Normal : FontWeight.SemiBold;
+    }
+
+    // Applies the current selection to every grid column (header and visible cells) in one pass.
+    public static void ApplyColumnStates(
+        IEnumerable<KeyValuePair<TableViewColumn, Guid>> columns,
+        Guid? activeColumnId,
+        IEnumerable<Guid> selectedColumnIds,
+        ControlTheme? selectedCellTheme)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentNullException.ThrowIfNull(selectedColumnIds);
+
+        IReadOnlySet<Guid> selected = selectedColumnIds.ToHashSet();
+        foreach (var (column, columnId) in columns)
+        {
+            ApplyColumnState(column, GetHeaderState(columnId, activeColumnId, selected), selectedCellTheme);
+        }
+    }
+
+    // Applies a column's selection state to both its header and its visible cells: selected and active columns get
+    // selectedCellTheme (a light accent tint), normal columns go back to the default cell theme. Cell themes follow
+    // realized cells live, so drag growth and shrink update the visible cells immediately.
+    public static void ApplyColumnState(TableViewColumn column, ColumnHeaderState state, ControlTheme? selectedCellTheme)
+    {
+        ArgumentNullException.ThrowIfNull(column);
+
+        if (column.Header is Border header)
+        {
+            SetHeaderState(header, state);
+        }
+
+        var cellTheme = state == ColumnHeaderState.Normal ? null : selectedCellTheme;
+        if (!ReferenceEquals(column.CellTheme, cellTheme))
+        {
+            column.CellTheme = cellTheme;
+        }
     }
 
     public static ColumnHeaderState GetHeaderState(Border header) =>

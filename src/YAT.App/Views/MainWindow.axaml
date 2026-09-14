@@ -13,6 +13,18 @@
 
     <!-- The runtime DataContext is built by CompositionRoot with real Application handlers (see App.axaml.cs). -->
 
+    <Window.Resources>
+        <!-- Cells of selected worksheet columns (active included): the default cell theme plus a light accent tint.
+             Assigned per column as TableViewColumn.CellTheme by the window (see WorksheetGridLayout.ApplyColumnState). -->
+        <ControlTheme x:Key="SelectedWorksheetCellTheme"
+                      TargetType="TableViewCell"
+                      BasedOn="{StaticResource {x:Type TableViewCell}}">
+            <Setter Property="Background">
+                <SolidColorBrush Color="{DynamicResource SystemAccentColor}" Opacity="0.10" />
+            </Setter>
+        </ControlTheme>
+    </Window.Resources>
+
     <Window.Styles>
         <!-- Worksheet grid density: TableView's Fluent defaults are list-sized; the grid uses compact rows and headers. -->
         <Style Selector="TableView#WorksheetGrid">
@@ -40,7 +52,7 @@
             <Setter Property="Padding" Value="0" />
             <Setter Property="VerticalContentAlignment" Value="Stretch" />
         </Style>
-        <!-- Header content (incl. the paste-target highlight) is styled in WorksheetGridLayout: window styles do not reach it. -->
+        <!-- Header content (incl. the selection highlight) is styled in WorksheetGridLayout: window styles do not reach it. -->
 
         <Style Selector="Button.yat-pager">
             <Setter Property="Padding" Value="8,2" />
