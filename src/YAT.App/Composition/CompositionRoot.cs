@@ -2,6 +2,7 @@ using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Ingestion;
+using YAT.Application.Queries;
 using YAT.app.Clipboard;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
@@ -52,7 +53,8 @@ public sealed class CompositionRoot
             new TabularTextParser(),
             new WorksheetPastePlanner(new ColumnDataTypeDetector()),
             projectSession.PasteExecution,
-            projectSession.WorksheetColumns);
+            projectSession.WorksheetColumns,
+            new WorksheetDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore));
     }
 
     public MainWindowViewModel CreateMainWindowViewModel(MainWindowSession session)

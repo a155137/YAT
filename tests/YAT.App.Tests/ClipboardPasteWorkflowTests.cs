@@ -156,7 +156,7 @@ public class ClipboardPasteWorkflowTests
         Assert.Same(visible, runtime.ViewModel.SelectedWorksheetColumns);
         Assert.Equal(stored.Count, runtime.VisibleColumns.Count);
         Assert.All(stored.Zip(runtime.VisibleColumns), pair => Assert.Same(pair.First, pair.Second));
-        Assert.Equal("0 rows · 2 columns", runtime.ViewModel.SelectedWorksheetSummary);
+        Assert.Equal("1 row · 2 columns", runtime.ViewModel.SelectedWorksheetSummary);
     }
 
     // 6
@@ -185,7 +185,13 @@ public class ClipboardPasteWorkflowTests
     [Fact]
     public void MainWindowViewModelExposesNoRawDataTypes()
     {
-        string[] forbiddenNamespaces = ["YAT.Application.Ingestion", "YAT.Application.Abstractions.Persistence", "YAT.app.Clipboard"];
+        string[] forbiddenNamespaces =
+        [
+            "YAT.Application.Ingestion",
+            "YAT.Application.Abstractions.Persistence",
+            "YAT.Application.Queries",
+            "YAT.app.Clipboard"
+        ];
         const BindingFlags members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
         static IEnumerable<Type> WithGenericArguments(Type type) =>

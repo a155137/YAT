@@ -156,7 +156,7 @@
                         <StackPanel HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
                                     Spacing="6"
-                                    IsVisible="{Binding !SelectedWorksheetColumns.Count, FallbackValue=False}">
+                                    IsVisible="{Binding !HasGridColumns}">
                             <TextBlock Text="Paste data from Excel to begin"
                                        FontSize="18"
                                        Opacity="0.7"
@@ -167,51 +167,34 @@
                                        HorizontalAlignment="Center" />
                         </StackPanel>
 
-                        <!-- Read-only schema metadata, shown only when the Worksheet has columns.
-                             The selected column is the Ctrl+V paste target; with no selection, paste appends. -->
-                        <DockPanel Margin="0,20,0,0"
-                                   IsVisible="{Binding !!SelectedWorksheetColumns.Count, FallbackValue=False}">
-                            <TextBlock DockPanel.Dock="Top"
-                                       Margin="0,0,0,6"
-                                       Text="Columns"
-                                       FontWeight="SemiBold" />
-                            <TextBlock DockPanel.Dock="Top"
-                                       Margin="0,0,0,6"
-                                       FontSize="12"
-                                       Opacity="0.5"
-                                       Text="Ctrl+V pastes columns starting at the selected column, or after the last column when none is selected." />
-
+                        <!-- Read-only worksheet grid: one page of rows. Its columns are built from GridColumns in
+                             code-behind. Clicking a column header selects it as the Ctrl+V paste target. -->
+                        <DockPanel Margin="0,12,0,0"
+                                   IsVisible="{Binding HasGridColumns}">
                             <Grid DockPanel.Dock="Top"
-                                  Margin="12,0"
-                                  ColumnDefinitions="60,2*,*,*,*">
-                                <TextBlock Grid.Column="0" Text="Index" FontSize="12" Opacity="0.6" />
-                                <TextBlock Grid.Column="1" Text="Name" FontSize="12" Opacity="0.6" />
-                                <TextBlock Grid.Column="2" Text="Data Type" FontSize="12" Opacity="0.6" />
-                                <TextBlock Grid.Column="3" Text="Semantic Type" FontSize="12" Opacity="0.6" />
-                                <TextBlock Grid.Column="4" Text="Unit" FontSize="12" Opacity="0.6" />
+                                  Margin="0,0,0,6"
+                                  ColumnDefinitions="*,Auto,Auto,Auto">
+                                <TextBlock Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Opacity="0.5"
+                                           TextWrapping="Wrap"
+                                           Text="Click a column header to paste into that column; with no column selected, Ctrl+V appends new columns." />
+                                <Button Grid.Column="1"
+                                        Content="Previous"
+                                        Command="{Binding PreviousPageCommand}" />
+                                <TextBlock Grid.Column="2"
+                                           Margin="12,0"
+                                           VerticalAlignment="Center"
+                                           Text="{Binding GridPageSummary}" />
+                                <Button Grid.Column="3"
+                                        Content="Next"
+                                        Command="{Binding NextPageCommand}" />
                             </Grid>
 
-                            <Border DockPanel.Dock="Top"
-                                    Margin="0,4,0,0"
-                                    BorderThickness="0,1,0,0"
-                                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" />
-
-                            <ListBox ItemsSource="{Binding SelectedWorksheetColumns}"
-                                     SelectedItem="{Binding SelectedColumn}"
-                                     SelectionMode="Single,Toggle"
-                                     Background="Transparent">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate x:DataType="entities:WorksheetColumn">
-                                        <Grid ColumnDefinitions="60,2*,*,*,*">
-                                            <TextBlock Grid.Column="0" Text="{Binding Index}" />
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="2" Text="{Binding DataType}" />
-                                            <TextBlock Grid.Column="3" Text="{Binding SemanticType}" />
-                                            <TextBlock Grid.Column="4" Text="{Binding Unit}" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                            <TableView x:Name="WorksheetGrid"
+                                       ItemsSource="{Binding GridRows}"
+                                       CanUserResizeColumns="True" />
                         </DockPanel>
                     </Panel>
                 </DockPanel>

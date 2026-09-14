@@ -4,16 +4,24 @@ using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Ingestion;
+using YAT.Application.Queries;
 using YAT.app.Clipboard;
 using YAT.Domain.Entities;
 
 namespace YAT.app.Composition;
 
 // The operations the main window currently needs, backed by Application services that CompositionRoot wires over
-// the ProjectSession's repositories. Its public surface is Application commands, Domain metadata and metadata-only
-// results: no repositories, raw data store, parsed cells or raw values. It does not own or dispose the ProjectSession.
+// the ProjectSession's repositories. Its public surface is Application commands, Domain metadata, metadata-only
+// results and bounded display pages: no repositories, raw data store, parsed cells or typed raw columns.
+// It does not own or dispose the ProjectSession.
+//
+// Operations run one at a time: paste and page loads work off the UI thread, and the session repositories are
+// not thread-safe, so every operation waits for the previous one to finish.
 public sealed class MainWindowSession
 {
+    // Rows per grid page; the query service never returns more.
+    public const int GridPageSize = WorksheetDataQueryService.MaxPageRowCount;
+
     private readonly CreateProjectHandler _createProject;
     private readonly CreateWorksheetHandler _createWorksheet;
     private readonly AddWorksheetColumnHandler _addWorksheetColumn;
@@ -22,6 +30,8 @@ public sealed class MainWindowSession
     private readonly WorksheetPastePlanner _planner;
     private readonly PasteExecutionService _pasteExecution;
     private readonly IWorksheetColumnRepository _worksheetColumns;
+    private readonly WorksheetDataQueryService _dataQuery;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     internal MainWindowSession(
         CreateProjectHandler createProject,
@@ -31,7 +41,8 @@ public sealed class MainWindowSession
         TabularTextParser parser,
         WorksheetPastePlanner planner,
         PasteExecutionService pasteExecution,
-        IWorksheetColumnRepository worksheetColumns)
+        IWorksheetColumnRepository worksheetColumns,
+        WorksheetDataQueryService dataQuery)
     {
         _createProject = createProject;
         _createWorksheet = createWorksheet;
@@ -41,20 +52,20 @@ public sealed class MainWindowSession
         _planner = planner;
         _pasteExecution = pasteExecution;
         _worksheetColumns = worksheetColumns;
+        _dataQuery = dataQuery;
     }
 
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>
-        _createProject.HandleAsync(command, cancellationToken);
+        RunExclusiveAsync(() => _createProject.HandleAsync(command, cancellationToken), cancellationToken);
 
     public Task<Worksheet> CreateWorksheetAsync(CreateWorksheetCommand command, CancellationToken cancellationToken) =>
-        _createWorksheet.HandleAsync(command, cancellationToken);
+        RunExclusiveAsync(() => _createWorksheet.HandleAsync(command, cancellationToken), cancellationToken);
 
     public Task<WorksheetColumn> AddWorksheetColumnAsync(AddWorksheetColumnCommand command, CancellationToken cancellationToken) =>
-        _addWorksheetColumn.HandleAsync(command, cancellationToken);
+        RunExclusiveAsync(() => _addWorksheetColumn.HandleAsync(command, cancellationToken), cancellationToken);
 
     // Pastes clipboard text into the worksheet column-wise, starting at selectedColumnIndex, or after the last existing
-    // column when no column is selected. An empty clipboard is a no-op. The caller must not run other worksheet
-    // operations concurrently: parsing, planning and storage run off the UI thread against the session repositories.
+    // column when no column is selected. An empty clipboard is a no-op. Parsing, planning and storage run off the UI thread.
     public async Task<ClipboardPasteResult> PasteFromClipboardAsync(
         Guid worksheetId,
         int? selectedColumnIndex,
@@ -67,8 +78,19 @@ public sealed class MainWindowSession
             return ClipboardPasteResult.NothingToPaste;
         }
 
-        return await Task.Run(() => PasteTextAsync(worksheetId, selectedColumnIndex, text, cancellationToken), cancellationToken);
+        return await RunExclusiveAsync(
+            () => Task.Run(() => PasteTextAsync(worksheetId, selectedColumnIndex, text, cancellationToken), cancellationToken),
+            cancellationToken);
     }
+
+    // Loads one grid page (at most GridPageSize rows) starting at the zero-based rowOffset, off the UI thread.
+    public Task<WorksheetGridPage> LoadWorksheetPageAsync(Guid worksheetId, long rowOffset, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(
+                async () => WorksheetGridPage.FromDataPage(
+                    await _dataQuery.GetPageAsync(worksheetId, rowOffset, GridPageSize, cancellationToken)),
+                cancellationToken),
+            cancellationToken);
 
     private async Task<ClipboardPasteResult> PasteTextAsync(
         Guid worksheetId,
@@ -86,6 +108,19 @@ public sealed class MainWindowSession
         // The paste is persisted at this point, so the reload is not cancellable: the UI always gets current metadata.
         var columns = await _worksheetColumns.GetByWorksheetIdAsync(worksheetId, CancellationToken.None);
         return new ClipboardPasteResult(isPasted: true, columns);
+    }
+
+    private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     // 0 for a worksheet without columns, otherwise one past the highest existing index.

@@ -17,4 +17,10 @@ public interface IWorksheetRawDataStore
         long rowOffset,
         int rowCount,
         CancellationToken cancellationToken);
+
+    // Logical row count of the worksheet: the length of its longest live raw column; 0 when nothing is stored.
+    Task<long> GetWorksheetRowCountAsync(Guid worksheetId, CancellationToken cancellationToken);
+
+    // Ids of the worksheet's columns that have stored raw values. Column metadata without raw values is not included.
+    Task<IReadOnlySet<Guid>> GetStoredColumnIdsAsync(Guid worksheetId, CancellationToken cancellationToken);
 }

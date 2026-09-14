@@ -32,6 +32,9 @@ public class WorksheetColumnWorkflowTests
     {
         viewModel.WorksheetName = name;
         await viewModel.CreateWorksheetCommand.ExecuteAsync(null);
+
+        // Selecting the new Worksheet starts its grid page load; let it finish so later commands start from idle.
+        await viewModel.GridLoadTask;
         return viewModel.Worksheets.Single(w => w.Name == name);
     }
 
@@ -359,21 +362,6 @@ public class WorksheetColumnWorkflowTests
 
         viewModel.SelectedWorksheet = null;
         Assert.Null(viewModel.SelectedWorksheetSummary);
-    }
-
-    [Theory]
-    [InlineData(0, "0 rows")]
-    [InlineData(1, "1 row")]
-    [InlineData(2, "2 rows")]
-    public async Task SummaryUsesSingularAndPluralRowCounts(long rowCount, string expectedRows)
-    {
-        var viewModel = await CreateViewModelWithWorksheetAsync();
-        Assert.NotNull(viewModel.SelectedWorksheet);
-
-        // Test-only: handlers always create RowCount = 0, so set it directly to exercise the wording.
-        viewModel.SelectedWorksheet.RowCount = rowCount;
-
-        Assert.Equal($"{expectedRows} · 0 columns", viewModel.SelectedWorksheetSummary);
     }
 
     [Fact]

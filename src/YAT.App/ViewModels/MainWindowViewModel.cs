@@ -32,6 +32,9 @@ public partial class MainWindowViewModel : ViewModelBase
     // UI state only: columns are persisted through MainWindowSession, but selection does not re-read them yet.
     private readonly Dictionary<Guid, ObservableCollection<WorksheetColumn>> _columnsByWorksheet = [];
 
+    // Identifies the latest grid load; results of superseded loads (e.g. after switching worksheets) are dropped.
+    private int _gridLoadVersion;
+
     public MainWindowViewModel(MainWindowSession session)
     {
         _session = session;
@@ -83,6 +86,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SelectedWorksheetSummary))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PreviousPageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
     public partial Worksheet? SelectedWorksheet { get; set; }
 
     // Paste target: when set, pasted columns start at its Index; otherwise they are appended after the last column.
@@ -98,10 +103,49 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SelectedWorksheetSummary))]
     public partial ObservableCollection<WorksheetColumn>? SelectedWorksheetColumns { get; private set; }
 
-    // e.g. "0 rows · 1 column"; rows from Worksheet.RowCount, columns from the visible column list.
+    // e.g. "3 rows · 1 column"; rows from the raw store's row count (TotalRowCount), columns from the visible column list.
     public string? SelectedWorksheetSummary => SelectedWorksheet is null
         ? null
-        : $"{CountLabel(SelectedWorksheet.RowCount, "row")} · {CountLabel(SelectedWorksheetColumns?.Count ?? 0, "column")}";
+        : $"{CountLabel(TotalRowCount, "row")} · {CountLabel(SelectedWorksheetColumns?.Count ?? 0, "column")}";
+
+    // Grid state holds one bounded page only (at most MainWindowSession.GridPageSize rows of display text),
+    // never the worksheet's whole dataset or typed raw columns.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasGridColumns))]
+    public partial IReadOnlyList<WorksheetGridColumn> GridColumns { get; private set; } = [];
+
+    public bool HasGridColumns => GridColumns.Count > 0;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GridPageSummary))]
+    public partial IReadOnlyList<WorksheetGridRow> GridRows { get; private set; } = [];
+
+    // Logical row count of the selected worksheet, from the raw data store.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedWorksheetSummary))]
+    [NotifyPropertyChangedFor(nameof(GridPageSummary))]
+    [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
+    public partial long TotalRowCount { get; private set; }
+
+    // Zero-based worksheet row of the first grid row.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GridPageSummary))]
+    [NotifyCanExecuteChangedFor(nameof(PreviousPageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
+    public partial long GridRowOffset { get; private set; }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PreviousPageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
+    public partial bool IsGridLoading { get; private set; }
+
+    // e.g. "Rows 1–500 of 1,234".
+    public string GridPageSummary => GridRows.Count == 0
+        ? "No rows"
+        : $"Rows {GridRowOffset + 1:N0}–{GridRowOffset + GridRows.Count:N0} of {TotalRowCount:N0}";
+
+    // The most recently started grid page load; completes once its page (or error) has been applied.
+    public Task GridLoadTask { get; private set; } = Task.CompletedTask;
 
     // Manual column-creation inputs and AddColumnCommand are not exposed in the Worksheet UI
     // (columns are expected to come from pasted data); retained for future ingestion/schema wiring and tests.
@@ -147,9 +191,13 @@ public partial class MainWindowViewModel : ViewModelBase
         ErrorMessage = null;
         SelectedColumn = null;
 
+        // Never show the previous worksheet's page while the new one loads.
+        ApplyGridPage(WorksheetGridPage.Empty);
+
         if (value is null)
         {
             SelectedWorksheetColumns = null;
+            GridLoadTask = LoadGridPageAsync(0);
             return;
         }
 
@@ -160,6 +208,93 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         SelectedWorksheetColumns = columns;
+        GridLoadTask = LoadGridPageAsync(0);
+    }
+
+    // Loads the page starting at rowOffset for the selected worksheet (or clears the grid when none is selected).
+    // Load failures surface through ErrorMessage; storage details stay out of the UI.
+    private async Task LoadGridPageAsync(long rowOffset)
+    {
+        var version = ++_gridLoadVersion;
+        var worksheet = SelectedWorksheet;
+        if (worksheet is null)
+        {
+            ApplyGridPage(WorksheetGridPage.Empty);
+            IsGridLoading = false;
+            return;
+        }
+
+        IsGridLoading = true;
+        try
+        {
+            var page = await _session.LoadWorksheetPageAsync(worksheet.Id, rowOffset, CancellationToken.None);
+            if (version == _gridLoadVersion)
+            {
+                ApplyGridPage(page);
+            }
+        }
+        catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
+        {
+            if (version == _gridLoadVersion)
+            {
+                ErrorMessage = ex.Message;
+            }
+        }
+        catch (RawDataStorageException)
+        {
+            if (version == _gridLoadVersion)
+            {
+                ErrorMessage = "The worksheet data could not be loaded.";
+            }
+        }
+        finally
+        {
+            if (version == _gridLoadVersion)
+            {
+                IsGridLoading = false;
+            }
+        }
+    }
+
+    private void ApplyGridPage(WorksheetGridPage page)
+    {
+        GridColumns = page.Columns;
+        GridRows = page.Rows;
+        TotalRowCount = page.TotalRowCount;
+        GridRowOffset = page.RowOffset;
+    }
+
+    private Task ReloadGridFromFirstPageAsync()
+    {
+        GridLoadTask = LoadGridPageAsync(0);
+        return GridLoadTask;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToPreviousPage))]
+    private Task PreviousPageAsync()
+    {
+        GridLoadTask = LoadGridPageAsync(Math.Max(0, GridRowOffset - MainWindowSession.GridPageSize));
+        return GridLoadTask;
+    }
+
+    private bool CanGoToPreviousPage() => !IsGridLoading && SelectedWorksheet is not null && GridRowOffset > 0;
+
+    [RelayCommand(CanExecute = nameof(CanGoToNextPage))]
+    private Task NextPageAsync()
+    {
+        GridLoadTask = LoadGridPageAsync(GridRowOffset + MainWindowSession.GridPageSize);
+        return GridLoadTask;
+    }
+
+    private bool CanGoToNextPage() =>
+        !IsGridLoading && SelectedWorksheet is not null && GridRowOffset + MainWindowSession.GridPageSize < TotalRowCount;
+
+    // Grid header click: selects that column as the paste target, or clears the selection when it is already selected.
+    [RelayCommand]
+    private void ToggleColumnSelection(Guid columnId)
+    {
+        var column = SelectedWorksheetColumns?.FirstOrDefault(candidate => candidate.Id == columnId);
+        SelectedColumn = column is null || ReferenceEquals(column, SelectedColumn) ? null : column;
     }
 
     partial void OnSelectedWorksheetColumnsChanged(
@@ -289,6 +424,12 @@ public partial class MainWindowViewModel : ViewModelBase
             ColumnName = string.Empty;
             ColumnUnit = string.Empty;
             SelectedColumnSemanticType = null;
+
+            // Not awaited: the column add itself is complete; the grid page follows (observable through GridLoadTask).
+            if (ReferenceEquals(SelectedWorksheet, worksheet))
+            {
+                GridLoadTask = LoadGridPageAsync(0);
+            }
         }
         catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
         {
@@ -335,10 +476,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
             ErrorMessage = null;
 
-            // Clearing the collection drops the list selection; restore it by Id, since pasting keeps column Ids.
+            // Clearing the collection drops the column selection; restore it by Id, since pasting keeps column Ids.
             if (ReferenceEquals(SelectedWorksheetColumns, columns))
             {
                 SelectedColumn = selectedColumn is null ? null : columns.FirstOrDefault(column => column.Id == selectedColumn.Id);
+
+                // Show the pasted values: grid columns, row count and the first page, all re-read from storage.
+                await ReloadGridFromFirstPageAsync();
             }
         }
         catch (OperationCanceledException)

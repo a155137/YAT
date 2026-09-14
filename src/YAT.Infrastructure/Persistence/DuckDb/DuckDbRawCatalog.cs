@@ -84,6 +84,27 @@ internal static class DuckDbRawCatalog
         return columns;
     }
 
+    // Every column in a block has the block's row count, so the longest live column is the largest referenced block.
+    public static long GetWorksheetRowCount(DuckDBConnection connection, Guid worksheetId) =>
+        Convert.ToInt64(Scalar(connection,
+            "SELECT COALESCE(MAX(b.row_count), 0) FROM raw_column c JOIN raw_block b ON b.block_id = c.block_id " +
+            "WHERE c.worksheet_id = $worksheet",
+            ("worksheet", worksheetId)), CultureInfo.InvariantCulture);
+
+    public static HashSet<Guid> FindWorksheetColumnIds(DuckDBConnection connection, Guid worksheetId)
+    {
+        using var command = CreateCommand(connection, "SELECT column_id FROM raw_column WHERE worksheet_id = $worksheet", ("worksheet", worksheetId));
+        using var reader = command.ExecuteReader();
+
+        var columnIds = new HashSet<Guid>();
+        while (reader.Read())
+        {
+            columnIds.Add(reader.GetGuid(0));
+        }
+
+        return columnIds;
+    }
+
     public static void InsertBlock(DuckDBConnection connection, Guid blockId, Guid worksheetId, string tableName, long rowCount) =>
         Execute(connection, "INSERT INTO raw_block VALUES ($block, $worksheet, $table, $rows)",
             ("block", blockId), ("worksheet", worksheetId), ("table", tableName), ("rows", rowCount));

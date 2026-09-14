@@ -87,6 +87,41 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         }
     }
 
+    public Task<long> GetWorksheetRowCountAsync(Guid worksheetId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Execute(connection => DuckDbRawCatalog.GetWorksheetRowCount(connection, worksheetId)));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<long>(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException<long>(exception);
+        }
+    }
+
+    public Task<IReadOnlySet<Guid>> GetStoredColumnIdsAsync(Guid worksheetId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlySet<Guid> columnIds = Execute(connection => DuckDbRawCatalog.FindWorksheetColumnIds(connection, worksheetId));
+            return Task.FromResult(columnIds);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<IReadOnlySet<Guid>>(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException<IReadOnlySet<Guid>>(exception);
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)

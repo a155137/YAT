@@ -355,6 +355,70 @@ public class DuckDbWorksheetRawDataStoreTests
     }
 
     [Fact]
+    public async Task WorksheetRowCountIsZeroWhenNothingIsStored()
+    {
+        using var store = CreateStore();
+
+        Assert.Equal(0, await store.GetWorksheetRowCountAsync(WorksheetId, Token));
+        Assert.Empty(await store.GetStoredColumnIdsAsync(WorksheetId, Token));
+    }
+
+    [Fact]
+    public async Task WorksheetRowCountIsTheLongestLiveColumnAcrossBlocks()
+    {
+        using var store = CreateStore();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, Sequence(3))), Token);
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(reg1, Sequence(7))), Token);
+        await store.WriteColumnsAsync(Guid.NewGuid(), Block(new NumericRawDataColumn(Guid.NewGuid(), Sequence(50))), Token);
+
+        Assert.Equal(7, await store.GetWorksheetRowCountAsync(WorksheetId, Token));
+
+        // Replacing the longest column with a shorter one lowers the count: retired storage no longer counts.
+        await store.WriteColumnsAsync(WorksheetId, Block(new StringRawDataColumn(reg1, ["a", "b"])), Token);
+
+        Assert.Equal(3, await store.GetWorksheetRowCountAsync(WorksheetId, Token));
+    }
+
+    [Fact]
+    public async Task StoredColumnIdsAreTheWorksheetsLiveColumns()
+    {
+        using var store = CreateStore();
+        var no = Guid.NewGuid();
+        var bin = Guid.NewGuid();
+        var lot = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(no, [1]), new NumericRawDataColumn(bin, [1])), Token);
+        await store.WriteColumnsAsync(WorksheetId, Block(new StringRawDataColumn(lot, ["N1", "N2"]), new NumericRawDataColumn(bin, [2, 3])), Token);
+        await store.WriteColumnsAsync(Guid.NewGuid(), Block(new NumericRawDataColumn(Guid.NewGuid(), [1])), Token);
+
+        var ids = await store.GetStoredColumnIdsAsync(WorksheetId, Token);
+
+        Assert.Equal(new HashSet<Guid> { no, bin, lot }, ids.ToHashSet());
+    }
+
+    [Fact]
+    public async Task RowCountAndStoredColumnIdsAfterDisposeAreRejected()
+    {
+        var store = CreateStore();
+        store.Dispose();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => store.GetWorksheetRowCountAsync(WorksheetId, Token));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => store.GetStoredColumnIdsAsync(WorksheetId, Token));
+    }
+
+    [Fact]
+    public async Task RowCountAndStoredColumnIdsHonorCancellation()
+    {
+        using var store = CreateStore();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.GetWorksheetRowCountAsync(WorksheetId, cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.GetStoredColumnIdsAsync(WorksheetId, cancellation.Token));
+    }
+
+    [Fact]
     public void DefaultResourceLimitsAreConservative()
     {
         using var store = new DuckDbWorksheetRawDataStore(new DuckDbRawDataStoreSettings(":memory:"));
