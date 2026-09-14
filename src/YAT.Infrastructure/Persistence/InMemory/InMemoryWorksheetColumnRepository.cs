@@ -34,4 +34,9 @@ public sealed class InMemoryWorksheetColumnRepository : IWorksheetColumnReposito
         _columns[column.Id] = column;
         return Task.CompletedTask;
     }
+
+    public Task DeleteAsync(Guid columnId, CancellationToken cancellationToken) =>
+        _columns.Remove(columnId)
+            ? Task.CompletedTask
+            : Task.FromException(new EntityNotFoundException(nameof(WorksheetColumn), columnId));
 }

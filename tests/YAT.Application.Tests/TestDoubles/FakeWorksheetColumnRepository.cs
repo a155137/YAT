@@ -12,10 +12,12 @@ internal sealed class FakeWorksheetColumnRepository : IWorksheetColumnRepository
 
     public List<WorksheetColumn> Updated { get; } = [];
 
-    // When set, the metadata write (Add or Update) with this 1-based number throws instead of storing.
+    public List<Guid> Deleted { get; } = [];
+
+    // When set, the metadata write (Add, Update or Delete) with this 1-based number throws instead of storing.
     public (int WriteNumber, Exception Exception)? FailingWrite { get; set; }
 
-    private int WriteCount => Added.Count + Updated.Count;
+    private int WriteCount => Added.Count + Updated.Count + Deleted.Count;
 
     public void Seed(WorksheetColumn column) => _stored[column.Id] = column;
 
@@ -47,6 +49,18 @@ internal sealed class FakeWorksheetColumnRepository : IWorksheetColumnRepository
 
         _stored[column.Id] = column;
         Updated.Add(column);
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteAsync(Guid columnId, CancellationToken cancellationToken)
+    {
+        ThrowIfFailingWrite();
+        if (!_stored.Remove(columnId))
+        {
+            throw new EntityNotFoundException(nameof(WorksheetColumn), columnId);
+        }
+
+        Deleted.Add(columnId);
         return Task.CompletedTask;
     }
 

@@ -124,6 +124,48 @@ public class InMemoryWorksheetColumnRepositoryTests
     }
 
     [Fact]
+    public async Task DeleteRemovesOnlyThatColumnWithoutReindexing()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var worksheetId = Guid.NewGuid();
+        var no = Column(Guid.NewGuid(), worksheetId, 0, "No");
+        var site = Column(Guid.NewGuid(), worksheetId, 1, "SITE");
+        var reg1 = Column(Guid.NewGuid(), worksheetId, 2, "Reg1");
+        await repository.AddAsync(no, Token);
+        await repository.AddAsync(site, Token);
+        await repository.AddAsync(reg1, Token);
+
+        await repository.DeleteAsync(site.Id, Token);
+
+        var remaining = await repository.GetByWorksheetIdAsync(worksheetId, Token);
+        Assert.Equal([no, reg1], remaining);
+        Assert.Equal([0, 2], remaining.Select(column => column.Index));
+    }
+
+    [Fact]
+    public async Task DeleteOfUnknownColumnThrows()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var id = Guid.NewGuid();
+
+        var exception = await Assert.ThrowsAsync<EntityNotFoundException>(() => repository.DeleteAsync(id, Token));
+
+        Assert.Equal(id, exception.Id);
+    }
+
+    [Fact]
+    public async Task DeletedColumnCannotBeUpdatedOrDeletedAgain()
+    {
+        var repository = new InMemoryWorksheetColumnRepository();
+        var column = Column(Guid.NewGuid(), 0);
+        await repository.AddAsync(column, Token);
+        await repository.DeleteAsync(column.Id, Token);
+
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => repository.UpdateAsync(column, Token));
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => repository.DeleteAsync(column.Id, Token));
+    }
+
+    [Fact]
     public async Task ColumnsAddedThroughTheHandlerAreReadableWithoutUiState()
     {
         var worksheets = new InMemoryWorksheetRepository();

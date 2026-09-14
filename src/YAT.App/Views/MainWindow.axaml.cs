@@ -27,25 +27,37 @@ public partial class MainWindow : Window
 
     private void OnExitClick(object? sender, RoutedEventArgs e) => Close();
 
-    // Worksheet paste uses the bubbling KeyDown event rather than Window.KeyBindings: key bindings are matched before
-    // the focused control sees the key, which would take Ctrl+V away from text boxes. A focused TextBox handles its
-    // own paste first, so this only runs when no control handled the gesture.
+    // Worksheet shortcuts use the bubbling KeyDown event rather than Window.KeyBindings: key bindings are matched before
+    // the focused control sees the key, which would take Ctrl+V or Delete away from text boxes. A focused TextBox
+    // handles its own keys first, so these only run when no control handled the gesture.
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
 
-        if (e.Handled
-            || DataContext is not MainWindowViewModel viewModel
-            || this.GetPlatformSettings()?.HotkeyConfiguration.Paste.Any(gesture => gesture.Matches(e)) != true)
+        if (e.Handled || DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
 
-        if (viewModel.PasteCommand.CanExecute(null))
+        if (this.GetPlatformSettings()?.HotkeyConfiguration.Paste.Any(gesture => gesture.Matches(e)) == true)
         {
-            viewModel.PasteCommand.Execute(null);
-            e.Handled = true;
+            e.Handled = TryExecute(viewModel.PasteCommand);
         }
+        else if (WorksheetKeyRouting.IsDeleteColumnGesture(e.Key, e.KeyModifiers, e.Handled, e.Source))
+        {
+            e.Handled = TryExecute(viewModel.DeleteColumnCommand);
+        }
+    }
+
+    private static bool TryExecute(System.Windows.Input.ICommand command)
+    {
+        if (!command.CanExecute(null))
+        {
+            return false;
+        }
+
+        command.Execute(null);
+        return true;
     }
 
     protected override void OnDataContextChanged(EventArgs e)

@@ -86,12 +86,15 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SelectedWorksheetSummary))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PreviousPageCommand))]
     [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
     public partial Worksheet? SelectedWorksheet { get; set; }
 
     // Paste target: when set, pasted columns start at its Index; otherwise they are appended after the last column.
+    // It is also the column that Delete removes.
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(DeleteColumnCommand))]
     public partial WorksheetColumn? SelectedColumn { get; set; }
 
     [ObservableProperty]
@@ -183,6 +186,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CreateWorksheetCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteColumnCommand))]
     public partial bool IsBusy { get; private set; }
 
     partial void OnSelectedWorksheetChanged(Worksheet? value)
@@ -506,6 +510,66 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     private bool CanPaste() => !IsBusy && SelectedWorksheet is not null;
+
+    // Deletes the selected column as a whole (values and metadata); the remaining columns close the gap.
+    // With no selected column this is a no-op.
+    [RelayCommand(CanExecute = nameof(CanDeleteColumn))]
+    private async Task DeleteColumnAsync(CancellationToken cancellationToken)
+    {
+        if (IsBusy || SelectedWorksheet is null || SelectedWorksheetColumns is null || SelectedColumn is null)
+        {
+            return;
+        }
+
+        // Capture the target so a selection change during the await cannot misroute the result.
+        var worksheet = SelectedWorksheet;
+        var columns = SelectedWorksheetColumns;
+        var deletedColumn = SelectedColumn;
+
+        IsBusy = true;
+        try
+        {
+            var remaining = await _session.DeleteColumnAsync(worksheet.Id, deletedColumn.Id, cancellationToken);
+
+            columns.Clear();
+            foreach (var column in remaining)
+            {
+                columns.Add(column);
+            }
+
+            ErrorMessage = null;
+
+            if (ReferenceEquals(SelectedWorksheetColumns, columns))
+            {
+                if (SelectedColumn?.Id == deletedColumn.Id)
+                {
+                    SelectedColumn = null;
+                }
+
+                // Show the result: grid columns, row count and the first page, all re-read from storage.
+                await ReloadGridFromFirstPageAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not an error; the UI state stays as it was.
+        }
+        catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
+        {
+            ErrorMessage = ex.Message;
+        }
+        catch (RawDataStorageException)
+        {
+            // Storage details stay out of the UI.
+            ErrorMessage = "The column could not be deleted.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanDeleteColumn() => !IsBusy && SelectedWorksheet is not null && SelectedColumn is not null;
 
     [RelayCommand]
     private void ToggleProjectPanel() => IsProjectPanelVisible = !IsProjectPanelVisible;

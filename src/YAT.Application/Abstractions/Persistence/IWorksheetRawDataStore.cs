@@ -23,4 +23,10 @@ public interface IWorksheetRawDataStore
 
     // Ids of the worksheet's columns that have stored raw values. Column metadata without raw values is not included.
     Task<IReadOnlySet<Guid>> GetStoredColumnIdsAsync(Guid worksheetId, CancellationToken cancellationToken);
+
+    // Retires the given live raw columns of the worksheet as a whole: afterwards they cannot be read, and the
+    // worksheet row count reflects only the remaining columns. Values of other columns are unchanged.
+    // All ids must be distinct live columns of this worksheet (EntityNotFoundException otherwise); nothing is
+    // retired unless all of them are.
+    Task DeleteColumnsAsync(Guid worksheetId, IReadOnlyList<Guid> columnIds, CancellationToken cancellationToken);
 }

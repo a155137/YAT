@@ -3,6 +3,7 @@ using YAT.Application.Exceptions;
 using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
+using YAT.Application.Features.Worksheets.DeleteWorksheetColumn;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
@@ -31,6 +32,7 @@ public sealed class MainWindowSession
     private readonly PasteExecutionService _pasteExecution;
     private readonly IWorksheetColumnRepository _worksheetColumns;
     private readonly WorksheetDataQueryService _dataQuery;
+    private readonly DeleteWorksheetColumnHandler _deleteWorksheetColumn;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     internal MainWindowSession(
@@ -42,7 +44,8 @@ public sealed class MainWindowSession
         WorksheetPastePlanner planner,
         PasteExecutionService pasteExecution,
         IWorksheetColumnRepository worksheetColumns,
-        WorksheetDataQueryService dataQuery)
+        WorksheetDataQueryService dataQuery,
+        DeleteWorksheetColumnHandler deleteWorksheetColumn)
     {
         _createProject = createProject;
         _createWorksheet = createWorksheet;
@@ -53,6 +56,7 @@ public sealed class MainWindowSession
         _pasteExecution = pasteExecution;
         _worksheetColumns = worksheetColumns;
         _dataQuery = dataQuery;
+        _deleteWorksheetColumn = deleteWorksheetColumn;
     }
 
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>
@@ -82,6 +86,15 @@ public sealed class MainWindowSession
             () => Task.Run(() => PasteTextAsync(worksheetId, selectedColumnIndex, text, cancellationToken), cancellationToken),
             cancellationToken);
     }
+
+    // Deletes one column as a whole (raw values, metadata, contiguous reindex) off the UI thread and returns the
+    // worksheet's remaining column metadata ordered by Index.
+    public Task<IReadOnlyList<WorksheetColumn>> DeleteColumnAsync(Guid worksheetId, Guid columnId, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(
+                () => _deleteWorksheetColumn.HandleAsync(new DeleteWorksheetColumnCommand(worksheetId, columnId), cancellationToken),
+                cancellationToken),
+            cancellationToken);
 
     // Loads one grid page (at most GridPageSize rows) starting at the zero-based rowOffset, off the UI thread.
     public Task<WorksheetGridPage> LoadWorksheetPageAsync(Guid worksheetId, long rowOffset, CancellationToken cancellationToken) =>

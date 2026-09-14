@@ -158,6 +158,7 @@ public class MainWindowSessionCompositionTests
         string[] allowedNamespaces =
         [
             "System",
+            "System.Collections.Generic",
             "System.Threading",
             "System.Threading.Tasks",
             "YAT.Application.Features.Projects.CreateProject",

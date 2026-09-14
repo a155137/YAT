@@ -63,20 +63,19 @@ public class WorksheetGridLayoutTests
     public void HeaderPasteTargetStateTracksSelection()
     {
         var header = WorksheetGridLayout.CreateHeader(Column("SITE", WorksheetDataType.Numeric));
-        var text = Assert.IsType<TextBlock>(header.Child);
 
-        Assert.Equal("SITE", text.Text);
+        Assert.Equal("SITE", WorksheetGridLayout.GetHeaderText(header));
         Assert.Contains(WorksheetGridLayout.HeaderClass, header.Classes);
         Assert.False(WorksheetGridLayout.IsPasteTarget(header));
-        Assert.Equal(FontWeight.Normal, text.FontWeight);
+        Assert.Equal(FontWeight.Normal, WorksheetGridLayout.GetHeaderFontWeight(header));
 
         WorksheetGridLayout.SetPasteTarget(header, true);
         Assert.True(WorksheetGridLayout.IsPasteTarget(header));
-        Assert.Equal(FontWeight.SemiBold, text.FontWeight);
+        Assert.Equal(FontWeight.SemiBold, WorksheetGridLayout.GetHeaderFontWeight(header));
 
         WorksheetGridLayout.SetPasteTarget(header, false);
         Assert.False(WorksheetGridLayout.IsPasteTarget(header));
-        Assert.Equal(FontWeight.Normal, text.FontWeight);
+        Assert.Equal(FontWeight.Normal, WorksheetGridLayout.GetHeaderFontWeight(header));
     }
 
     [Fact]
@@ -84,8 +83,26 @@ public class WorksheetGridLayoutTests
     {
         var header = WorksheetGridLayout.CreateHeader(null);
 
-        Assert.Equal(string.Empty, Assert.IsType<TextBlock>(header.Child).Text);
+        Assert.Equal(string.Empty, WorksheetGridLayout.GetHeaderText(header));
         Assert.False(WorksheetGridLayout.IsPasteTarget(header));
+    }
+
+    // 18: spreadsheet grid lines on headers; the paste-target accent bar stays on the inner element, so grid lines
+    // keep their neutral brush and the header keeps its size whether or not it is the paste target.
+    [Fact]
+    public void HeadersDrawGridLinesAndKeepTheAccentBarInside()
+    {
+        var header = WorksheetGridLayout.CreateHeader(Column("Reg1", WorksheetDataType.Numeric));
+        var marker = Assert.IsType<Border>(header.Child);
+
+        Assert.Equal(new Avalonia.Thickness(0, 0, 1, 1), header.BorderThickness);
+        Assert.Equal(new Avalonia.Thickness(0, 0, 0, 2), marker.BorderThickness);
+
+        WorksheetGridLayout.SetPasteTarget(header, true);
+
+        Assert.Equal(new Avalonia.Thickness(0, 0, 1, 1), header.BorderThickness);
+        Assert.Equal(new Avalonia.Thickness(0, 0, 0, 2), marker.BorderThickness);
+        Assert.Equal("SystemControlForegroundBaseLowBrush", WorksheetGridLayout.GridLineBrushKey);
     }
 
     // 3, 4: the window restyles headers when SelectedColumn changes; header clicks and paste keep driving it.

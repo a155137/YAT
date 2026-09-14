@@ -19,6 +19,9 @@ internal sealed class FakeWorksheetRawDataStore : IWorksheetRawDataStore
     // Runs at the start of WriteColumnsAsync, e.g. to observe metadata state at the moment of the raw write.
     public Action? OnWrite { get; set; }
 
+    // Stores a live raw column without recording a write.
+    public void Seed(Guid worksheetId, RawDataColumn column) => _stored[column.ColumnId] = (worksheetId, column);
+
     public Task WriteColumnsAsync(Guid worksheetId, RawDataBlock block, CancellationToken cancellationToken)
     {
         OnWrite?.Invoke();
@@ -65,6 +68,40 @@ internal sealed class FakeWorksheetRawDataStore : IWorksheetRawDataStore
             .ToArray();
 
         return Task.FromResult(new RawDataBlock(window));
+    }
+
+    public List<(Guid WorksheetId, IReadOnlyList<Guid> ColumnIds)> Deletes { get; } = [];
+
+    // Thrown by DeleteColumnsAsync instead of retiring the columns.
+    public Exception? DeleteFailure { get; set; }
+
+    // Runs at the start of DeleteColumnsAsync, e.g. to observe metadata state at the moment of the raw delete.
+    public Action? OnDelete { get; set; }
+
+    public Task DeleteColumnsAsync(Guid worksheetId, IReadOnlyList<Guid> columnIds, CancellationToken cancellationToken)
+    {
+        OnDelete?.Invoke();
+
+        if (DeleteFailure is not null)
+        {
+            throw DeleteFailure;
+        }
+
+        foreach (var id in columnIds)
+        {
+            if (!_stored.TryGetValue(id, out var entry) || entry.WorksheetId != worksheetId)
+            {
+                throw new EntityNotFoundException("RawDataColumn", id);
+            }
+        }
+
+        Deletes.Add((worksheetId, columnIds.ToArray()));
+        foreach (var id in columnIds)
+        {
+            _stored.Remove(id);
+        }
+
+        return Task.CompletedTask;
     }
 
     public Task<long> GetWorksheetRowCountAsync(Guid worksheetId, CancellationToken cancellationToken) =>

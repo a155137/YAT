@@ -28,7 +28,9 @@ public static class WorksheetGridLayout
 
     // Theme resources, bound dynamically so headers follow light/dark theme changes.
     private const string HeaderBackgroundKey = "SystemControlBackgroundChromeMediumLowBrush";
-    private const string HeaderSeparatorKey = "SystemControlForegroundBaseLowBrush";
+
+    // Grid lines for headers and cells (cells use it in MainWindow.axaml): the theme's low-contrast base brush.
+    public const string GridLineBrushKey = "SystemControlForegroundBaseLowBrush";
     private const string AccentBrushKey = "SystemControlHighlightAccentBrush";
     private const string AccentColorKey = "SystemAccentColor";
     private const double PasteTargetTintOpacity = 0.18;
@@ -51,12 +53,15 @@ public static class WorksheetGridLayout
 
     // Header content is styled here rather than by window styles: TableView hosts it outside the window's logical
     // tree, where those styles do not reach. Pass no column for the (empty) row-number header.
+    // Structure: an outer border drawing the spreadsheet grid lines (right and bottom), holding an inner border that
+    // carries the paste-target tint and accent bar, holding the header text.
     public static Border CreateHeader(WorksheetGridColumn? column)
     {
-        var header = new Border
+        var marker = new Border
         {
-            Padding = new Thickness(6, 3),
+            Padding = new Thickness(6, 2),
             BorderThickness = new Thickness(0, 0, 0, 2),
+            BorderBrush = Brushes.Transparent,
             Child = new TextBlock
             {
                 Text = column?.Name ?? string.Empty,
@@ -64,7 +69,16 @@ public static class WorksheetGridLayout
                 HorizontalAlignment = HorizontalAlignment.Center
             }
         };
+
+        var header = new Border
+        {
+            BorderThickness = new Thickness(0, 0, 1, 1),
+            Child = marker
+        };
         header.Classes.Add(HeaderClass);
+        header.Bind(Border.BackgroundProperty, header.GetResourceObservable(HeaderBackgroundKey));
+        header.Bind(Border.BorderBrushProperty, header.GetResourceObservable(GridLineBrushKey));
+
         SetPasteTarget(header, false);
         return header;
     }
@@ -75,18 +89,32 @@ public static class WorksheetGridLayout
         ArgumentNullException.ThrowIfNull(header);
 
         header.Classes.Set(PasteTargetClass, isPasteTarget);
-        header.Bind(
-            Border.BackgroundProperty,
-            isPasteTarget
-                ? header.GetResourceObservable(AccentColorKey, color => color is Color accent ? new SolidColorBrush(accent, PasteTargetTintOpacity) : null)
-                : header.GetResourceObservable(HeaderBackgroundKey));
-        header.Bind(Border.BorderBrushProperty, header.GetResourceObservable(isPasteTarget ? AccentBrushKey : HeaderSeparatorKey));
-
-        if (header.Child is TextBlock text)
+        if (header.Child is not Border { Child: TextBlock text } marker)
         {
-            text.FontWeight = isPasteTarget ? FontWeight.SemiBold : FontWeight.Normal;
+            return;
         }
+
+        if (isPasteTarget)
+        {
+            marker.Bind(
+                Border.BackgroundProperty,
+                marker.GetResourceObservable(AccentColorKey, color => color is Color accent ? new SolidColorBrush(accent, PasteTargetTintOpacity) : null));
+            marker.Bind(Border.BorderBrushProperty, marker.GetResourceObservable(AccentBrushKey));
+        }
+        else
+        {
+            marker.Background = null;
+            marker.BorderBrush = Brushes.Transparent;
+        }
+
+        text.FontWeight = isPasteTarget ? FontWeight.SemiBold : FontWeight.Normal;
     }
 
     public static bool IsPasteTarget(Border header) => header.Classes.Contains(PasteTargetClass);
+
+    public static string GetHeaderText(Border header) =>
+        header.Child is Border { Child: TextBlock text } ? text.Text ?? string.Empty : string.Empty;
+
+    public static FontWeight GetHeaderFontWeight(Border header) =>
+        header.Child is Border { Child: TextBlock text } ? text.FontWeight : FontWeight.Normal;
 }

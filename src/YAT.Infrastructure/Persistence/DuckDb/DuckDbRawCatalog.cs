@@ -116,6 +116,9 @@ internal static class DuckDbRawCatalog
             "physical_name = EXCLUDED.physical_name, data_type = EXCLUDED.data_type",
             ("column", columnId), ("worksheet", worksheetId), ("block", blockId), ("name", physicalName), ("type", dataType.ToString()));
 
+    public static void DeleteColumn(DuckDBConnection connection, Guid columnId) =>
+        Execute(connection, "DELETE FROM raw_column WHERE column_id = $column", ("column", columnId));
+
     public static long CountLiveColumns(DuckDBConnection connection, Guid blockId) =>
         Convert.ToInt64(Scalar(connection, "SELECT count(*) FROM raw_column WHERE block_id = $block", ("block", blockId)), CultureInfo.InvariantCulture);
 

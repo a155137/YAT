@@ -418,6 +418,116 @@ public class DuckDbWorksheetRawDataStoreTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.GetStoredColumnIdsAsync(WorksheetId, cancellation.Token));
     }
 
+    // 7
+    [Fact]
+    public async Task DeletedColumnCannotBeReadAndIsNoLongerStored()
+    {
+        using var store = CreateStore();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1, 2]), new NumericRawDataColumn(reg1, [5, 7])), Token);
+
+        await store.DeleteColumnsAsync(WorksheetId, [reg1], Token);
+
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => ReadAll(store, reg1));
+        Assert.Equal(new HashSet<Guid> { site }, (await store.GetStoredColumnIdsAsync(WorksheetId, Token)).ToHashSet());
+        Assert.Equal([1, 2], Assert.IsType<NumericRawDataColumn>(Assert.Single((await ReadAll(store, site)).Columns)).Values);
+    }
+
+    // 8, 9
+    [Fact]
+    public async Task DeletingTheLongestColumnLowersTheRowCountToTheNextLongest()
+    {
+        using var store = CreateStore();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        var reg2 = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, Sequence(3))), Token);
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(reg1, Sequence(7))), Token);
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(reg2, Sequence(5))), Token);
+
+        await store.DeleteColumnsAsync(WorksheetId, [reg1], Token);
+
+        Assert.Equal(5, await store.GetWorksheetRowCountAsync(WorksheetId, Token));
+        var block = await ReadAll(store, site, reg2);
+        Assert.Equal(5, block.RowCount);
+        Assert.Equal([0, 1, 2, null, null], Assert.IsType<NumericRawDataColumn>(block.Columns[0]).Values);
+    }
+
+    // 10
+    [Fact]
+    public async Task DeletingTheLastLiveColumnLeavesZeroRows()
+    {
+        using var store = CreateStore();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1, 2]), new StringRawDataColumn(reg1, ["a", "b"])), Token);
+
+        await store.DeleteColumnsAsync(WorksheetId, [site, reg1], Token);
+
+        Assert.Equal(0, await store.GetWorksheetRowCountAsync(WorksheetId, Token));
+        Assert.Empty(await store.GetStoredColumnIdsAsync(WorksheetId, Token));
+    }
+
+    [Fact]
+    public async Task DeleteIsAllOrNothingForUnknownOrForeignIds()
+    {
+        using var store = CreateStore();
+        var site = Guid.NewGuid();
+        var foreign = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1])), Token);
+        await store.WriteColumnsAsync(Guid.NewGuid(), Block(new NumericRawDataColumn(foreign, [1])), Token);
+
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => store.DeleteColumnsAsync(WorksheetId, [site, Guid.NewGuid()], Token));
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => store.DeleteColumnsAsync(WorksheetId, [site, foreign], Token));
+
+        Assert.Equal([1], Assert.IsType<NumericRawDataColumn>(Assert.Single((await ReadAll(store, site)).Columns)).Values);
+    }
+
+    [Fact]
+    public async Task DeleteRejectsEmptyAndDuplicateIds()
+    {
+        using var store = CreateStore();
+        var site = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1])), Token);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => store.DeleteColumnsAsync(WorksheetId, null!, Token));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.DeleteColumnsAsync(WorksheetId, [], Token));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.DeleteColumnsAsync(WorksheetId, [site, site], Token));
+        Assert.Single((await ReadAll(store, site)).Columns);
+    }
+
+    // 11
+    [Fact]
+    public async Task DeleteHonorsCancellationAndDisposal()
+    {
+        var store = CreateStore();
+        var site = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1])), Token);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.DeleteColumnsAsync(WorksheetId, [site], cancellation.Token));
+        Assert.Single((await ReadAll(store, site)).Columns);
+
+        store.Dispose();
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => store.DeleteColumnsAsync(WorksheetId, [site], Token));
+    }
+
+    [Fact]
+    public async Task DeletedColumnIdCanBeWrittenAgainAsANewLiveColumn()
+    {
+        using var store = CreateStore();
+        var site = Guid.NewGuid();
+        await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1, 2])), Token);
+        await store.DeleteColumnsAsync(WorksheetId, [site], Token);
+
+        await store.WriteColumnsAsync(WorksheetId, Block(new StringRawDataColumn(site, ["x"])), Token);
+
+        Assert.Equal(["x"], Assert.IsType<StringRawDataColumn>(Assert.Single((await ReadAll(store, site)).Columns)).Values);
+        Assert.Equal(1, await store.GetWorksheetRowCountAsync(WorksheetId, Token));
+    }
+
     [Fact]
     public void DefaultResourceLimitsAreConservative()
     {

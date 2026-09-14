@@ -27,7 +27,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         _settings = settings;
     }
 
-    // Test-only fault injection between write phases. Always null in production.
+    // Test-only fault injection between write phases (a column delete raises AfterCleanup). Always null in production.
     internal Action<DuckDbRawWritePhase>? WritePhaseHook { get; set; }
 
     public Task WriteColumnsAsync(Guid worksheetId, RawDataBlock block, CancellationToken cancellationToken)
@@ -122,6 +122,36 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         }
     }
 
+    public Task DeleteColumnsAsync(Guid worksheetId, IReadOnlyList<Guid> columnIds, CancellationToken cancellationToken)
+    {
+        try
+        {
+            ArgumentNullException.ThrowIfNull(columnIds);
+            if (columnIds.Count == 0)
+            {
+                throw new ArgumentException("At least one column id is required.", nameof(columnIds));
+            }
+
+            if (columnIds.Distinct().Count() != columnIds.Count)
+            {
+                throw new ArgumentException("Column ids must not contain duplicates.", nameof(columnIds));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Execute(connection => DeleteColumns(connection, worksheetId, columnIds, cancellationToken));
+            return Task.CompletedTask;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException(exception);
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
@@ -172,6 +202,39 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             WritePhaseHook?.Invoke(DuckDbRawWritePhase.AfterCatalogUpdate);
 
             RetireReplacedStorage(connection, previous.Values);
+            WritePhaseHook?.Invoke(DuckDbRawWritePhase.AfterCleanup);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            transaction.Commit();
+        }
+        catch
+        {
+            DuckDbTransactions.RollBack(transaction);
+            throw;
+        }
+    }
+
+    // Removes the columns' catalog entries, then retires their physical storage with the same step a replacing write
+    // uses: a block left without live columns is dropped, otherwise only the retired physical columns are.
+    // Live values of other columns are never touched. One explicit transaction: all or nothing.
+    private void DeleteColumns(DuckDBConnection connection, Guid worksheetId, IReadOnlyList<Guid> columnIds, CancellationToken cancellationToken)
+    {
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            var catalog = DuckDbRawCatalog.FindColumns(connection, columnIds);
+            var retired = columnIds
+                .Select(id => catalog.TryGetValue(id, out var column) && column.WorksheetId == worksheetId
+                    ? column
+                    : throw new EntityNotFoundException("RawDataColumn", id))
+                .ToArray();
+
+            foreach (var column in retired)
+            {
+                DuckDbRawCatalog.DeleteColumn(connection, column.ColumnId);
+            }
+
+            RetireReplacedStorage(connection, retired);
             WritePhaseHook?.Invoke(DuckDbRawWritePhase.AfterCleanup);
 
             cancellationToken.ThrowIfCancellationRequested();

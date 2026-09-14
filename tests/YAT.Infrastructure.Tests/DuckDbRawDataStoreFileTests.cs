@@ -283,6 +283,121 @@ public partial class DuckDbRawDataStoreFileTests
         Assert.DoesNotContain("DuckDB", exception.GetType().Namespace!, StringComparison.OrdinalIgnoreCase);
     }
 
+    // 5
+    [Fact]
+    public async Task DeletingTheOnlyLiveColumnOfABlockDropsTheBlock()
+    {
+        using var database = new TemporaryDatabaseFile();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        using (var store = OpenStore(database))
+        {
+            await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1, 2])), Token);
+            await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(reg1, [5, 7])), Token);
+
+            await store.DeleteColumnsAsync(WorksheetId, [reg1], Token);
+        }
+
+        database.Inspect(connection =>
+        {
+            var table = Assert.Single(BlockTables(connection));
+            Assert.Equal(["row_index", $"c_{site:N}"], ColumnsOf(connection, table));
+            Assert.Equal(1, Scalar(connection, "SELECT count(*) FROM raw_block"));
+            Assert.Equal(1, Scalar(connection, "SELECT count(*) FROM raw_column"));
+            return true;
+        });
+    }
+
+    // 6, 8
+    [Fact]
+    public async Task DeletingOneColumnOfAMultiColumnBlockDropsOnlyThatPhysicalColumn()
+    {
+        using var database = new TemporaryDatabaseFile();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        var lot = Guid.NewGuid();
+        using (var store = OpenStore(database))
+        {
+            await store.WriteColumnsAsync(WorksheetId, Block(
+                new NumericRawDataColumn(site, [1, 2, 3]),
+                new NumericRawDataColumn(reg1, [5, 7, 2]),
+                new StringRawDataColumn(lot, ["N1", null, "N3"])), Token);
+
+            await store.DeleteColumnsAsync(WorksheetId, [reg1], Token);
+        }
+
+        using (var reopened = OpenStore(database))
+        {
+            var block = await reopened.ReadColumnsAsync(WorksheetId, [site, lot], 0, 10, Token);
+            Assert.Equal([1, 2, 3], Assert.IsType<NumericRawDataColumn>(block.Columns[0]).Values);
+            Assert.Equal(["N1", null, "N3"], Assert.IsType<StringRawDataColumn>(block.Columns[1]).Values);
+            Assert.Equal(3, await reopened.GetWorksheetRowCountAsync(WorksheetId, Token));
+            await Assert.ThrowsAsync<EntityNotFoundException>(() => reopened.ReadColumnsAsync(WorksheetId, [reg1], 0, 1, Token));
+        }
+
+        database.Inspect(connection =>
+        {
+            var table = Assert.Single(BlockTables(connection));
+            Assert.Equal(["row_index", $"c_{site:N}", $"c_{lot:N}"], ColumnsOf(connection, table));
+            Assert.Equal(1, Scalar(connection, "SELECT count(*) FROM raw_block"));
+            Assert.Equal(2, Scalar(connection, "SELECT count(*) FROM raw_column"));
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task DeletingEveryColumnOfABlockDropsTheBlockTable()
+    {
+        using var database = new TemporaryDatabaseFile();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        using (var store = OpenStore(database))
+        {
+            await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1]), new NumericRawDataColumn(reg1, [2])), Token);
+
+            await store.DeleteColumnsAsync(WorksheetId, [site, reg1], Token);
+        }
+
+        database.Inspect(connection =>
+        {
+            Assert.Empty(BlockTables(connection));
+            Assert.Equal(0, Scalar(connection, "SELECT count(*) FROM raw_block"));
+            Assert.Equal(0, Scalar(connection, "SELECT count(*) FROM raw_column"));
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task FailureOrCancellationDuringDeleteRetiresNothing()
+    {
+        using var database = new TemporaryDatabaseFile();
+        var site = Guid.NewGuid();
+        var reg1 = Guid.NewGuid();
+        using (var store = OpenStore(database))
+        {
+            await store.WriteColumnsAsync(WorksheetId, Block(new NumericRawDataColumn(site, [1, 2]), new NumericRawDataColumn(reg1, [5, 7])), Token);
+
+            store.WritePhaseHook = _ => throw new InvalidOperationException("Injected failure after cleanup.");
+            await Assert.ThrowsAsync<InvalidOperationException>(() => store.DeleteColumnsAsync(WorksheetId, [reg1], Token));
+
+            using var cancellation = new CancellationTokenSource();
+            store.WritePhaseHook = _ => cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.DeleteColumnsAsync(WorksheetId, [reg1], cancellation.Token));
+
+            store.WritePhaseHook = null;
+            var block = await store.ReadColumnsAsync(WorksheetId, [site, reg1], 0, 10, Token);
+            Assert.Equal([5, 7], Assert.IsType<NumericRawDataColumn>(block.Columns[1]).Values);
+        }
+
+        database.Inspect(connection =>
+        {
+            var table = Assert.Single(BlockTables(connection));
+            Assert.Equal(["row_index", $"c_{site:N}", $"c_{reg1:N}"], ColumnsOf(connection, table));
+            Assert.Equal(2, Scalar(connection, "SELECT count(*) FROM raw_column"));
+            return true;
+        });
+    }
+
     [GeneratedRegex("^blk_[0-9a-f]{32}$")]
     private static partial Regex BlockTableName();
 }

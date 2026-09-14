@@ -1,6 +1,7 @@
 using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
+using YAT.Application.Features.Worksheets.DeleteWorksheetColumn;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
@@ -54,7 +55,8 @@ public sealed class CompositionRoot
             new WorksheetPastePlanner(new ColumnDataTypeDetector()),
             projectSession.PasteExecution,
             projectSession.WorksheetColumns,
-            new WorksheetDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore));
+            new WorksheetDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
+            new DeleteWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore));
     }
 
     public MainWindowViewModel CreateMainWindowViewModel(MainWindowSession session)
