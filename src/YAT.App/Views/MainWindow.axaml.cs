@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        WorksheetGrid.AddHandler(PointerPressedEvent, OnWorksheetGridPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
         WorksheetGrid.AddHandler(PointerReleasedEvent, OnWorksheetGridPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
@@ -43,9 +44,9 @@ public partial class MainWindow : Window
         {
             e.Handled = TryExecute(viewModel.PasteCommand);
         }
-        else if (WorksheetKeyRouting.IsDeleteColumnGesture(e.Key, e.KeyModifiers, e.Handled, e.Source))
+        else if (WorksheetKeyRouting.IsDeleteColumnsGesture(e.Key, e.KeyModifiers, e.Handled, e.Source))
         {
-            e.Handled = TryExecute(viewModel.DeleteColumnCommand);
+            e.Handled = TryExecute(viewModel.DeleteSelectedColumnsCommand);
         }
     }
 
@@ -85,7 +86,8 @@ public partial class MainWindow : Window
             case nameof(MainWindowViewModel.GridColumns):
                 RebuildGridColumns();
                 break;
-            case nameof(MainWindowViewModel.SelectedColumn):
+            case nameof(MainWindowViewModel.ActiveColumn):
+            case nameof(MainWindowViewModel.SelectedColumns):
                 UpdateHeaderSelection();
                 break;
         }
@@ -130,11 +132,29 @@ public partial class MainWindow : Window
                 HorizontalContentAlignment = WorksheetGridLayout.GetCellAlignment(gridColumn.DataType)
             };
 
+            header.ContextMenu = CreateHeaderContextMenu();
             _gridColumnIds[column] = gridColumn.ColumnId;
             AddGridColumn(column, header);
         }
 
         UpdateHeaderSelection();
+    }
+
+    // "Delete Column" / "Delete N Columns": the same command the Delete key runs. Bound to the ViewModel explicitly,
+    // because header content does not inherit the window's DataContext (it sits outside the window's logical tree).
+    private ContextMenu? CreateHeaderContextMenu()
+    {
+        if (_viewModel is null)
+        {
+            return null;
+        }
+
+        var deleteItem = new MenuItem { Command = _viewModel.DeleteSelectedColumnsCommand };
+        deleteItem.Bind(MenuItem.HeaderProperty, new ReflectionBinding(nameof(MainWindowViewModel.DeleteSelectedColumnsMenuText)) { Source = _viewModel });
+
+        var menu = new ContextMenu();
+        menu.Items.Add(deleteItem);
+        return menu;
     }
 
     // The column's content alignment applies to its header as well, so the header element cannot stretch by itself;
@@ -145,32 +165,60 @@ public partial class MainWindow : Window
         WorksheetGrid.Columns.Add(column);
     }
 
-    // Highlights the header of the selected paste-target column.
+    // Marks each header as normal, selected, or active (selected and the Ctrl+V start).
     private void UpdateHeaderSelection()
     {
-        var selectedId = _viewModel?.SelectedColumn?.Id;
+        var activeId = _viewModel?.ActiveColumn?.Id;
+        IReadOnlySet<Guid> selectedIds = _viewModel?.SelectedColumns.Select(column => column.Id).ToHashSet() ?? [];
         foreach (var (column, columnId) in _gridColumnIds)
         {
             if (column.Header is Border header)
             {
-                WorksheetGridLayout.SetPasteTarget(header, columnId == selectedId);
+                WorksheetGridLayout.SetHeaderState(header, WorksheetGridLayout.GetHeaderState(columnId, activeId, selectedIds));
             }
         }
     }
 
-    // A left click on a column header (not on its resize gripper) toggles that column as the paste target.
+    // A right-button press on a header prepares the selection before its context menu opens (on release):
+    // an unselected column becomes the only selection, a selected column keeps the whole selection.
+    private void OnWorksheetGridPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(WorksheetGrid).Properties.IsRightButtonPressed
+            && TryGetHeaderColumnId(e.Source, out var columnId))
+        {
+            _viewModel!.SelectColumnForContextMenu(columnId);
+        }
+    }
+
+    // A left click on a column header (not on its resize gripper) selects columns: plain, Ctrl (toggle) or Shift (range).
     private void OnWorksheetGridPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (_viewModel is null
-            || e.InitialPressMouseButton != MouseButton.Left
-            || e.Source is not Visual source
-            || source.FindAncestorOfType<Thumb>(includeSelf: true) is not null
-            || source.FindAncestorOfType<TableViewColumnHeader>(includeSelf: true)?.Column is not { } column
-            || !_gridColumnIds.TryGetValue(column, out var columnId))
+        if (e.InitialPressMouseButton != MouseButton.Left || !TryGetHeaderColumnId(e.Source, out var columnId))
         {
             return;
         }
 
-        _viewModel.ToggleColumnSelectionCommand.Execute(columnId);
+        switch (WorksheetKeyRouting.GetHeaderClick(e.KeyModifiers))
+        {
+            case ColumnHeaderClick.Toggle:
+                _viewModel!.ToggleColumnSelection(columnId);
+                break;
+            case ColumnHeaderClick.Extend:
+                _viewModel!.ExtendColumnSelection(columnId);
+                break;
+            default:
+                _viewModel!.SelectColumn(columnId);
+                break;
+        }
+    }
+
+    private bool TryGetHeaderColumnId(object? eventSource, out Guid columnId)
+    {
+        columnId = Guid.Empty;
+        return _viewModel is not null
+            && eventSource is Visual source
+            && source.FindAncestorOfType<Thumb>(includeSelf: true) is null
+            && source.FindAncestorOfType<TableViewColumnHeader>(includeSelf: true)?.Column is { } column
+            && _gridColumnIds.TryGetValue(column, out columnId);
     }
 }

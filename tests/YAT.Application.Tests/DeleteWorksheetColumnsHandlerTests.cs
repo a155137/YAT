@@ -1,13 +1,13 @@
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Exceptions;
-using YAT.Application.Features.Worksheets.DeleteWorksheetColumn;
+using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
 using YAT.Application.Tests.TestDoubles;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
 
 namespace YAT.Application.Tests;
 
-public class DeleteWorksheetColumnHandlerTests
+public class DeleteWorksheetColumnsHandlerTests
 {
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
@@ -26,7 +26,7 @@ public class DeleteWorksheetColumnHandlerTests
 
         public FakeWorksheetRawDataStore RawStore { get; } = new();
 
-        public DeleteWorksheetColumnHandler Handler => new(Worksheets, Columns, RawStore);
+        public DeleteWorksheetColumnsHandler Handler => new(Worksheets, Columns, RawStore);
 
         public WorksheetColumn Column(int index, string name, bool stored = true)
         {
@@ -49,8 +49,8 @@ public class DeleteWorksheetColumnHandlerTests
             return column;
         }
 
-        public Task<IReadOnlyList<WorksheetColumn>> DeleteAsync(Guid columnId) =>
-            Handler.HandleAsync(new DeleteWorksheetColumnCommand(Worksheet.Id, columnId), Token);
+        public Task<IReadOnlyList<WorksheetColumn>> DeleteAsync(params Guid[] columnIds) =>
+            Handler.HandleAsync(new DeleteWorksheetColumnsCommand(Worksheet.Id, columnIds), Token);
 
         public Task<IReadOnlyList<WorksheetColumn>> StoredAsync() => Columns.GetByWorksheetIdAsync(Worksheet.Id, Token);
 
@@ -113,7 +113,7 @@ public class DeleteWorksheetColumnHandlerTests
         var no = fixture.Column(0, "No");
 
         var exception = await Assert.ThrowsAsync<EntityNotFoundException>(
-            () => fixture.Handler.HandleAsync(new DeleteWorksheetColumnCommand(Guid.NewGuid(), no.Id), Token));
+            () => fixture.Handler.HandleAsync(new DeleteWorksheetColumnsCommand(Guid.NewGuid(), [no.Id]), Token));
 
         Assert.Equal(nameof(Worksheet), exception.EntityName);
         fixture.AssertNothingChanged();
@@ -258,8 +258,119 @@ public class DeleteWorksheetColumnHandlerTests
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => fixture.Handler.HandleAsync(new DeleteWorksheetColumnCommand(fixture.Worksheet.Id, no.Id), cancellation.Token));
+            () => fixture.Handler.HandleAsync(new DeleteWorksheetColumnsCommand(fixture.Worksheet.Id, [no.Id]), cancellation.Token));
 
         fixture.AssertNothingChanged();
+    }
+
+    // Batch (Task #019): 6, 7, 8
+    [Fact]
+    public async Task BatchDeletesSeveralColumnsWithOneRawCallAndOneReindexPass()
+    {
+        var fixture = new Fixture();
+        var a = fixture.Column(0, "A");
+        var b = fixture.Column(1, "B");
+        var c = fixture.Column(2, "C");
+        var d = fixture.Column(3, "D");
+        var e = fixture.Column(4, "E");
+
+        var remaining = await fixture.DeleteAsync(d.Id, b.Id);
+
+        var rawDelete = Assert.Single(fixture.RawStore.Deletes);
+        Assert.Equal([d.Id, b.Id], rawDelete.ColumnIds);
+        Assert.Equal([d.Id, b.Id], fixture.Columns.Deleted);
+
+        var stored = await fixture.StoredAsync();
+        Assert.Equal([a.Id, c.Id, e.Id], stored.Select(column => column.Id));
+        Assert.Equal([0, 1, 2], stored.Select(column => column.Index));
+        Assert.Equal(stored.Select(column => column.Id), remaining.Select(column => column.Id));
+
+        // Each survivor whose position changed is updated exactly once.
+        Assert.Equal([c.Id, e.Id], fixture.Columns.Updated.Select(column => column.Id));
+    }
+
+    [Fact]
+    public async Task BatchRetiresOnlyStoredColumnsInItsSingleRawCall()
+    {
+        var fixture = new Fixture();
+        var no = fixture.Column(0, "No");
+        var vth = fixture.Column(1, "Vth", stored: false);
+        var site = fixture.Column(2, "SITE");
+
+        await fixture.DeleteAsync(no.Id, vth.Id, site.Id);
+
+        Assert.Equal([no.Id, site.Id], Assert.Single(fixture.RawStore.Deletes).ColumnIds);
+        Assert.Equal([no.Id, vth.Id, site.Id], fixture.Columns.Deleted);
+    }
+
+    [Fact]
+    public async Task BatchOfOnlyMetadataColumnsMakesNoRawCall()
+    {
+        var fixture = new Fixture();
+        var vth = fixture.Column(0, "Vth", stored: false);
+        var idsat = fixture.Column(1, "Idsat", stored: false);
+
+        await fixture.DeleteAsync(vth.Id, idsat.Id);
+
+        Assert.Empty(fixture.RawStore.Deletes);
+        Assert.Empty(await fixture.StoredAsync());
+    }
+
+    [Fact]
+    public async Task BatchValidatesEveryColumnBeforeAnyChange()
+    {
+        var fixture = new Fixture();
+        var a = fixture.Column(0, "A");
+        fixture.Column(1, "B");
+
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => fixture.DeleteAsync(a.Id, Guid.NewGuid()));
+
+        fixture.AssertNothingChanged();
+        Assert.Equal(2, (await fixture.StoredAsync()).Count);
+    }
+
+    [Fact]
+    public async Task BatchRejectsEmptyAndDuplicateIds()
+    {
+        var fixture = new Fixture();
+        var a = fixture.Column(0, "A");
+
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.DeleteAsync());
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.DeleteAsync(a.Id, a.Id));
+
+        fixture.AssertNothingChanged();
+    }
+
+    // 9
+    [Fact]
+    public async Task BatchDeletingAllColumnsLeavesZeroColumnsAndZeroRows()
+    {
+        var fixture = new Fixture();
+        var a = fixture.Column(0, "A");
+        var b = fixture.Column(1, "B");
+        var c = fixture.Column(2, "C", stored: false);
+
+        var remaining = await fixture.DeleteAsync(a.Id, b.Id, c.Id);
+
+        Assert.Empty(remaining);
+        Assert.Empty(await fixture.StoredAsync());
+        Assert.Empty(fixture.Columns.Updated);
+        Assert.Equal(0, await fixture.RawStore.GetWorksheetRowCountAsync(fixture.Worksheet.Id, Token));
+    }
+
+    [Fact]
+    public async Task BatchRawFailureLeavesAllMetadataUntouched()
+    {
+        var fixture = new Fixture();
+        var a = fixture.Column(0, "A");
+        var b = fixture.Column(1, "B");
+        fixture.Column(2, "C");
+        fixture.RawStore.DeleteFailure = new RawDataStorageException("Simulated storage failure.");
+
+        await Assert.ThrowsAsync<RawDataStorageException>(() => fixture.DeleteAsync(a.Id, b.Id));
+
+        Assert.Empty(fixture.Columns.Deleted);
+        Assert.Empty(fixture.Columns.Updated);
+        Assert.Equal(["A", "B", "C"], (await fixture.StoredAsync()).Select(column => column.Name));
     }
 }

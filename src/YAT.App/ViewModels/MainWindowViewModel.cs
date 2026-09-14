@@ -86,16 +86,25 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SelectedWorksheetSummary))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DeleteColumnCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteSelectedColumnsCommand))]
     [NotifyCanExecuteChangedFor(nameof(PreviousPageCommand))]
     [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
     public partial Worksheet? SelectedWorksheet { get; set; }
 
-    // Paste target: when set, pasted columns start at its Index; otherwise they are appended after the last column.
-    // It is also the column that Delete removes.
+    // Column selection is UI state only. ActiveColumn is the Ctrl+V paste start and the Shift+Click anchor; when it is
+    // null, paste appends after the last column. SelectedColumns (ordered by Index) is the Delete target set; it
+    // contains ActiveColumn whenever ActiveColumn is set, and is empty when it is not.
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(DeleteColumnCommand))]
-    public partial WorksheetColumn? SelectedColumn { get; set; }
+    public partial WorksheetColumn? ActiveColumn { get; private set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DeleteSelectedColumnsMenuText))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteSelectedColumnsCommand))]
+    public partial IReadOnlyList<WorksheetColumn> SelectedColumns { get; private set; } = [];
+
+    // Header context menu text: "Delete Column" or "Delete N Columns".
+    public string DeleteSelectedColumnsMenuText =>
+        SelectedColumns.Count <= 1 ? "Delete Column" : $"Delete {SelectedColumns.Count} Columns";
 
     [ObservableProperty]
     public partial bool IsPasteInProgress { get; private set; }
@@ -186,14 +195,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CreateWorksheetCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DeleteColumnCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteSelectedColumnsCommand))]
     public partial bool IsBusy { get; private set; }
 
     partial void OnSelectedWorksheetChanged(Worksheet? value)
     {
         // An error raised for the previously selected Worksheet no longer applies.
         ErrorMessage = null;
-        SelectedColumn = null;
+        ClearColumnSelection();
 
         // Never show the previous worksheet's page while the new one loads.
         ApplyGridPage(WorksheetGridPage.Empty);
@@ -293,12 +302,84 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool CanGoToNextPage() =>
         !IsGridLoading && SelectedWorksheet is not null && GridRowOffset + MainWindowSession.GridPageSize < TotalRowCount;
 
-    // Grid header click: selects that column as the paste target, or clears the selection when it is already selected.
-    [RelayCommand]
-    private void ToggleColumnSelection(Guid columnId)
+    // Header click: that column alone becomes selected and active.
+    public void SelectColumn(Guid columnId)
     {
-        var column = SelectedWorksheetColumns?.FirstOrDefault(candidate => candidate.Id == columnId);
-        SelectedColumn = column is null || ReferenceEquals(column, SelectedColumn) ? null : column;
+        if (FindColumn(columnId) is { } column)
+        {
+            SetColumnSelection([column], column);
+        }
+    }
+
+    // Ctrl+Click: adds the column (it becomes active) or removes it. Removing the active column makes the nearest
+    // remaining selected column to its right active, otherwise the nearest one to its left, or none.
+    public void ToggleColumnSelection(Guid columnId)
+    {
+        if (FindColumn(columnId) is not { } column)
+        {
+            return;
+        }
+
+        if (!SelectedColumns.Any(selected => selected.Id == columnId))
+        {
+            SetColumnSelection([.. SelectedColumns, column], column);
+            return;
+        }
+
+        var remaining = SelectedColumns.Where(selected => selected.Id != columnId).ToArray();
+        var active = ActiveColumn is not null && ActiveColumn.Id != columnId
+            ? ActiveColumn
+            : remaining.FirstOrDefault(selected => selected.Index > column.Index) ?? remaining.LastOrDefault();
+        SetColumnSelection(remaining, active);
+    }
+
+    // Shift+Click: selects every column whose Index lies between the active column and this one; the active column
+    // stays the anchor. Without an active column it acts like a plain click.
+    public void ExtendColumnSelection(Guid columnId)
+    {
+        if (FindColumn(columnId) is not { } column)
+        {
+            return;
+        }
+
+        if (ActiveColumn is not { } anchor)
+        {
+            SetColumnSelection([column], column);
+            return;
+        }
+
+        var (first, last) = (Math.Min(anchor.Index, column.Index), Math.Max(anchor.Index, column.Index));
+        SetColumnSelection(SelectedWorksheetColumns!.Where(candidate => candidate.Index >= first && candidate.Index <= last), anchor);
+    }
+
+    // Right-click on a header: an unselected column becomes the only (active) selection; a selected column keeps the
+    // whole selection, so the context menu acts on it.
+    public void SelectColumnForContextMenu(Guid columnId)
+    {
+        if (!SelectedColumns.Any(selected => selected.Id == columnId))
+        {
+            SelectColumn(columnId);
+        }
+    }
+
+    public void ClearColumnSelection() => SetColumnSelection([], null);
+
+    private WorksheetColumn? FindColumn(Guid columnId) =>
+        SelectedWorksheetColumns?.FirstOrDefault(candidate => candidate.Id == columnId);
+
+    private void SetColumnSelection(IEnumerable<WorksheetColumn> selected, WorksheetColumn? active)
+    {
+        var ordered = selected.DistinctBy(column => column.Id).OrderBy(column => column.Index).ToArray();
+        ActiveColumn = active;
+        SelectedColumns = Array.AsReadOnly(ordered);
+    }
+
+    // After the column collection is reloaded (new instances with the same Ids), keeps the selection that still exists.
+    private void RestoreColumnSelection(Guid? activeColumnId, IReadOnlyCollection<Guid> selectedColumnIds)
+    {
+        var selected = selectedColumnIds.Select(FindColumn).OfType<WorksheetColumn>().ToArray();
+        var active = activeColumnId is { } id ? selected.FirstOrDefault(column => column.Id == id) : null;
+        SetColumnSelection(active is null ? [] : selected, active);
     }
 
     partial void OnSelectedWorksheetColumnsChanged(
@@ -459,13 +540,15 @@ public partial class MainWindowViewModel : ViewModelBase
         // Capture the target so a selection change during the await cannot misroute the result.
         var worksheet = SelectedWorksheet;
         var columns = SelectedWorksheetColumns;
-        var selectedColumn = SelectedColumn;
+        var activeColumn = ActiveColumn;
+        var selectedColumnIds = SelectedColumns.Select(column => column.Id).ToArray();
 
         IsBusy = true;
         IsPasteInProgress = true;
         try
         {
-            var result = await _session.PasteFromClipboardAsync(worksheet.Id, selectedColumn?.Index, cancellationToken);
+            // Paste starts at the active column; the rest of the selection does not affect the pasted range.
+            var result = await _session.PasteFromClipboardAsync(worksheet.Id, activeColumn?.Index, cancellationToken);
             if (!result.IsPasted)
             {
                 return;
@@ -480,10 +563,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
             ErrorMessage = null;
 
-            // Clearing the collection drops the column selection; restore it by Id, since pasting keeps column Ids.
+            // The collection now holds new instances; restore the selection by Id, since pasting keeps column Ids.
             if (ReferenceEquals(SelectedWorksheetColumns, columns))
             {
-                SelectedColumn = selectedColumn is null ? null : columns.FirstOrDefault(column => column.Id == selectedColumn.Id);
+                RestoreColumnSelection(activeColumn?.Id, selectedColumnIds);
 
                 // Show the pasted values: grid columns, row count and the first page, all re-read from storage.
                 await ReloadGridFromFirstPageAsync();
@@ -511,25 +594,25 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private bool CanPaste() => !IsBusy && SelectedWorksheet is not null;
 
-    // Deletes the selected column as a whole (values and metadata); the remaining columns close the gap.
-    // With no selected column this is a no-op.
-    [RelayCommand(CanExecute = nameof(CanDeleteColumn))]
-    private async Task DeleteColumnAsync(CancellationToken cancellationToken)
+    // Deletes all selected columns together as one batch (values and metadata); the remaining columns close the gaps.
+    // Used by both the Delete key and the header context menu. With no selection this is a no-op.
+    [RelayCommand(CanExecute = nameof(CanDeleteSelectedColumns))]
+    private async Task DeleteSelectedColumnsAsync(CancellationToken cancellationToken)
     {
-        if (IsBusy || SelectedWorksheet is null || SelectedWorksheetColumns is null || SelectedColumn is null)
+        if (IsBusy || SelectedWorksheet is null || SelectedWorksheetColumns is null || SelectedColumns.Count == 0)
         {
             return;
         }
 
-        // Capture the target so a selection change during the await cannot misroute the result.
+        // Capture the targets so a selection change during the await cannot misroute the result.
         var worksheet = SelectedWorksheet;
         var columns = SelectedWorksheetColumns;
-        var deletedColumn = SelectedColumn;
+        var deletedColumnIds = SelectedColumns.Select(column => column.Id).ToArray();
 
         IsBusy = true;
         try
         {
-            var remaining = await _session.DeleteColumnAsync(worksheet.Id, deletedColumn.Id, cancellationToken);
+            var remaining = await _session.DeleteColumnsAsync(worksheet.Id, deletedColumnIds, cancellationToken);
 
             columns.Clear();
             foreach (var column in remaining)
@@ -541,12 +624,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (ReferenceEquals(SelectedWorksheetColumns, columns))
             {
-                if (SelectedColumn?.Id == deletedColumn.Id)
-                {
-                    SelectedColumn = null;
-                }
+                ClearColumnSelection();
 
-                // Show the result: grid columns, row count and the first page, all re-read from storage.
+                // Show the result once: grid columns, row count and the first page, all re-read from storage.
                 await ReloadGridFromFirstPageAsync();
             }
         }
@@ -561,7 +641,7 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (RawDataStorageException)
         {
             // Storage details stay out of the UI.
-            ErrorMessage = "The column could not be deleted.";
+            ErrorMessage = deletedColumnIds.Length == 1 ? "The column could not be deleted." : "The columns could not be deleted.";
         }
         finally
         {
@@ -569,7 +649,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool CanDeleteColumn() => !IsBusy && SelectedWorksheet is not null && SelectedColumn is not null;
+    private bool CanDeleteSelectedColumns() => !IsBusy && SelectedWorksheet is not null && SelectedColumns.Count > 0;
 
     [RelayCommand]
     private void ToggleProjectPanel() => IsProjectPanelVisible = !IsProjectPanelVisible;

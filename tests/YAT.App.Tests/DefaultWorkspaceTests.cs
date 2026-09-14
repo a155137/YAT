@@ -78,7 +78,8 @@ public class DefaultWorkspaceTests
         Assert.Same(Assert.Single(runtime.ViewModel.Worksheets), runtime.ViewModel.SelectedWorksheet);
         Assert.NotNull(runtime.ViewModel.SelectedWorksheetColumns);
         Assert.Empty(runtime.ViewModel.SelectedWorksheetColumns);
-        Assert.Null(runtime.ViewModel.SelectedColumn);
+        Assert.Null(runtime.ViewModel.ActiveColumn);
+        Assert.Empty(runtime.ViewModel.SelectedColumns);
         Assert.Equal("0 rows · 0 columns", runtime.ViewModel.SelectedWorksheetSummary);
     }
 

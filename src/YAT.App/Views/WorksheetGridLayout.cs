@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -13,9 +14,10 @@ public static class WorksheetGridLayout
 {
     public const double RowNumberColumnWidth = 48;
 
-    // Class on every header element; the selected paste-target column's header also carries PasteTargetClass.
+    // Class on every header element; selected column headers also carry SelectedClass, the active one ActiveClass too.
     public const string HeaderClass = "yat-grid-header";
-    public const string PasteTargetClass = "paste-target";
+    public const string SelectedClass = "selected";
+    public const string ActiveClass = "active";
 
     // Approximate width of one header character at the grid font size, plus the header's horizontal padding.
     private const double CharacterWidth = 7.5;
@@ -33,7 +35,11 @@ public static class WorksheetGridLayout
     public const string GridLineBrushKey = "SystemControlForegroundBaseLowBrush";
     private const string AccentBrushKey = "SystemControlHighlightAccentBrush";
     private const string AccentColorKey = "SystemAccentColor";
-    private const double PasteTargetTintOpacity = 0.18;
+    private const double SelectedTintOpacity = 0.14;
+    private const double ActiveTintOpacity = 0.30;
+
+    // The accent resource bindings currently applied to each header's inner element.
+    private static readonly ConditionalWeakTable<Border, List<IDisposable>> MarkerBindings = new();
 
     // Wide enough for the header name, within a range per data type: numbers are compact, text gets more room.
     public static double GetColumnWidth(WorksheetGridColumn column)
@@ -54,7 +60,7 @@ public static class WorksheetGridLayout
     // Header content is styled here rather than by window styles: TableView hosts it outside the window's logical
     // tree, where those styles do not reach. Pass no column for the (empty) row-number header.
     // Structure: an outer border drawing the spreadsheet grid lines (right and bottom), holding an inner border that
-    // carries the paste-target tint and accent bar, holding the header text.
+    // carries the selection tint and accent bar, holding the header text.
     public static Border CreateHeader(WorksheetGridColumn? column)
     {
         var marker = new Border
@@ -79,42 +85,73 @@ public static class WorksheetGridLayout
         header.Bind(Border.BackgroundProperty, header.GetResourceObservable(HeaderBackgroundKey));
         header.Bind(Border.BorderBrushProperty, header.GetResourceObservable(GridLineBrushKey));
 
-        SetPasteTarget(header, false);
+        SetHeaderState(header, ColumnHeaderState.Normal);
         return header;
     }
 
-    // The paste target stands out with an accent tint, an accent underline bar and semibold text.
-    public static void SetPasteTarget(Border header, bool isPasteTarget)
+    // The header state of a column given the current selection: the active column wins over plain selection.
+    public static ColumnHeaderState GetHeaderState(Guid columnId, Guid? activeColumnId, IReadOnlySet<Guid> selectedColumnIds) =>
+        columnId == activeColumnId ? ColumnHeaderState.Active
+        : selectedColumnIds.Contains(columnId) ? ColumnHeaderState.Selected
+        : ColumnHeaderState.Normal;
+
+    // Normal: chrome only. Selected: a light accent tint and semibold text. Active (selected, and the Ctrl+V start):
+    // a stronger accent tint plus the accent underline bar.
+    public static void SetHeaderState(Border header, ColumnHeaderState state)
     {
         ArgumentNullException.ThrowIfNull(header);
 
-        header.Classes.Set(PasteTargetClass, isPasteTarget);
+        header.Classes.Set(SelectedClass, state != ColumnHeaderState.Normal);
+        header.Classes.Set(ActiveClass, state == ColumnHeaderState.Active);
         if (header.Child is not Border { Child: TextBlock text } marker)
         {
             return;
         }
 
-        if (isPasteTarget)
+        // Resource bindings from the previous state must be disposed: a live binding re-applies its accent brush
+        // whenever the resource observable publishes again (e.g. when the header is re-attached).
+        var bindings = MarkerBindings.GetOrCreateValue(marker);
+        bindings.ForEach(binding => binding.Dispose());
+        bindings.Clear();
+
+        if (state == ColumnHeaderState.Normal)
         {
-            marker.Bind(
-                Border.BackgroundProperty,
-                marker.GetResourceObservable(AccentColorKey, color => color is Color accent ? new SolidColorBrush(accent, PasteTargetTintOpacity) : null));
-            marker.Bind(Border.BorderBrushProperty, marker.GetResourceObservable(AccentBrushKey));
+            marker.Background = null;
         }
         else
         {
-            marker.Background = null;
+            var opacity = state == ColumnHeaderState.Active ? ActiveTintOpacity : SelectedTintOpacity;
+            bindings.Add(marker.Bind(
+                Border.BackgroundProperty,
+                marker.GetResourceObservable(AccentColorKey, color => color is Color accent ? new SolidColorBrush(accent, opacity) : null)));
+        }
+
+        if (state == ColumnHeaderState.Active)
+        {
+            bindings.Add(marker.Bind(Border.BorderBrushProperty, marker.GetResourceObservable(AccentBrushKey)));
+        }
+        else
+        {
             marker.BorderBrush = Brushes.Transparent;
         }
 
-        text.FontWeight = isPasteTarget ? FontWeight.SemiBold : FontWeight.Normal;
+        text.FontWeight = state == ColumnHeaderState.Normal ? FontWeight.Normal : FontWeight.SemiBold;
     }
 
-    public static bool IsPasteTarget(Border header) => header.Classes.Contains(PasteTargetClass);
-
+    public static ColumnHeaderState GetHeaderState(Border header) =>
+        header.Classes.Contains(ActiveClass) ? ColumnHeaderState.Active
+        : header.Classes.Contains(SelectedClass) ? ColumnHeaderState.Selected
+        : ColumnHeaderState.Normal;
     public static string GetHeaderText(Border header) =>
         header.Child is Border { Child: TextBlock text } ? text.Text ?? string.Empty : string.Empty;
 
     public static FontWeight GetHeaderFontWeight(Border header) =>
         header.Child is Border { Child: TextBlock text } ? text.FontWeight : FontWeight.Normal;
+}
+
+public enum ColumnHeaderState
+{
+    Normal,
+    Selected,
+    Active
 }

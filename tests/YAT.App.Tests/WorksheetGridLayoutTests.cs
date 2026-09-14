@@ -58,24 +58,45 @@ public class WorksheetGridLayoutTests
             > WorksheetGridLayout.GetColumnWidth(Column("Bin", WorksheetDataType.Numeric)));
     }
 
-    // 3
+    // Task #019 test 5: Normal, Selected and Active headers are distinct states.
     [Fact]
-    public void HeaderPasteTargetStateTracksSelection()
+    public void HeaderStatesAreNormalSelectedAndActive()
     {
         var header = WorksheetGridLayout.CreateHeader(Column("SITE", WorksheetDataType.Numeric));
 
         Assert.Equal("SITE", WorksheetGridLayout.GetHeaderText(header));
         Assert.Contains(WorksheetGridLayout.HeaderClass, header.Classes);
-        Assert.False(WorksheetGridLayout.IsPasteTarget(header));
+        Assert.Equal(ColumnHeaderState.Normal, WorksheetGridLayout.GetHeaderState(header));
         Assert.Equal(FontWeight.Normal, WorksheetGridLayout.GetHeaderFontWeight(header));
 
-        WorksheetGridLayout.SetPasteTarget(header, true);
-        Assert.True(WorksheetGridLayout.IsPasteTarget(header));
+        WorksheetGridLayout.SetHeaderState(header, ColumnHeaderState.Selected);
+        Assert.Equal(ColumnHeaderState.Selected, WorksheetGridLayout.GetHeaderState(header));
+        Assert.Contains(WorksheetGridLayout.SelectedClass, header.Classes);
+        Assert.DoesNotContain(WorksheetGridLayout.ActiveClass, header.Classes);
         Assert.Equal(FontWeight.SemiBold, WorksheetGridLayout.GetHeaderFontWeight(header));
 
-        WorksheetGridLayout.SetPasteTarget(header, false);
-        Assert.False(WorksheetGridLayout.IsPasteTarget(header));
+        WorksheetGridLayout.SetHeaderState(header, ColumnHeaderState.Active);
+        Assert.Equal(ColumnHeaderState.Active, WorksheetGridLayout.GetHeaderState(header));
+        Assert.Contains(WorksheetGridLayout.SelectedClass, header.Classes);
+        Assert.Contains(WorksheetGridLayout.ActiveClass, header.Classes);
+
+        WorksheetGridLayout.SetHeaderState(header, ColumnHeaderState.Normal);
+        Assert.Equal(ColumnHeaderState.Normal, WorksheetGridLayout.GetHeaderState(header));
+        Assert.DoesNotContain(WorksheetGridLayout.SelectedClass, header.Classes);
         Assert.Equal(FontWeight.Normal, WorksheetGridLayout.GetHeaderFontWeight(header));
+    }
+
+    [Fact]
+    public void HeaderStateRuleGivesTheActiveColumnPrecedence()
+    {
+        var active = Guid.NewGuid();
+        var selected = Guid.NewGuid();
+        IReadOnlySet<Guid> selection = new HashSet<Guid> { active, selected };
+
+        Assert.Equal(ColumnHeaderState.Active, WorksheetGridLayout.GetHeaderState(active, active, selection));
+        Assert.Equal(ColumnHeaderState.Selected, WorksheetGridLayout.GetHeaderState(selected, active, selection));
+        Assert.Equal(ColumnHeaderState.Normal, WorksheetGridLayout.GetHeaderState(Guid.NewGuid(), active, selection));
+        Assert.Equal(ColumnHeaderState.Normal, WorksheetGridLayout.GetHeaderState(selected, null, new HashSet<Guid>()));
     }
 
     [Fact]
@@ -84,11 +105,11 @@ public class WorksheetGridLayoutTests
         var header = WorksheetGridLayout.CreateHeader(null);
 
         Assert.Equal(string.Empty, WorksheetGridLayout.GetHeaderText(header));
-        Assert.False(WorksheetGridLayout.IsPasteTarget(header));
+        Assert.Equal(ColumnHeaderState.Normal, WorksheetGridLayout.GetHeaderState(header));
     }
 
-    // 18: spreadsheet grid lines on headers; the paste-target accent bar stays on the inner element, so grid lines
-    // keep their neutral brush and the header keeps its size whether or not it is the paste target.
+    // 18: spreadsheet grid lines on headers; the selection tint and accent bar stay on the inner element, so grid lines
+    // keep their neutral brush and the header keeps its size in every selection state.
     [Fact]
     public void HeadersDrawGridLinesAndKeepTheAccentBarInside()
     {
@@ -98,16 +119,16 @@ public class WorksheetGridLayoutTests
         Assert.Equal(new Avalonia.Thickness(0, 0, 1, 1), header.BorderThickness);
         Assert.Equal(new Avalonia.Thickness(0, 0, 0, 2), marker.BorderThickness);
 
-        WorksheetGridLayout.SetPasteTarget(header, true);
+        WorksheetGridLayout.SetHeaderState(header, ColumnHeaderState.Active);
 
         Assert.Equal(new Avalonia.Thickness(0, 0, 1, 1), header.BorderThickness);
         Assert.Equal(new Avalonia.Thickness(0, 0, 0, 2), marker.BorderThickness);
         Assert.Equal("SystemControlForegroundBaseLowBrush", WorksheetGridLayout.GridLineBrushKey);
     }
 
-    // 3, 4: the window restyles headers when SelectedColumn changes; header clicks and paste keep driving it.
+    // The window restyles headers when ActiveColumn/SelectedColumns change; header clicks and paste keep driving them.
     [Fact]
-    public async Task HeaderSelectionRaisesSelectedColumnChangesAndStillTargetsPaste()
+    public async Task HeaderSelectionRaisesSelectionChangesAndStillTargetsPaste()
     {
         var compositionRoot = new CompositionRoot(new FixedTimeProvider(Now));
         using var projectSession = compositionRoot.CreateProjectSession(":memory:");
@@ -121,21 +142,21 @@ public class WorksheetGridLayoutTests
         var notifications = 0;
         viewModel.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(MainWindowViewModel.SelectedColumn))
+            if (e.PropertyName is nameof(MainWindowViewModel.ActiveColumn) or nameof(MainWindowViewModel.SelectedColumns))
             {
                 notifications++;
             }
         };
 
         var bin = viewModel.GridColumns[1];
-        viewModel.ToggleColumnSelectionCommand.Execute(bin.ColumnId);
-        Assert.Equal(1, notifications);
+        viewModel.SelectColumn(bin.ColumnId);
+        Assert.Equal(2, notifications);
 
         clipboard.Text = "Lot\nN1\n";
         await viewModel.PasteCommand.ExecuteAsync(null);
 
         Assert.Equal(["No", "Lot", "SITE"], viewModel.GridColumns.Select(column => column.Name));
-        Assert.Equal(bin.ColumnId, viewModel.SelectedColumn?.Id);
-        Assert.True(notifications >= 2);
+        Assert.Equal(bin.ColumnId, viewModel.ActiveColumn?.Id);
+        Assert.True(notifications >= 4);
     }
 }

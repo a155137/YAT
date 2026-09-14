@@ -96,13 +96,13 @@ public class ClipboardPasteWorkflowTests
         await runtime.PasteAsync("No\tBin\tSITE\n1\t1\t1\n");
         var before = runtime.VisibleColumns.ToArray();
 
-        runtime.ViewModel.SelectedColumn = before[1];
+        runtime.ViewModel.SelectColumn(before[1].Id);
         await runtime.PasteAsync("Reg1\tReg2\n5\t0.132\n");
 
         Assert.Equal(["No", "Reg1", "Reg2"], Names(runtime.VisibleColumns));
         Assert.Equal([0, 1, 2], Indexes(runtime.VisibleColumns));
         Assert.Equal(before.Select(column => column.Id), runtime.VisibleColumns.Select(column => column.Id));
-        Assert.Equal(before[1].Id, runtime.ViewModel.SelectedColumn?.Id);
+        Assert.Equal(before[1].Id, runtime.ViewModel.ActiveColumn?.Id);
     }
 
     // 3
@@ -122,7 +122,7 @@ public class ClipboardPasteWorkflowTests
             Name = "Temp",
             DataType = WorksheetDataType.Numeric
         }, Token);
-        Assert.Null(runtime.ViewModel.SelectedColumn);
+        Assert.Null(runtime.ViewModel.ActiveColumn);
 
         await runtime.PasteAsync("Reg1\n5\n");
 
@@ -171,7 +171,7 @@ public class ClipboardPasteWorkflowTests
         await runtime.PasteAsync("SITE\t  \n2\t3\n");
         Assert.Equal(["SITE", "Reg1", "SITE_1", "Column4"], Names(runtime.VisibleColumns));
 
-        runtime.ViewModel.SelectedColumn = runtime.VisibleColumns[0];
+        runtime.ViewModel.SelectColumn(runtime.VisibleColumns[0].Id);
         await runtime.PasteAsync("Lot\nN123\n");
 
         var replaced = runtime.VisibleColumns[0];
@@ -337,12 +337,12 @@ public class ClipboardPasteWorkflowTests
         using var runtime = new Runtime();
         var worksheet = await runtime.CreateWorksheetAsync();
         await runtime.PasteAsync("SITE\n1\n");
-        runtime.ViewModel.SelectedColumn = runtime.VisibleColumns[0];
+        runtime.ViewModel.SelectColumn(runtime.VisibleColumns[0].Id);
 
         runtime.ViewModel.SelectedWorksheet = null;
-        Assert.Null(runtime.ViewModel.SelectedColumn);
+        Assert.Null(runtime.ViewModel.ActiveColumn);
 
         runtime.ViewModel.SelectedWorksheet = worksheet;
-        Assert.Null(runtime.ViewModel.SelectedColumn);
+        Assert.Null(runtime.ViewModel.ActiveColumn);
     }
 }

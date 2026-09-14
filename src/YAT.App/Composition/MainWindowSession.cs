@@ -3,7 +3,7 @@ using YAT.Application.Exceptions;
 using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
-using YAT.Application.Features.Worksheets.DeleteWorksheetColumn;
+using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
@@ -32,7 +32,7 @@ public sealed class MainWindowSession
     private readonly PasteExecutionService _pasteExecution;
     private readonly IWorksheetColumnRepository _worksheetColumns;
     private readonly WorksheetDataQueryService _dataQuery;
-    private readonly DeleteWorksheetColumnHandler _deleteWorksheetColumn;
+    private readonly DeleteWorksheetColumnsHandler _deleteWorksheetColumns;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     internal MainWindowSession(
@@ -45,7 +45,7 @@ public sealed class MainWindowSession
         PasteExecutionService pasteExecution,
         IWorksheetColumnRepository worksheetColumns,
         WorksheetDataQueryService dataQuery,
-        DeleteWorksheetColumnHandler deleteWorksheetColumn)
+        DeleteWorksheetColumnsHandler deleteWorksheetColumns)
     {
         _createProject = createProject;
         _createWorksheet = createWorksheet;
@@ -56,7 +56,7 @@ public sealed class MainWindowSession
         _pasteExecution = pasteExecution;
         _worksheetColumns = worksheetColumns;
         _dataQuery = dataQuery;
-        _deleteWorksheetColumn = deleteWorksheetColumn;
+        _deleteWorksheetColumns = deleteWorksheetColumns;
     }
 
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>
@@ -68,11 +68,12 @@ public sealed class MainWindowSession
     public Task<WorksheetColumn> AddWorksheetColumnAsync(AddWorksheetColumnCommand command, CancellationToken cancellationToken) =>
         RunExclusiveAsync(() => _addWorksheetColumn.HandleAsync(command, cancellationToken), cancellationToken);
 
-    // Pastes clipboard text into the worksheet column-wise, starting at selectedColumnIndex, or after the last existing
-    // column when no column is selected. An empty clipboard is a no-op. Parsing, planning and storage run off the UI thread.
+    // Pastes clipboard text into the worksheet column-wise, starting at the active column's index, or after the last
+    // existing column when there is no active column. An empty clipboard is a no-op. Parsing, planning and storage
+    // run off the UI thread.
     public async Task<ClipboardPasteResult> PasteFromClipboardAsync(
         Guid worksheetId,
-        int? selectedColumnIndex,
+        int? activeColumnIndex,
         CancellationToken cancellationToken)
     {
         // The clipboard is read on the calling (UI) thread.
@@ -83,16 +84,19 @@ public sealed class MainWindowSession
         }
 
         return await RunExclusiveAsync(
-            () => Task.Run(() => PasteTextAsync(worksheetId, selectedColumnIndex, text, cancellationToken), cancellationToken),
+            () => Task.Run(() => PasteTextAsync(worksheetId, activeColumnIndex, text, cancellationToken), cancellationToken),
             cancellationToken);
     }
 
-    // Deletes one column as a whole (raw values, metadata, contiguous reindex) off the UI thread and returns the
-    // worksheet's remaining column metadata ordered by Index.
-    public Task<IReadOnlyList<WorksheetColumn>> DeleteColumnAsync(Guid worksheetId, Guid columnId, CancellationToken cancellationToken) =>
+    // Deletes the given columns as a whole, in one batch (one raw delete, metadata deletes, one reindex), off the UI
+    // thread, and returns the worksheet's remaining column metadata ordered by Index.
+    public Task<IReadOnlyList<WorksheetColumn>> DeleteColumnsAsync(
+        Guid worksheetId,
+        IReadOnlyList<Guid> columnIds,
+        CancellationToken cancellationToken) =>
         RunExclusiveAsync(
             () => Task.Run(
-                () => _deleteWorksheetColumn.HandleAsync(new DeleteWorksheetColumnCommand(worksheetId, columnId), cancellationToken),
+                () => _deleteWorksheetColumns.HandleAsync(new DeleteWorksheetColumnsCommand(worksheetId, columnIds), cancellationToken),
                 cancellationToken),
             cancellationToken);
 
@@ -107,13 +111,13 @@ public sealed class MainWindowSession
 
     private async Task<ClipboardPasteResult> PasteTextAsync(
         Guid worksheetId,
-        int? selectedColumnIndex,
+        int? activeColumnIndex,
         string text,
         CancellationToken cancellationToken)
     {
         var data = _parser.Parse(text);
         var existingColumns = await _worksheetColumns.GetByWorksheetIdAsync(worksheetId, cancellationToken);
-        var startColumnIndex = selectedColumnIndex ?? NextColumnIndex(existingColumns);
+        var startColumnIndex = activeColumnIndex ?? NextColumnIndex(existingColumns);
         var plan = _planner.Plan(worksheetId, existingColumns, startColumnIndex, data);
 
         await _pasteExecution.ExecuteAsync(plan, data, cancellationToken);

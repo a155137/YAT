@@ -56,11 +56,11 @@ public class WorksheetColumnDeletionTests
         }
 
         public void Select(string columnName) =>
-            ViewModel.ToggleColumnSelectionCommand.Execute(ViewModel.GridColumns.Single(column => column.Name == columnName).ColumnId);
+            ViewModel.SelectColumn(ViewModel.GridColumns.Single(column => column.Name == columnName).ColumnId);
 
         public async Task DeleteSelectedAsync()
         {
-            await ViewModel.DeleteColumnCommand.ExecuteAsync(null);
+            await ViewModel.DeleteSelectedColumnsCommand.ExecuteAsync(null);
             await ViewModel.GridLoadTask;
         }
 
@@ -101,11 +101,12 @@ public class WorksheetColumnDeletionTests
         await runtime.StartAsync();
 
         runtime.Select("Bin");
-        Assert.True(runtime.ViewModel.DeleteColumnCommand.CanExecute(null));
+        Assert.True(runtime.ViewModel.DeleteSelectedColumnsCommand.CanExecute(null));
         await runtime.DeleteSelectedAsync();
 
-        Assert.Null(runtime.ViewModel.SelectedColumn);
-        Assert.False(runtime.ViewModel.DeleteColumnCommand.CanExecute(null));
+        Assert.Null(runtime.ViewModel.ActiveColumn);
+        Assert.Empty(runtime.ViewModel.SelectedColumns);
+        Assert.False(runtime.ViewModel.DeleteSelectedColumnsCommand.CanExecute(null));
     }
 
     // 15
@@ -115,7 +116,7 @@ public class WorksheetColumnDeletionTests
         using var runtime = new Runtime();
         await runtime.StartAsync();
 
-        Assert.False(runtime.ViewModel.DeleteColumnCommand.CanExecute(null));
+        Assert.False(runtime.ViewModel.DeleteSelectedColumnsCommand.CanExecute(null));
         await runtime.DeleteSelectedAsync();
 
         Assert.Equal(["No", "Bin", "SITE", "Reg1", "Reg2"], runtime.Headers);
@@ -167,7 +168,7 @@ public class WorksheetColumnDeletionTests
 
         Assert.Equal(["No", "Bin", "Vth", "Reg2"], runtime.Headers);
         Assert.Equal(["1", "1", "0.45", "0.132"], runtime.Cells[0]);
-        Assert.Equal("Vth", runtime.ViewModel.SelectedColumn?.Name);
+        Assert.Equal("Vth", runtime.ViewModel.ActiveColumn?.Name);
     }
 
     [Fact]
@@ -197,7 +198,7 @@ public class WorksheetColumnDeletionTests
         await runtime.ViewModel.AddColumnCommand.ExecuteAsync(null);
         await runtime.ViewModel.GridLoadTask;
         var vth = Assert.Single(runtime.ViewModel.SelectedWorksheetColumns!);
-        runtime.ViewModel.SelectedColumn = vth;
+        runtime.ViewModel.SelectColumn(vth.Id);
 
         await runtime.DeleteSelectedAsync();
 
@@ -211,7 +212,7 @@ public class WorksheetColumnDeletionTests
     [Fact]
     public void DeleteKeyInsideATextBoxIsNotAColumnDelete()
     {
-        Assert.False(WorksheetKeyRouting.IsDeleteColumnGesture(Key.Delete, KeyModifiers.None, handled: false, new TextBox()));
+        Assert.False(WorksheetKeyRouting.IsDeleteColumnsGesture(Key.Delete, KeyModifiers.None, handled: false, new TextBox()));
     }
 
     [Fact]
@@ -221,8 +222,8 @@ public class WorksheetColumnDeletionTests
         var grid = new TableView();
         panel.Children.Add(grid);
 
-        Assert.True(WorksheetKeyRouting.IsDeleteColumnGesture(Key.Delete, KeyModifiers.None, handled: false, grid));
-        Assert.True(WorksheetKeyRouting.IsDeleteColumnGesture(Key.Delete, KeyModifiers.None, handled: false, null));
+        Assert.True(WorksheetKeyRouting.IsDeleteColumnsGesture(Key.Delete, KeyModifiers.None, handled: false, grid));
+        Assert.True(WorksheetKeyRouting.IsDeleteColumnsGesture(Key.Delete, KeyModifiers.None, handled: false, null));
     }
 
     [Theory]
@@ -232,16 +233,16 @@ public class WorksheetColumnDeletionTests
     [InlineData(Key.Back, KeyModifiers.None, false)]
     public void HandledModifiedOrOtherKeysAreNotAColumnDelete(Key key, KeyModifiers modifiers, bool handled)
     {
-        Assert.False(WorksheetKeyRouting.IsDeleteColumnGesture(key, modifiers, handled, new Border()));
+        Assert.False(WorksheetKeyRouting.IsDeleteColumnsGesture(key, modifiers, handled, new Border()));
     }
 
     // 19
     [Fact]
     public void DeleteCommandIsOnTheViewModelAndDependsOnlyOnTheSession()
     {
-        Assert.NotNull(typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.DeleteColumnCommand)));
+        Assert.NotNull(typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.DeleteSelectedColumnsCommand)));
         Assert.Equal(
-            [typeof(Guid), typeof(Guid), typeof(CancellationToken)],
-            typeof(MainWindowSession).GetMethod(nameof(MainWindowSession.DeleteColumnAsync))!.GetParameters().Select(parameter => parameter.ParameterType));
+            [typeof(Guid), typeof(IReadOnlyList<Guid>), typeof(CancellationToken)],
+            typeof(MainWindowSession).GetMethod(nameof(MainWindowSession.DeleteColumnsAsync))!.GetParameters().Select(parameter => parameter.ParameterType));
     }
 }

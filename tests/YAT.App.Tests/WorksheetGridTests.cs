@@ -159,7 +159,7 @@ public class WorksheetGridTests
         await runtime.StartAsync();
         await runtime.PasteAsync("A\tB\n1\t2\n3\t4\n5\t6\n");
 
-        runtime.ViewModel.ToggleColumnSelectionCommand.Execute(runtime.ViewModel.GridColumns[0].ColumnId);
+        runtime.ViewModel.SelectColumn(runtime.ViewModel.GridColumns[0].ColumnId);
         await runtime.PasteAsync("X\n9\n");
 
         Assert.Equal(["X", "B"], runtime.Headers);
@@ -266,21 +266,23 @@ public class WorksheetGridTests
         await runtime.PasteAsync(CanonicalText);
         var bin = runtime.ViewModel.GridColumns[1];
 
-        runtime.ViewModel.ToggleColumnSelectionCommand.Execute(bin.ColumnId);
-        Assert.Equal(bin.ColumnId, runtime.ViewModel.SelectedColumn?.Id);
+        runtime.ViewModel.SelectColumn(bin.ColumnId);
+        Assert.Equal(bin.ColumnId, runtime.ViewModel.ActiveColumn?.Id);
 
         await runtime.PasteAsync("Wafer\tDie\n7\t8\n");
 
         Assert.Equal(["No", "Wafer", "Die", "Reg1", "Reg2"], runtime.Headers);
         Assert.Equal(bin.ColumnId, runtime.ViewModel.GridColumns[1].ColumnId);
         Assert.Equal(["1", "7", "8", "5", "0.132"], runtime.Cells[0]);
-        Assert.Equal(bin.ColumnId, runtime.ViewModel.SelectedColumn?.Id);
+        Assert.Equal(bin.ColumnId, runtime.ViewModel.ActiveColumn?.Id);
 
-        runtime.ViewModel.ToggleColumnSelectionCommand.Execute(bin.ColumnId);
-        Assert.Null(runtime.ViewModel.SelectedColumn);
+        // Ctrl+Click on the only selected column clears the selection; unknown ids change nothing.
+        runtime.ViewModel.ToggleColumnSelection(bin.ColumnId);
+        Assert.Null(runtime.ViewModel.ActiveColumn);
 
-        runtime.ViewModel.ToggleColumnSelectionCommand.Execute(Guid.NewGuid());
-        Assert.Null(runtime.ViewModel.SelectedColumn);
+        runtime.ViewModel.SelectColumn(Guid.NewGuid());
+        Assert.Null(runtime.ViewModel.ActiveColumn);
+        Assert.Empty(runtime.ViewModel.SelectedColumns);
     }
 
     [Fact]
