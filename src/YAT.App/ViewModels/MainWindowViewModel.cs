@@ -25,9 +25,9 @@ public partial class MainWindowViewModel : ViewModelBase
         .. Enum.GetValues<ColumnSemanticType>().Select(type => new SemanticTypeOption(type, type.ToString())),
     ];
 
-    public const string DefaultProjectName = "Untitled Project";
+    public const string DefaultProjectName = ProjectWorkspace.DefaultProjectName;
 
-    public const string DefaultWorksheetName = "Sheet1";
+    public const string DefaultWorksheetName = ProjectWorkspace.DefaultWorksheetName;
 
     private readonly MainWindowSession _session;
 
@@ -50,9 +50,36 @@ public partial class MainWindowViewModel : ViewModelBase
     // Left panel navigation tree: the current Project and its worksheets (metadata only).
     public ProjectExplorerViewModel ProjectExplorer { get; }
 
-    // Startup workspace, like a new Excel workbook: an untitled Project with Sheet1 selected, ready for Ctrl+V.
-    // Runs the same commands a user would, so the resulting state is identical to creating both by hand.
-    // Does nothing once a Project exists.
+    // Shows the session's stored project: its worksheets in stored order with their column metadata, with the first
+    // worksheet selected (its grid page then loads; see GridLoadTask). Production startup creates the untitled project
+    // in the project storage (ProjectWorkspace) and shows it through this method. Does nothing for a session without a
+    // stored project.
+    public async Task LoadProjectAsync()
+    {
+        var metadata = await _session.LoadProjectAsync(CancellationToken.None);
+        if (metadata is null)
+        {
+            return;
+        }
+
+        // Start from an empty workspace so the tree is rebuilt for the loaded project.
+        SelectedWorksheet = null;
+        CurrentProject = null;
+        Worksheets.Clear();
+        _columnsByWorksheet.Clear();
+
+        foreach (var worksheet in metadata.Worksheets)
+        {
+            Worksheets.Add(worksheet.Worksheet);
+            _columnsByWorksheet[worksheet.Worksheet.Id] = new ObservableCollection<WorksheetColumn>(worksheet.Columns);
+        }
+
+        CurrentProject = metadata.Project;
+        SelectedWorksheet = Worksheets.FirstOrDefault();
+    }
+
+    // Legacy startup for the in-memory test composition only (production startup uses LoadProjectAsync): an untitled
+    // Project with Sheet1 selected, created through the same commands a user would run. Does nothing once a Project exists.
     public async Task CreateDefaultWorkspaceAsync()
     {
         if (CurrentProject is not null)

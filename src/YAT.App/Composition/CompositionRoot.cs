@@ -1,3 +1,4 @@
+using YAT.Application.Exceptions;
 using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Projects.RenameProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
@@ -13,32 +14,67 @@ using YAT.Infrastructure.Persistence.InMemory;
 
 namespace YAT.app.Composition;
 
-// Manual wiring only: constructs, wires and returns. Worksheet and column repositories are created solely
-// as part of a ProjectSession; the UI reaches them through a MainWindowSession built over that session.
+// Manual wiring only: constructs, wires and returns. Metadata repositories are created solely as part of a
+// ProjectSession; the UI reaches them through a MainWindowSession built over that session.
 public sealed class CompositionRoot
 {
     private readonly TimeProvider _timeProvider;
+    private readonly DuckDbProjectStorage _projectStorage;
 
-    // Projects are not project-scoped: one repository for the application, shared by every MainWindowSession.
-    private readonly InMemoryProjectRepository _projects = new();
-
-    public CompositionRoot(TimeProvider timeProvider)
+    // temporaryProjectsDirectory: where temporary projects and project working folders are kept
+    // (default %TEMP%\YAT\projects).
+    public CompositionRoot(TimeProvider timeProvider, string? temporaryProjectsDirectory = null)
     {
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _timeProvider = timeProvider;
+        _projectStorage = new DuckDbProjectStorage(temporaryProjectsDirectory ?? DuckDbProjectStorage.DefaultTemporaryRoot);
     }
 
-    // Constructs and wires one project scope whose raw data lives in the DuckDB database at databasePath.
-    // Every call creates new metadata repositories and a new raw store; nothing is shared between sessions.
-    // The caller owns the returned session and must dispose it to release the database.
+    internal TimeProvider TimeProvider => _timeProvider;
+
+    // The production project lifecycle: one current persistent project session at a time.
+    public ProjectWorkspace CreateProjectWorkspace() => new(this);
+
+    // Legacy/test composition: metadata repositories in memory (lost on dispose) and raw data in the DuckDB database
+    // at databasePath (":memory:" for a private in-memory database). Each call creates new repositories and a new raw
+    // store; nothing is shared between sessions. Not the production project model: use CreateProjectWorkspace.
     public ProjectSession CreateProjectSession(string databasePath)
     {
         var settings = new DuckDbRawDataStoreSettings(databasePath);
+        var projects = new InMemoryProjectRepository();
         var worksheets = new InMemoryWorksheetRepository();
         var worksheetColumns = new InMemoryWorksheetColumnRepository();
         var rawDataStore = new DuckDbWorksheetRawDataStore(settings);
         var pasteExecution = new PasteExecutionService(worksheets, worksheetColumns, rawDataStore);
 
-        return new ProjectSession(worksheets, worksheetColumns, rawDataStore, pasteExecution);
+        return new ProjectSession(projects, worksheets, worksheetColumns, rawDataStore, pasteExecution, database: null);
+    }
+
+    // A persistent session over a new temporary project database (no project stored yet).
+    internal ProjectSession CreateTemporaryProjectSession() => CreatePersistentSession(_projectStorage.CreateTemporary());
+
+    // A persistent session over a new project file at filePath (no project stored yet).
+    internal ProjectSession CreateProjectFileSession(string filePath) => CreatePersistentSession(_projectStorage.Create(filePath));
+
+    // A persistent session over an existing project file, with ProjectId set to the file's project.
+    internal async Task<ProjectSession> OpenProjectFileSessionAsync(string filePath, CancellationToken cancellationToken)
+    {
+        var database = _projectStorage.Open(filePath);
+        try
+        {
+            var projects = new DuckDbProjectRepository(database);
+            var project = await projects.GetFileProjectAsync(cancellationToken)
+                ?? throw new ProjectStorageException(ProjectStorageError.NotAYatProject, "The project file does not contain a project.");
+
+            var session = CreatePersistentSession(database, projects);
+            session.ProjectId = project.Id;
+            return session;
+        }
+        catch
+        {
+            database.Dispose();
+            throw;
+        }
     }
 
     // The UI operations run against the given session's own repositories and paste execution; the caller keeps
@@ -53,9 +89,9 @@ public sealed class CompositionRoot
         ArgumentNullException.ThrowIfNull(clipboardWriter);
 
         return new MainWindowSession(
-            new CreateProjectHandler(_projects, _timeProvider),
-            new RenameProjectHandler(_projects, _timeProvider),
-            new CreateWorksheetHandler(_projects, projectSession.Worksheets, _timeProvider),
+            new CreateProjectHandler(projectSession.Projects, _timeProvider),
+            new RenameProjectHandler(projectSession.Projects, _timeProvider),
+            new CreateWorksheetHandler(projectSession.Projects, projectSession.Worksheets, _timeProvider),
             new RenameWorksheetHandler(projectSession.Worksheets, _timeProvider),
             new AddWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns),
             clipboardReader,
@@ -66,12 +102,33 @@ public sealed class CompositionRoot
             projectSession.WorksheetColumns,
             new WorksheetDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             new DeleteWorksheetColumnsHandler(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
-            new WorksheetColumnsTsvExporter(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore));
+            new WorksheetColumnsTsvExporter(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
+            new ProjectMetadataQueryService(projectSession.Projects, projectSession.Worksheets, projectSession.WorksheetColumns),
+            projectSession.ProjectId);
     }
 
     public MainWindowViewModel CreateMainWindowViewModel(MainWindowSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
         return new MainWindowViewModel(session);
+    }
+
+    private ProjectSession CreatePersistentSession(DuckDbProjectDatabase database, DuckDbProjectRepository? projects = null)
+    {
+        try
+        {
+            projects ??= new DuckDbProjectRepository(database);
+            var worksheets = new DuckDbWorksheetRepository(database);
+            var worksheetColumns = new DuckDbWorksheetColumnRepository(database, _timeProvider);
+            var rawDataStore = new DuckDbWorksheetRawDataStore(database);
+            var pasteExecution = new PasteExecutionService(worksheets, worksheetColumns, rawDataStore);
+
+            return new ProjectSession(projects, worksheets, worksheetColumns, rawDataStore, pasteExecution, database);
+        }
+        catch
+        {
+            database.Dispose();
+            throw;
+        }
     }
 }

@@ -11,9 +11,6 @@ namespace YAT.app;
 
 public partial class App : AvaloniaApplication
 {
-    // No project files exist yet, so the runtime project's raw data lives in a private in-memory database.
-    private const string RuntimeProjectDatabase = ":memory:";
-
     public CompositionRoot Composition { get; } = new(TimeProvider.System);
 
     public override void Initialize()
@@ -25,25 +22,33 @@ public partial class App : AvaloniaApplication
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // The application owns the single runtime ProjectSession and releases it when the desktop lifetime exits.
-            var projectSession = Composition.CreateProjectSession(RuntimeProjectDatabase);
-            desktop.Exit += (_, _) => projectSession.Dispose();
+            // The application owns the project workspace. Disposing it on exit closes the current project database and
+            // deletes the temporary storage of an untitled project.
+            var workspace = Composition.CreateProjectWorkspace();
+            desktop.Exit += (_, _) => workspace.Dispose();
 
-            // The clipboard belongs to the window, so the window exists before the session that reads from it.
             var mainWindow = new MainWindow();
-            var clipboard = new AvaloniaClipboard(mainWindow);
-            var session = Composition.CreateMainWindowSession(projectSession, clipboard, clipboard);
-            var viewModel = Composition.CreateMainWindowViewModel(session);
-
-            // Start with "Untitled Project" / "Sheet1". The metadata repositories are in-memory, so this normally
-            // completes before the window is shown; awaiting it on Opened surfaces any unexpected failure.
-            var defaultWorkspace = viewModel.CreateDefaultWorkspaceAsync();
-            mainWindow.Opened += async (_, _) => await defaultWorkspace;
-
-            mainWindow.DataContext = viewModel;
             desktop.MainWindow = mainWindow;
+
+            // Start with "Untitled Project" / "Sheet1" in temporary file-backed project storage. The storage is local, so
+            // this normally completes before the window is shown; awaiting it on Opened surfaces any unexpected failure.
+            var startup = StartAsync(workspace, mainWindow);
+            mainWindow.Opened += async (_, _) => await startup;
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private async Task StartAsync(ProjectWorkspace workspace, MainWindow mainWindow)
+    {
+        var projectSession = await workspace.CreateTemporaryProjectAsync(CancellationToken.None);
+
+        // The clipboard belongs to the window, so the window exists before the session that reads from it.
+        var clipboard = new AvaloniaClipboard(mainWindow);
+        var session = Composition.CreateMainWindowSession(projectSession, clipboard, clipboard);
+        var viewModel = Composition.CreateMainWindowViewModel(session);
+
+        mainWindow.DataContext = viewModel;
+        await viewModel.LoadProjectAsync();
     }
 }

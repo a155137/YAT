@@ -39,6 +39,8 @@ public sealed class MainWindowSession
     private readonly WorksheetDataQueryService _dataQuery;
     private readonly DeleteWorksheetColumnsHandler _deleteWorksheetColumns;
     private readonly WorksheetColumnsTsvExporter _columnsExporter;
+    private readonly ProjectMetadataQueryService _metadataQuery;
+    private readonly Guid? _projectId;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     internal MainWindowSession(
@@ -55,7 +57,9 @@ public sealed class MainWindowSession
         IWorksheetColumnRepository worksheetColumns,
         WorksheetDataQueryService dataQuery,
         DeleteWorksheetColumnsHandler deleteWorksheetColumns,
-        WorksheetColumnsTsvExporter columnsExporter)
+        WorksheetColumnsTsvExporter columnsExporter,
+        ProjectMetadataQueryService metadataQuery,
+        Guid? projectId)
     {
         _createProject = createProject;
         _renameProject = renameProject;
@@ -71,6 +75,22 @@ public sealed class MainWindowSession
         _dataQuery = dataQuery;
         _deleteWorksheetColumns = deleteWorksheetColumns;
         _columnsExporter = columnsExporter;
+        _metadataQuery = metadataQuery;
+        _projectId = projectId;
+    }
+
+    // The stored metadata of the session's project (project, worksheets in order, their columns), read off the UI thread.
+    // Null when the session has no stored project (the legacy in-memory composition).
+    public async Task<ProjectMetadata?> LoadProjectAsync(CancellationToken cancellationToken)
+    {
+        if (_projectId is not { } projectId)
+        {
+            return null;
+        }
+
+        return await RunExclusiveAsync(
+            () => Task.Run(() => _metadataQuery.LoadAsync(projectId, cancellationToken), cancellationToken),
+            cancellationToken);
     }
 
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>

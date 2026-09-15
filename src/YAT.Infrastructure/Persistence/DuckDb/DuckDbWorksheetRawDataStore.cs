@@ -7,7 +7,8 @@ using YAT.Domain.Enums;
 
 namespace YAT.Infrastructure.Persistence.DuckDb;
 
-// DuckDB implementation of IWorksheetRawDataStore for one project database.
+// DuckDB implementation of IWorksheetRawDataStore for one project database: either a project database shared with the
+// metadata repositories (DuckDbProjectDatabase, which owns the connection), or its own connection to a raw data file.
 // Each write creates a block table blk_<id>(row_index, c_<columnId>, ...) and moves raw_column catalog pointers
 // to it in one explicit transaction. Committed live values are never updated; retired physical columns and
 // blocks are dropped. row_index is the logical worksheet row, so columns from different blocks align on it.
@@ -16,7 +17,8 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
 {
     private const int CancellationCheckInterval = 16_384;
 
-    private readonly DuckDbRawDataStoreSettings _settings;
+    private readonly DuckDbRawDataStoreSettings? _settings;
+    private readonly DuckDbProjectDatabase? _database;
     private readonly Lock _gate = new();
     private DuckDBConnection? _connection;
     private bool _disposed;
@@ -25,6 +27,13 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
     {
         ArgumentNullException.ThrowIfNull(settings);
         _settings = settings;
+    }
+
+    // Uses the project database's shared connection; the database (not this store) owns and closes it.
+    public DuckDbWorksheetRawDataStore(DuckDbProjectDatabase database)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        _database = database;
     }
 
     // Test-only fault injection between write phases (a column delete raises AfterCleanup). Always null in production.
@@ -441,7 +450,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             ObjectDisposedException.ThrowIf(_disposed, this);
             try
             {
-                return operation(GetOpenConnection());
+                return _database is not null ? _database.Execute(operation) : operation(GetOpenConnection());
             }
             catch (DuckDBException exception)
             {
@@ -457,11 +466,10 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             return _connection;
         }
 
-        var connection = new DuckDBConnection(new DuckDBConnectionStringBuilder { DataSource = _settings.DataSource }.ConnectionString);
+        var connection = DuckDbConnections.Open(_settings!.DataSource);
         try
         {
-            connection.Open();
-            ApplyResourceLimits(connection);
+            DuckDbConnections.ApplyResourceLimits(connection, _settings);
             DuckDbRawCatalog.Initialize(connection);
         }
         catch
@@ -472,14 +480,6 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
 
         _connection = connection;
         return connection;
-    }
-
-    private void ApplyResourceLimits(DuckDBConnection connection)
-    {
-        var memoryLimitKib = (_settings.EffectiveMemoryLimitBytes / 1024).ToString(CultureInfo.InvariantCulture);
-        var threads = _settings.EffectiveThreads.ToString(CultureInfo.InvariantCulture);
-        DuckDbRawCatalog.Execute(connection, $"SET memory_limit = '{memoryLimitKib}KiB'");
-        DuckDbRawCatalog.Execute(connection, $"SET threads = {threads}");
     }
 }
 
