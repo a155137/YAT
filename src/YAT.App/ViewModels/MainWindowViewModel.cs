@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YAT.Application.Exceptions;
@@ -38,7 +39,11 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(MainWindowSession session)
     {
         _session = session;
+        ProjectExplorer = new ProjectExplorerViewModel(NewWorksheetCommand, worksheet => SelectedWorksheet = worksheet);
     }
+
+    // Left panel navigation tree: the current Project and its worksheets (metadata only).
+    public ProjectExplorerViewModel ProjectExplorer { get; }
 
     // Startup workspace, like a new Excel workbook: an untitled Project with Sheet1 selected, ready for Ctrl+V.
     // Runs the same commands a user would, so the resulting state is identical to creating both by hand.
@@ -72,6 +77,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasCurrentProject))]
     [NotifyCanExecuteChangedFor(nameof(CreateWorksheetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(NewWorksheetCommand))]
     public partial Project? CurrentProject { get; private set; }
 
     public bool HasCurrentProject => CurrentProject is not null;
@@ -199,14 +205,20 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
     [NotifyCanExecuteChangedFor(nameof(CreateWorksheetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(NewWorksheetCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddColumnCommand))]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedColumnsCommand))]
     [NotifyCanExecuteChangedFor(nameof(CopySelectedColumnsCommand))]
     public partial bool IsBusy { get; private set; }
 
+    partial void OnCurrentProjectChanged(Project? value) =>
+        ProjectExplorer.ShowProject(value, Worksheets, SelectedWorksheet?.Id);
+
     partial void OnSelectedWorksheetChanged(Worksheet? value)
     {
+        ProjectExplorer.SetActiveWorksheet(value?.Id);
+
         // An error raised for the previously selected Worksheet no longer applies.
         ErrorMessage = null;
         ClearColumnSelection();
@@ -457,39 +469,74 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanCreateWorksheet))]
     private async Task CreateWorksheetAsync(CancellationToken cancellationToken)
     {
+        if (await CreateAndSelectWorksheetAsync(WorksheetName, cancellationToken))
+        {
+            WorksheetName = string.Empty;
+        }
+    }
+
+    private bool CanCreateWorksheet() => !IsBusy && CurrentProject is not null;
+
+    // Project Explorer "New Worksheet": creates and selects the next default-named worksheet ("Sheet2", "Sheet3", ...).
+    [RelayCommand(CanExecute = nameof(CanCreateWorksheet))]
+    private Task NewWorksheetAsync(CancellationToken cancellationToken) =>
+        CreateAndSelectWorksheetAsync(NextDefaultWorksheetName(), cancellationToken);
+
+    // One past the highest "SheetN" number among the project's worksheets, so names never repeat; "Sheet1" when none exist.
+    private string NextDefaultWorksheetName()
+    {
+        const string prefix = "Sheet";
+        var highest = 0;
+        foreach (var worksheet in Worksheets)
+        {
+            if (worksheet.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(worksheet.Name.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                && number > highest
+                && number < int.MaxValue)
+            {
+                highest = number;
+            }
+        }
+
+        return $"{prefix}{highest + 1}";
+    }
+
+    // Returns whether the worksheet was created; failures surface through ErrorMessage.
+    private async Task<bool> CreateAndSelectWorksheetAsync(string name, CancellationToken cancellationToken)
+    {
         if (IsBusy)
         {
-            return;
+            return false;
         }
 
         ErrorMessage = null;
         if (CurrentProject is null)
         {
             ErrorMessage = "Create a Project before adding Worksheets.";
-            return;
+            return false;
         }
 
         IsBusy = true;
         try
         {
             var worksheet = await _session.CreateWorksheetAsync(
-                new CreateWorksheetRequest(CurrentProject.Id, WorksheetName), cancellationToken);
+                new CreateWorksheetRequest(CurrentProject.Id, name), cancellationToken);
 
             Worksheets.Add(worksheet);
+            ProjectExplorer.AddWorksheet(worksheet);
             SelectedWorksheet = worksheet;
-            WorksheetName = string.Empty;
+            return true;
         }
         catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
         {
             ErrorMessage = ex.Message;
+            return false;
         }
         finally
         {
             IsBusy = false;
         }
     }
-
-    private bool CanCreateWorksheet() => !IsBusy && CurrentProject is not null;
 
     [RelayCommand(CanExecute = nameof(CanAddColumn))]
     private async Task AddColumnAsync(CancellationToken cancellationToken)

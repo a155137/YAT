@@ -24,6 +24,9 @@ public partial class MainWindow : Window
     private IReadOnlyList<WorksheetGridColumn> _shownGridColumns = [];
     private readonly ColumnHeaderDragSelection _headerDrag = new();
 
+    // The explorer column's width and minimum while the Project Explorer is hidden; null while it is shown.
+    private (GridLength Width, double MinWidth)? _hiddenProjectExplorerColumn;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -89,12 +92,16 @@ public partial class MainWindow : Window
         }
 
         RebuildGridColumns();
+        ApplyProjectExplorerVisibility();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
         {
+            case nameof(MainWindowViewModel.IsProjectPanelVisible):
+                ApplyProjectExplorerVisibility();
+                break;
             case nameof(MainWindowViewModel.GridColumns):
                 RebuildGridColumns();
                 break;
@@ -102,6 +109,27 @@ public partial class MainWindow : Window
             case nameof(MainWindowViewModel.SelectedColumns):
                 UpdateHeaderSelection();
                 break;
+        }
+    }
+
+    // The explorer column keeps its (user-resized) width while shown. Hiding the explorer collapses the column, since a
+    // hidden panel would otherwise leave that width empty; showing it again restores the width and its limits.
+    private void ApplyProjectExplorerVisibility()
+    {
+        var column = WorkspaceGrid.ColumnDefinitions[0];
+        var isVisible = _viewModel?.IsProjectPanelVisible ?? true;
+
+        if (!isVisible && _hiddenProjectExplorerColumn is null)
+        {
+            _hiddenProjectExplorerColumn = (column.Width, column.MinWidth);
+            column.MinWidth = 0;
+            column.Width = new GridLength(0);
+        }
+        else if (isVisible && _hiddenProjectExplorerColumn is { } shown)
+        {
+            _hiddenProjectExplorerColumn = null;
+            column.Width = shown.Width;
+            column.MinWidth = shown.MinWidth;
         }
     }
 

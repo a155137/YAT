@@ -1,7 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:YAT.app.ViewModels"
-        xmlns:entities="using:YAT.Domain.Entities"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
@@ -14,15 +13,34 @@
     <!-- The runtime DataContext is built by CompositionRoot with real Application handlers (see App.axaml.cs). -->
 
     <Window.Resources>
-        <!-- Cells of selected worksheet columns (active included): the default cell theme plus a light accent tint.
-             Assigned per column as TableViewColumn.CellTheme by the window (see WorksheetGridLayout.ApplyColumnState). -->
-        <ControlTheme x:Key="SelectedWorksheetCellTheme"
-                      TargetType="TableViewCell"
-                      BasedOn="{StaticResource {x:Type TableViewCell}}">
-            <Setter Property="Background">
-                <SolidColorBrush Color="{DynamicResource SystemAccentColor}" Opacity="0.10" />
-            </Setter>
-        </ControlTheme>
+        <ResourceDictionary>
+            <!-- Cells of selected worksheet columns (active included): the default cell theme plus a light accent tint.
+                 Assigned per column as TableViewColumn.CellTheme by the window (see WorksheetGridLayout.ApplyColumnState). -->
+            <ControlTheme x:Key="SelectedWorksheetCellTheme"
+                          TargetType="TableViewCell"
+                          BasedOn="{StaticResource {x:Type TableViewCell}}">
+                <Setter Property="Background">
+                    <SolidColorBrush Color="{DynamicResource SystemAccentColor}" Opacity="0.10" />
+                </Setter>
+            </ControlTheme>
+
+            <!-- Project Explorer glyphs (16×16, drawn in the icon's theme foreground): a folder and a table with a header row. -->
+            <StreamGeometry x:Key="ProjectExplorerProjectIcon">M1,3 L6,3 L7.5,4.5 L15,4.5 L15,13.5 L1,13.5 Z</StreamGeometry>
+            <StreamGeometry x:Key="ProjectExplorerWorksheetIcon">F0 M1,2 L15,2 L15,14 L1,14 Z M2,5.5 L7.5,5.5 L7.5,9 L2,9 Z M8.5,5.5 L14,5.5 L14,9 L8.5,9 Z M2,10 L7.5,10 L7.5,13 L2,13 Z M8.5,10 L14,10 L14,13 L8.5,13 Z</StreamGeometry>
+
+            <!-- Icon of the active worksheet: the accent color, lightened on dark backgrounds to keep its contrast. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ProjectExplorerActiveIconBrush" Color="{DynamicResource SystemAccentColor}" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ProjectExplorerActiveIconBrush" Color="{DynamicResource SystemAccentColorLight2}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Compact tree rows. -->
+            <x:Double x:Key="TreeViewItemMinHeight">24</x:Double>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Window.Styles>
@@ -54,6 +72,29 @@
         </Style>
         <!-- Header content (incl. the selection highlight) is styled in WorksheetGridLayout: window styles do not reach it. -->
 
+        <!-- Project Explorer: hover and selection use the Fluent TreeViewItem theme brushes (light and dark). The active
+             worksheet is also marked by a semibold name and an accent icon, so it stays visible when the selection moves
+             to the project item. -->
+        <Style Selector="TreeView#ProjectExplorerTree">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="0,2" />
+        </Style>
+        <Style Selector="TreeView#ProjectExplorerTree TreeViewItem" x:DataType="vm:ProjectExplorerItem">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+        </Style>
+        <Style Selector="TreeView#ProjectExplorerTree PathIcon.yat-explorer-icon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Opacity" Value="0.75" />
+        </Style>
+        <Style Selector="TreeView#ProjectExplorerTree PathIcon.yat-explorer-icon.active">
+            <Setter Property="Foreground" Value="{DynamicResource ProjectExplorerActiveIconBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="TreeView#ProjectExplorerTree TextBlock.active">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
         <Style Selector="Button.yat-pager">
             <Setter Property="Padding" Value="8,2" />
             <Setter Property="FontSize" Value="12" />
@@ -67,7 +108,7 @@
                 <MenuItem Header="E_xit" Click="OnExitClick" />
             </MenuItem>
             <MenuItem Header="_View">
-                <MenuItem Header="_Project Panel"
+                <MenuItem Header="_Project Explorer"
                           ToggleType="CheckBox"
                           IsChecked="{Binding IsProjectPanelVisible, Mode=OneWay}"
                           Command="{Binding ToggleProjectPanelCommand}" />
@@ -94,7 +135,7 @@
             </StackPanel>
         </Border>
 
-        <!-- Outside the Project Panel so errors stay visible while the panel is hidden. -->
+        <!-- Outside the Project Explorer so errors stay visible while the panel is hidden. -->
         <Border DockPanel.Dock="Top"
                 Padding="12,4"
                 Background="#1AD13438"
@@ -104,75 +145,75 @@
                        TextWrapping="Wrap" />
         </Border>
 
-        <Grid ColumnDefinitions="Auto,*">
+        <!-- Project Explorer | splitter | worksheet workspace. The explorer column width is user-resizable; while the
+             explorer is hidden the window collapses that column (see MainWindow.ApplyProjectExplorerVisibility). -->
+        <Grid x:Name="WorkspaceGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="240" MinWidth="140" MaxWidth="600" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
             <Border Grid.Column="0"
-                    Width="300"
                     BorderThickness="0,0,1,0"
                     BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                     IsVisible="{Binding IsProjectPanelVisible}">
                 <DockPanel>
-                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="12,8,4,0">
-                        <TextBlock Text="Project"
-                                   FontSize="16"
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="10,4,4,2">
+                        <TextBlock Text="Project Explorer"
+                                   FontSize="12"
                                    FontWeight="SemiBold"
+                                   Opacity="0.8"
                                    VerticalAlignment="Center" />
                         <Button Grid.Column="1"
                                 Content="×"
-                                ToolTip.Tip="Hide Project Panel"
+                                Padding="6,0"
+                                ToolTip.Tip="Hide Project Explorer"
                                 Background="Transparent"
                                 Command="{Binding ToggleProjectPanelCommand}" />
                     </Grid>
 
-                    <ScrollViewer>
-                        <StackPanel Margin="12" Spacing="16">
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="New Project" FontWeight="SemiBold" />
-                                <TextBox Text="{Binding ProjectName}" PlaceholderText="Project name" />
-                                <TextBox Text="{Binding ProjectDescription}" PlaceholderText="Description (optional)" />
-                                <Button Content="Create Project"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center"
-                                        Command="{Binding CreateProjectCommand}" />
-                            </StackPanel>
+                    <TextBlock DockPanel.Dock="Top"
+                               Margin="12,4"
+                               Text="No Project"
+                               Opacity="0.6"
+                               IsVisible="{Binding !HasCurrentProject}" />
 
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="Current Project" FontWeight="SemiBold" />
-                                <TextBlock Text="No Project yet."
-                                           Opacity="0.6"
-                                           IsVisible="{Binding !HasCurrentProject}" />
-                                <TextBlock Text="{Binding CurrentProject.Name, FallbackValue={x:Null}}"
-                                           TextWrapping="Wrap"
-                                           IsVisible="{Binding HasCurrentProject}" />
-                                <TextBlock Text="{Binding CurrentProject.Description, FallbackValue={x:Null}}"
-                                           Opacity="0.7"
-                                           TextWrapping="Wrap"
-                                           IsVisible="{Binding CurrentProject.Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
-                            </StackPanel>
-
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="Worksheets" FontWeight="SemiBold" />
-                                <TextBox Text="{Binding WorksheetName}"
-                                         PlaceholderText="Worksheet name"
-                                         IsEnabled="{Binding HasCurrentProject}" />
-                                <Button Content="Create Worksheet"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center"
-                                        Command="{Binding CreateWorksheetCommand}" />
-                                <ListBox ItemsSource="{Binding Worksheets}"
-                                         SelectedItem="{Binding SelectedWorksheet}">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate x:DataType="entities:Worksheet">
-                                            <TextBlock Text="{Binding Name}" />
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </StackPanel>
-                        </StackPanel>
-                    </ScrollViewer>
+                    <!-- Navigation only: items are Project / Worksheet metadata. Selecting a worksheet shows it. -->
+                    <TreeView x:Name="ProjectExplorerTree"
+                              ItemsSource="{Binding ProjectExplorer.Items}"
+                              SelectedItem="{Binding ProjectExplorer.SelectedItem, Mode=TwoWay}">
+                        <TreeView.DataTemplates>
+                            <TreeDataTemplate DataType="vm:ProjectExplorerProjectItem" ItemsSource="{Binding Children}">
+                                <StackPanel Orientation="Horizontal" Spacing="6" Background="Transparent">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="New Worksheet" Command="{Binding NewWorksheetCommand}" />
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
+                                    <PathIcon Classes="yat-explorer-icon" Data="{StaticResource ProjectExplorerProjectIcon}" />
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </TreeDataTemplate>
+                            <DataTemplate DataType="vm:ProjectExplorerWorksheetItem">
+                                <StackPanel Orientation="Horizontal" Spacing="6" Background="Transparent">
+                                    <PathIcon Classes="yat-explorer-icon" Classes.active="{Binding IsActive}"
+                                              Data="{StaticResource ProjectExplorerWorksheetIcon}" />
+                                    <TextBlock Classes.active="{Binding IsActive}" Text="{Binding Name}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </TreeView.DataTemplates>
+                    </TreeView>
                 </DockPanel>
             </Border>
 
-            <Panel Grid.Column="1">
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          ResizeDirection="Columns"
+                          Background="Transparent"
+                          IsVisible="{Binding IsProjectPanelVisible}" />
+
+            <Panel Grid.Column="2">
                 <StackPanel HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             Spacing="6"
