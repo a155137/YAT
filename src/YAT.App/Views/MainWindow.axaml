@@ -5,12 +5,22 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
         x:Class="YAT.app.Views.MainWindow"
-        x:DataType="vm:MainWindowViewModel"
+        x:DataType="vm:MainWindowShellViewModel"
         Icon="/Assets/avalonia-logo.ico"
         Width="1100" Height="700"
-        Title="YAT">
+        Title="{Binding WindowTitle}">
 
-    <!-- The runtime DataContext is built by CompositionRoot with real Application handlers (see App.axaml.cs). -->
+    <!-- The runtime DataContext (the shell: File menu and window title around the current project's view model) is built by
+         CompositionRoot with real Application handlers (see App.axaml.cs). Project-specific content binds to Project,
+         which is replaced when another project is shown. -->
+
+    <!-- File shortcuts. TextBoxes do not use these gestures, so text editing keeps its own keys. -->
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+N" Command="{Binding NewProjectCommand}" />
+        <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenProjectCommand}" />
+        <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveCommand}" />
+        <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding SaveAsCommand}" />
+    </Window.KeyBindings>
 
     <Window.Resources>
         <ResourceDictionary>
@@ -112,17 +122,26 @@
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
+                <MenuItem Header="_New Project" InputGesture="Ctrl+N" Command="{Binding NewProjectCommand}" />
+                <MenuItem Header="_Open Project..." InputGesture="Ctrl+O" Command="{Binding OpenProjectCommand}" />
+                <Separator />
+                <MenuItem Header="_Save" InputGesture="Ctrl+S" Command="{Binding SaveCommand}" />
+                <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Command="{Binding SaveAsCommand}" />
+                <Separator />
+                <!-- Closes the window: the same close path (and save prompt) as the title bar. -->
                 <MenuItem Header="E_xit" Click="OnExitClick" />
             </MenuItem>
             <MenuItem Header="_View">
                 <MenuItem Header="_Project Explorer"
                           ToggleType="CheckBox"
-                          IsChecked="{Binding IsProjectPanelVisible, Mode=OneWay}"
-                          Command="{Binding ToggleProjectPanelCommand}" />
+                          IsChecked="{Binding Project.IsProjectPanelVisible, Mode=OneWay, FallbackValue=True}"
+                          Command="{Binding Project.ToggleProjectPanelCommand, FallbackValue={x:Null}}" />
             </MenuItem>
         </Menu>
 
         <Border DockPanel.Dock="Top"
+                DataContext="{Binding Project}"
+                x:DataType="vm:MainWindowViewModel"
                 Padding="12,6"
                 BorderThickness="0,1"
                 BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
@@ -144,6 +163,8 @@
 
         <!-- Outside the Project Explorer so errors stay visible while the panel is hidden. -->
         <Border DockPanel.Dock="Top"
+                DataContext="{Binding Project}"
+                x:DataType="vm:MainWindowViewModel"
                 Padding="12,4"
                 Background="#1AD13438"
                 IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -154,7 +175,9 @@
 
         <!-- Project Explorer | splitter | worksheet workspace. The explorer column width is user-resizable; while the
              explorer is hidden the window collapses that column (see MainWindow.ApplyProjectExplorerVisibility). -->
-        <Grid x:Name="WorkspaceGrid">
+        <Grid x:Name="WorkspaceGrid"
+              DataContext="{Binding Project}"
+              x:DataType="vm:MainWindowViewModel">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="240" MinWidth="140" MaxWidth="600" />
                 <ColumnDefinition Width="Auto" />

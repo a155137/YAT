@@ -8,6 +8,7 @@ using YAT.Application.Features.Worksheets.RenameWorksheet;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
+using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
 using YAT.Infrastructure.Persistence.InMemory;
@@ -112,6 +113,22 @@ public sealed class CompositionRoot
         ArgumentNullException.ThrowIfNull(session);
         return new MainWindowViewModel(session);
     }
+
+    // The desktop project lifecycle over the workspace. The clipboard and dialogs are supplied by the UI (tied to a window).
+    public ProjectLifecycleController CreateProjectLifecycle(
+        ProjectWorkspace workspace,
+        IClipboardTextReader clipboardReader,
+        IClipboardTextWriter clipboardWriter,
+        IProjectLifecycleDialogs dialogs)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(clipboardReader);
+        ArgumentNullException.ThrowIfNull(clipboardWriter);
+        ArgumentNullException.ThrowIfNull(dialogs);
+        return new ProjectLifecycleController(this, workspace, clipboardReader, clipboardWriter, dialogs);
+    }
+
+    public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle) => new(lifecycle);
 
     private ProjectSession CreatePersistentSession(DuckDbProjectDatabase database, DuckDbProjectRepository? projects = null)
     {

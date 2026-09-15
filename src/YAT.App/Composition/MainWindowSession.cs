@@ -42,6 +42,7 @@ public sealed class MainWindowSession
     private readonly ProjectMetadataQueryService _metadataQuery;
     private readonly Guid? _projectId;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private bool _retired;
 
     internal MainWindowSession(
         CreateProjectHandler createProject,
@@ -79,6 +80,10 @@ public sealed class MainWindowSession
         _projectId = projectId;
     }
 
+    // Raised on the calling context after a successful operation that changed the project: create or rename a project
+    // or worksheet, add a column, paste (when something was pasted) and delete columns. Failed operations raise nothing.
+    public event EventHandler? ProjectModified;
+
     // The stored metadata of the session's project (project, worksheets in order, their columns), read off the UI thread.
     // Null when the session has no stored project (the legacy in-memory composition).
     public async Task<ProjectMetadata?> LoadProjectAsync(CancellationToken cancellationToken)
@@ -94,21 +99,21 @@ public sealed class MainWindowSession
     }
 
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>
-        RunExclusiveAsync(() => _createProject.HandleAsync(command, cancellationToken), cancellationToken);
+        RunModifyingAsync(() => _createProject.HandleAsync(command, cancellationToken), cancellationToken);
 
     // Renames go through the Application handlers, which validate the name and store a renamed copy; the returned entity
     // is the stored state the UI should show.
     public Task<Project> RenameProjectAsync(RenameProjectCommand command, CancellationToken cancellationToken) =>
-        RunExclusiveAsync(() => _renameProject.HandleAsync(command, cancellationToken), cancellationToken);
+        RunModifyingAsync(() => _renameProject.HandleAsync(command, cancellationToken), cancellationToken);
 
     public Task<Worksheet> CreateWorksheetAsync(CreateWorksheetCommand command, CancellationToken cancellationToken) =>
-        RunExclusiveAsync(() => _createWorksheet.HandleAsync(command, cancellationToken), cancellationToken);
+        RunModifyingAsync(() => _createWorksheet.HandleAsync(command, cancellationToken), cancellationToken);
 
     public Task<Worksheet> RenameWorksheetAsync(RenameWorksheetCommand command, CancellationToken cancellationToken) =>
-        RunExclusiveAsync(() => _renameWorksheet.HandleAsync(command, cancellationToken), cancellationToken);
+        RunModifyingAsync(() => _renameWorksheet.HandleAsync(command, cancellationToken), cancellationToken);
 
     public Task<WorksheetColumn> AddWorksheetColumnAsync(AddWorksheetColumnCommand command, CancellationToken cancellationToken) =>
-        RunExclusiveAsync(() => _addWorksheetColumn.HandleAsync(command, cancellationToken), cancellationToken);
+        RunModifyingAsync(() => _addWorksheetColumn.HandleAsync(command, cancellationToken), cancellationToken);
 
     // Pastes clipboard text into the worksheet column-wise, starting at the active column's index, or after the last
     // existing column when there is no active column. An empty clipboard is a no-op. Parsing, planning and storage
@@ -125,7 +130,7 @@ public sealed class MainWindowSession
             return ClipboardPasteResult.NothingToPaste;
         }
 
-        return await RunExclusiveAsync(
+        return await RunModifyingAsync(
             () => Task.Run(() => PasteTextAsync(worksheetId, activeColumnIndex, text, cancellationToken), cancellationToken),
             cancellationToken);
     }
@@ -148,7 +153,7 @@ public sealed class MainWindowSession
         Guid worksheetId,
         IReadOnlyList<Guid> columnIds,
         CancellationToken cancellationToken) =>
-        RunExclusiveAsync(
+        RunModifyingAsync(
             () => Task.Run(
                 () => _deleteWorksheetColumns.HandleAsync(new DeleteWorksheetColumnsCommand(worksheetId, columnIds), cancellationToken),
                 cancellationToken),
@@ -181,17 +186,52 @@ public sealed class MainWindowSession
         return new ClipboardPasteResult(isPasted: true, columns);
     }
 
+    // Lifecycle coordination (ProjectLifecycleController). SuspendAsync waits until no operation runs and then holds the
+    // session, so later operations wait. Resume lets them continue; Retire closes the session for good, after which
+    // every waiting and later operation fails with ProjectSessionClosedException. Resume and Retire may only follow a
+    // successful SuspendAsync.
+    public async Task SuspendAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        if (_retired)
+        {
+            _gate.Release();
+            throw new ProjectSessionClosedException();
+        }
+    }
+
+    public void Resume() => _gate.Release();
+
+    public void Retire()
+    {
+        _retired = true;
+        _gate.Release();
+    }
+
     private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            if (_retired)
+            {
+                throw new ProjectSessionClosedException();
+            }
+
             return await operation();
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    // An operation that changes the project: ProjectModified is raised once it has completed successfully.
+    private async Task<T> RunModifyingAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
+    {
+        var result = await RunExclusiveAsync(operation, cancellationToken);
+        ProjectModified?.Invoke(this, EventArgs.Empty);
+        return result;
     }
 
     // 0 for a worksheet without columns, otherwise one past the highest existing index.

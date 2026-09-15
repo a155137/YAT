@@ -27,28 +27,21 @@ public partial class App : AvaloniaApplication
             var workspace = Composition.CreateProjectWorkspace();
             desktop.Exit += (_, _) => workspace.Dispose();
 
+            // The clipboard and the lifecycle dialogs belong to the window, so the window exists before the lifecycle.
             var mainWindow = new MainWindow();
+            var clipboard = new AvaloniaClipboard(mainWindow);
+            var lifecycle = Composition.CreateProjectLifecycle(workspace, clipboard, clipboard, new AvaloniaProjectLifecycleDialogs(mainWindow));
+            var shell = Composition.CreateMainWindowShellViewModel(lifecycle);
+
+            mainWindow.DataContext = shell;
             desktop.MainWindow = mainWindow;
 
             // Start with "Untitled Project" / "Sheet1" in temporary file-backed project storage. The storage is local, so
             // this normally completes before the window is shown; awaiting it on Opened surfaces any unexpected failure.
-            var startup = StartAsync(workspace, mainWindow);
+            var startup = shell.StartAsync();
             mainWindow.Opened += async (_, _) => await startup;
         }
 
         base.OnFrameworkInitializationCompleted();
-    }
-
-    private async Task StartAsync(ProjectWorkspace workspace, MainWindow mainWindow)
-    {
-        var projectSession = await workspace.CreateTemporaryProjectAsync(CancellationToken.None);
-
-        // The clipboard belongs to the window, so the window exists before the session that reads from it.
-        var clipboard = new AvaloniaClipboard(mainWindow);
-        var session = Composition.CreateMainWindowSession(projectSession, clipboard, clipboard);
-        var viewModel = Composition.CreateMainWindowViewModel(session);
-
-        mainWindow.DataContext = viewModel;
-        await viewModel.LoadProjectAsync();
     }
 }

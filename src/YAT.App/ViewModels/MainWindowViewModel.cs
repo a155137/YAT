@@ -50,11 +50,11 @@ public partial class MainWindowViewModel : ViewModelBase
     // Left panel navigation tree: the current Project and its worksheets (metadata only).
     public ProjectExplorerViewModel ProjectExplorer { get; }
 
-    // Shows the session's stored project: its worksheets in stored order with their column metadata, with the first
-    // worksheet selected (its grid page then loads; see GridLoadTask). Production startup creates the untitled project
-    // in the project storage (ProjectWorkspace) and shows it through this method. Does nothing for a session without a
-    // stored project.
-    public async Task LoadProjectAsync()
+    // Shows the session's stored project: its worksheets in stored order with their column metadata, and selects the
+    // worksheet preferredWorksheetId if the project has it, otherwise the first worksheet (its grid page then loads; see
+    // GridLoadTask). Project lifecycle (ProjectLifecycleController) shows every created or opened project through this
+    // method. Does nothing for a session without a stored project.
+    public async Task LoadProjectAsync(Guid? preferredWorksheetId = null)
     {
         var metadata = await _session.LoadProjectAsync(CancellationToken.None);
         if (metadata is null)
@@ -75,7 +75,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         CurrentProject = metadata.Project;
-        SelectedWorksheet = Worksheets.FirstOrDefault();
+        SelectedWorksheet = Worksheets.FirstOrDefault(worksheet => worksheet.Id == preferredWorksheetId) ?? Worksheets.FirstOrDefault();
     }
 
     // Legacy startup for the in-memory test composition only (production startup uses LoadProjectAsync): an untitled
@@ -229,7 +229,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [ObservableProperty]
-    public partial bool IsProjectPanelVisible { get; private set; } = true;
+    public partial bool IsProjectPanelVisible { get; internal set; } = true;
 
     [ObservableProperty]
     public partial string? ErrorMessage { get; private set; }
@@ -326,6 +326,17 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 ErrorMessage = "The worksheet data could not be loaded.";
             }
+        }
+        catch (ProjectStorageException ex)
+        {
+            if (version == _gridLoadVersion)
+            {
+                ErrorMessage = ProjectStorageMessages.For(ex);
+            }
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed and this view model is no longer shown.
         }
         finally
         {
@@ -506,6 +517,14 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ErrorMessage = ex.Message;
         }
+        catch (ProjectStorageException ex)
+        {
+            ErrorMessage = ProjectStorageMessages.For(ex);
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed (New, Open, Save As or exit) and this view model is no longer shown.
+        }
         finally
         {
             IsBusy = false;
@@ -580,6 +599,16 @@ public partial class MainWindowViewModel : ViewModelBase
             ErrorMessage = ex.Message;
             return false;
         }
+        catch (ProjectStorageException ex)
+        {
+            ErrorMessage = ProjectStorageMessages.For(ex);
+            return false;
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed (New, Open, Save As or exit) and this view model is no longer shown.
+            return false;
+        }
         finally
         {
             IsBusy = false;
@@ -626,6 +655,16 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
         {
             ErrorMessage = ex.Message;
+            return false;
+        }
+        catch (ProjectStorageException ex)
+        {
+            ErrorMessage = ProjectStorageMessages.For(ex);
+            return false;
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed (New, Open, Save As or exit) and this view model is no longer shown.
             return false;
         }
         finally
@@ -695,6 +734,14 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ErrorMessage = ex.Message;
         }
+        catch (ProjectStorageException ex)
+        {
+            ErrorMessage = ProjectStorageMessages.For(ex);
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed (New, Open, Save As or exit) and this view model is no longer shown.
+        }
         finally
         {
             IsBusy = false;
@@ -755,6 +802,14 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ErrorMessage = ex.Message;
         }
+        catch (ProjectStorageException ex)
+        {
+            ErrorMessage = ProjectStorageMessages.For(ex);
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed (New, Open, Save As or exit) and this view model is no longer shown.
+        }
         catch (RawDataStorageException)
         {
             // Storage details stay out of the UI.
@@ -813,6 +868,14 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ErrorMessage = ex.Message;
         }
+        catch (ProjectStorageException ex)
+        {
+            ErrorMessage = ProjectStorageMessages.For(ex);
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed (New, Open, Save As or exit) and this view model is no longer shown.
+        }
         catch (RawDataStorageException)
         {
             // Storage details stay out of the UI.
@@ -853,6 +916,14 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
         {
             ErrorMessage = ex.Message;
+        }
+        catch (ProjectStorageException ex)
+        {
+            ErrorMessage = ProjectStorageMessages.For(ex);
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed (New, Open, Save As or exit) and this view model is no longer shown.
         }
         catch (RawDataStorageException)
         {

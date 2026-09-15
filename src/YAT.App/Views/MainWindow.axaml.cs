@@ -21,9 +21,16 @@ public partial class MainWindow : Window
 
     // Grid column → worksheet column id, for header clicks. Rebuilt with the columns.
     private readonly Dictionary<TableViewColumn, Guid> _gridColumnIds = [];
+    private MainWindowShellViewModel? _shell;
+
+    // The shown project's view model (the shell's Project).
     private MainWindowViewModel? _viewModel;
-    private IReadOnlyList<WorksheetGridColumn> _shownGridColumns = [];
+
+    // The grid columns currently built; null forces a rebuild (e.g. for another project with the same columns).
+    private IReadOnlyList<WorksheetGridColumn>? _shownGridColumns = [];
     private readonly ColumnHeaderDragSelection _headerDrag = new();
+    private bool _closeApproved;
+    private bool _closeDecisionRunning;
 
     // The explorer column's width and minimum while the Project Explorer is hidden; null while it is shown.
     private (GridLength Width, double MinWidth)? _hiddenProjectExplorerColumn;
@@ -46,7 +53,7 @@ public partial class MainWindow : Window
     {
         base.OnKeyDown(e);
 
-        if (e.Handled || DataContext is not MainWindowViewModel viewModel)
+        if (e.Handled || _viewModel is not { } viewModel)
         {
             return;
         }
@@ -77,21 +84,90 @@ public partial class MainWindow : Window
         return true;
     }
 
+    // Close requests (File > Exit, title bar, Alt+F4) all run the same lifecycle decision. The first request is cancelled
+    // while the asynchronous decision (save prompt, Save As) runs; if closing is approved, the window closes again with
+    // the approval set, so the decision runs only once and never loops.
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+
+        if (_closeApproved || _shell is null)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (!_closeDecisionRunning)
+        {
+            _ = DecideCloseAsync(_shell);
+        }
+    }
+
+    private async Task DecideCloseAsync(MainWindowShellViewModel shell)
+    {
+        _closeDecisionRunning = true;
+        try
+        {
+            if (await shell.RequestCloseAsync())
+            {
+                _closeApproved = true;
+                Close();
+            }
+        }
+        finally
+        {
+            _closeDecisionRunning = false;
+        }
+    }
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
+
+        if (_shell is not null)
+        {
+            _shell.PropertyChanged -= OnShellPropertyChanged;
+        }
+
+        _shell = DataContext as MainWindowShellViewModel;
+        if (_shell is not null)
+        {
+            _shell.PropertyChanged += OnShellPropertyChanged;
+        }
+
+        AttachProject(_shell?.Project);
+    }
+
+    private void OnShellPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowShellViewModel.Project))
+        {
+            AttachProject(_shell?.Project);
+        }
+    }
+
+    // Shows another project's view model: the grid columns, header menus and selection highlight are rebuilt from it, and
+    // nothing of the previous project (drag state, header state) remains. The explorer column keeps its width.
+    private void AttachProject(MainWindowViewModel? viewModel)
+    {
+        if (ReferenceEquals(viewModel, _viewModel))
+        {
+            return;
+        }
 
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         }
 
-        _viewModel = DataContext as MainWindowViewModel;
+        _viewModel = viewModel;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         }
 
+        _headerDrag.End();
+        _shownGridColumns = null;
         RebuildGridColumns();
         ApplyProjectExplorerVisibility();
     }
@@ -211,7 +287,7 @@ public partial class MainWindow : Window
     private void RebuildGridColumns()
     {
         var gridColumns = _viewModel?.GridColumns ?? [];
-        if (gridColumns.SequenceEqual(_shownGridColumns))
+        if (_shownGridColumns is not null && gridColumns.SequenceEqual(_shownGridColumns))
         {
             UpdateHeaderSelection();
             return;

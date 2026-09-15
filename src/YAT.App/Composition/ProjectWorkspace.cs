@@ -9,8 +9,8 @@ namespace YAT.app.Composition;
 // previous one disposed (and its temporary storage deleted). A failed operation leaves the current session current and
 // usable.
 //
-// Lifecycle operations run one at a time. They do not coordinate with a MainWindowSession working on the current
-// session: rebinding the UI (and stopping UI operations before a switch) belongs to the File menu integration.
+// Lifecycle operations run one at a time. The workspace itself does not know the UI: ProjectLifecycleController suspends
+// the MainWindowSession working on the current session around a switch and rebinds the UI through activating.
 public sealed class ProjectWorkspace : IDisposable
 {
     public const string DefaultProjectName = "Untitled Project";
@@ -35,18 +35,25 @@ public sealed class ProjectWorkspace : IDisposable
     // path is never stored in the project itself.
     public string? ProjectFilePath => CurrentSession?.Database is { IsTemporary: false } database ? database.FilePath : null;
 
+    // The lifecycle operations below take an optional activating callback, see ReplaceCurrentAsync.
+
     // A new untitled project in temporary storage, "Untitled Project" with "Sheet1", which becomes the current session.
-    public Task<ProjectSession> CreateTemporaryProjectAsync(CancellationToken cancellationToken) =>
+    public Task<ProjectSession> CreateTemporaryProjectAsync(
+        CancellationToken cancellationToken,
+        Func<ProjectSession, Task>? activating = null) =>
         ReplaceCurrentAsync(async () =>
         {
             var session = _composition.CreateTemporaryProjectSession();
             await InitializeOrDiscardAsync(session, DefaultProjectName, cancellationToken);
             return session;
-        }, cancellationToken);
+        }, activating, cancellationToken);
 
     // A new project file at filePath (which must not exist) holding a project named after the file, with "Sheet1".
     // It becomes the current session.
-    public Task<ProjectSession> CreateProjectAsync(string filePath, CancellationToken cancellationToken) =>
+    public Task<ProjectSession> CreateProjectAsync(
+        string filePath,
+        CancellationToken cancellationToken,
+        Func<ProjectSession, Task>? activating = null) =>
         ReplaceCurrentAsync(async () =>
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
@@ -54,18 +61,21 @@ public sealed class ProjectWorkspace : IDisposable
             var projectName = Path.GetFileNameWithoutExtension(filePath);
             await InitializeOrDiscardAsync(session, string.IsNullOrWhiteSpace(projectName) ? DefaultProjectName : projectName, cancellationToken);
             return session;
-        }, cancellationToken);
+        }, activating, cancellationToken);
 
     // Opens an existing project file as the current session (ProjectStorageException when it cannot be opened, is not a
     // YAT project or was saved by a newer version).
-    public Task<ProjectSession> OpenProjectAsync(string filePath, CancellationToken cancellationToken) =>
+    public Task<ProjectSession> OpenProjectAsync(
+        string filePath,
+        CancellationToken cancellationToken,
+        Func<ProjectSession, Task>? activating = null) =>
         ReplaceCurrentAsync(() =>
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
             return _composition.OpenProjectFileSessionAsync(filePath, cancellationToken);
-        }, cancellationToken);
+        }, activating, cancellationToken);
 
-    // Writes the current project's committed changes into its database file (the future File > Save).
+    // Writes the current project's committed changes into its database file (File > Save of a project file).
     public async Task CheckpointAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -80,15 +90,19 @@ public sealed class ProjectWorkspace : IDisposable
     }
 
     // Save As: copies the current project to destinationPath (a new file), opens the copy and makes it the current
-    // session. Order: create and validate the copy → open it → switch → dispose the previous session → delete the
-    // previous temporary storage. If creating or opening the copy fails, the previous session stays current.
-    public Task<ProjectSession> SaveAsAsync(string destinationPath, CancellationToken cancellationToken) =>
+    // session. Order: create and validate the copy → open it → activating → switch → dispose the previous session →
+    // delete the previous temporary storage. If creating or opening the copy (or activating) fails, the previous session
+    // stays current.
+    public Task<ProjectSession> SaveAsAsync(
+        string destinationPath,
+        CancellationToken cancellationToken,
+        Func<ProjectSession, Task>? activating = null) =>
         ReplaceCurrentAsync(async () =>
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
             await CurrentDatabase().SaveCopyAsync(destinationPath, cancellationToken);
             return await _composition.OpenProjectFileSessionAsync(destinationPath, cancellationToken);
-        }, cancellationToken);
+        }, activating, cancellationToken);
 
     // Closes the current project: its database is closed and temporary storage is deleted.
     public async Task CloseProjectAsync(CancellationToken cancellationToken)
@@ -125,7 +139,13 @@ public sealed class ProjectWorkspace : IDisposable
         }
     }
 
-    private async Task<ProjectSession> ReplaceCurrentAsync(Func<Task<ProjectSession>> createSession, CancellationToken cancellationToken)
+    // activating (optional) runs once the new session exists, before it becomes current: e.g. to bind and load the UI for
+    // it. The previous session is still current and untouched meanwhile. If activating fails, the new session is
+    // discarded (and its temporary storage deleted) and the previous session stays current.
+    private async Task<ProjectSession> ReplaceCurrentAsync(
+        Func<Task<ProjectSession>> createSession,
+        Func<ProjectSession, Task>? activating,
+        CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -133,6 +153,19 @@ public sealed class ProjectWorkspace : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
 
             var next = await createSession();
+            if (activating is not null)
+            {
+                try
+                {
+                    await activating(next);
+                }
+                catch
+                {
+                    Retire(next);
+                    throw;
+                }
+            }
+
             var previous = CurrentSession;
             CurrentSession = next;
             Retire(previous);
