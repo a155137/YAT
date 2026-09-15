@@ -123,4 +123,39 @@ public class CreateWorksheetHandlerTests
 
         Assert.Empty(worksheets.Added);
     }
+
+    [Theory]
+    [InlineData("Sheet1")]
+    [InlineData("sheet1")]
+    [InlineData("SHEET1")]
+    [InlineData("  sheet1  ")]
+    public async Task RejectsANameAlreadyUsedInTheProjectIgnoringCase(string name)
+    {
+        var projects = new FakeProjectRepository();
+        var worksheets = new FakeWorksheetRepository();
+        var project = SeedProject(projects);
+        var handler = CreateHandler(projects, worksheets);
+        await handler.HandleAsync(new CreateWorksheetCommand(project.Id, "Sheet1"), Token);
+
+        await Assert.ThrowsAsync<ValidationException>(
+            () => handler.HandleAsync(new CreateWorksheetCommand(project.Id, name), Token));
+
+        Assert.Equal("Sheet1", Assert.Single(worksheets.Added).Name);
+    }
+
+    [Fact]
+    public async Task AllowsTheSameNameInAnotherProject()
+    {
+        var projects = new FakeProjectRepository();
+        var worksheets = new FakeWorksheetRepository();
+        var first = SeedProject(projects);
+        var second = SeedProject(projects);
+        var handler = CreateHandler(projects, worksheets);
+        await handler.HandleAsync(new CreateWorksheetCommand(first.Id, "Sheet1"), Token);
+
+        var worksheet = await handler.HandleAsync(new CreateWorksheetCommand(second.Id, "sheet1"), Token);
+
+        Assert.Equal(second.Id, worksheet.ProjectId);
+        Assert.Equal(2, worksheets.Added.Count);
+    }
 }

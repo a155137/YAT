@@ -333,8 +333,9 @@ public class ProjectExplorerTests
         await runtime.PasteAsync("No\n1\n2\n3\n");
 
         Assert.Equal(
-            [nameof(ProjectExplorerWorksheetItem.IsActive), nameof(ProjectExplorerItem.IsExpanded), nameof(ProjectExplorerItem.Name),
-             nameof(ProjectExplorerWorksheetItem.Worksheet), nameof(ProjectExplorerWorksheetItem.WorksheetId)],
+            [nameof(ProjectExplorerItem.EditName), nameof(ProjectExplorerWorksheetItem.IsActive), nameof(ProjectExplorerItem.IsEditing),
+             nameof(ProjectExplorerItem.IsExpanded), nameof(ProjectExplorerItem.Name), nameof(ProjectExplorerWorksheetItem.Worksheet),
+             nameof(ProjectExplorerWorksheetItem.WorksheetId)],
             typeof(ProjectExplorerWorksheetItem).GetProperties().Select(property => property.Name).Order());
         Assert.Same(runtime.ViewModel.SelectedWorksheet, Assert.Single(runtime.WorksheetItems).Worksheet);
     }

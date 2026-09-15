@@ -1,7 +1,9 @@
 using YAT.Application.Features.Projects.CreateProject;
+using YAT.Application.Features.Projects.RenameProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
+using YAT.Application.Features.Worksheets.RenameWorksheet;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
@@ -52,7 +54,9 @@ public sealed class CompositionRoot
 
         return new MainWindowSession(
             new CreateProjectHandler(_projects, _timeProvider),
+            new RenameProjectHandler(_projects, _timeProvider),
             new CreateWorksheetHandler(_projects, projectSession.Worksheets, _timeProvider),
+            new RenameWorksheetHandler(projectSession.Worksheets, _timeProvider),
             new AddWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns),
             clipboardReader,
             clipboardWriter,

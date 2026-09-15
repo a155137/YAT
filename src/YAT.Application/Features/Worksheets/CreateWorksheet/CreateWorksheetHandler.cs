@@ -22,10 +22,7 @@ public sealed class CreateWorksheetHandler
 
     public async Task<Worksheet> HandleAsync(CreateWorksheetCommand command, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Name))
-        {
-            throw new ValidationException("Worksheet name must not be empty.");
-        }
+        var name = WorksheetNames.Normalize(command.Name);
 
         var project = await _projects.GetByIdAsync(command.ProjectId, cancellationToken);
         if (project is null)
@@ -33,13 +30,15 @@ public sealed class CreateWorksheetHandler
             throw new EntityNotFoundException(nameof(Project), command.ProjectId);
         }
 
+        await WorksheetNames.EnsureUniqueAsync(_worksheets, project.Id, name, excludedWorksheetId: null, cancellationToken);
+
         var now = _timeProvider.GetUtcNow();
 
         var worksheet = new Worksheet
         {
             Id = Guid.NewGuid(),
             ProjectId = command.ProjectId,
-            Name = command.Name.Trim(),
+            Name = name,
             RowCount = 0,
             ColumnCount = 0,
             CreatedAt = now,

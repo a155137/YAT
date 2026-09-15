@@ -1,3 +1,4 @@
+using YAT.Application.Exceptions;
 using YAT.Domain.Entities;
 using YAT.Infrastructure.Persistence.InMemory;
 
@@ -56,5 +57,31 @@ public class InMemoryProjectRepositoryTests
 
         Assert.Same(first, await repository.GetByIdAsync(first.Id, Token));
         Assert.Same(second, await repository.GetByIdAsync(second.Id, Token));
+    }
+
+    [Fact]
+    public async Task UpdateReplacesTheStoredProject()
+    {
+        var repository = new InMemoryProjectRepository();
+        var project = new Project { Id = Guid.NewGuid(), Name = "Untitled Project" };
+        await repository.AddAsync(project, Token);
+        var renamed = new Project { Id = project.Id, Name = "ALS_2026_09" };
+
+        await repository.UpdateAsync(renamed, Token);
+
+        Assert.Same(renamed, await repository.GetByIdAsync(project.Id, Token));
+        Assert.Equal("Untitled Project", project.Name);
+    }
+
+    [Fact]
+    public async Task UpdateOfAnUnknownProjectThrowsAndStoresNothing()
+    {
+        var repository = new InMemoryProjectRepository();
+        var unknown = new Project { Id = Guid.NewGuid(), Name = "ALS_2026_09" };
+
+        var exception = await Assert.ThrowsAsync<EntityNotFoundException>(() => repository.UpdateAsync(unknown, Token));
+
+        Assert.Equal(unknown.Id, exception.Id);
+        Assert.Null(await repository.GetByIdAsync(unknown.Id, Token));
     }
 }

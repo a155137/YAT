@@ -13,10 +13,18 @@ public abstract partial class ProjectExplorerItem : ObservableObject
 
     [ObservableProperty]
     public partial bool IsExpanded { get; set; }
+
+    // Inline rename state: while editing, the name is shown as an editable EditName. Rename is started, committed and
+    // cancelled through ProjectExplorerViewModel.
+    [ObservableProperty]
+    public partial bool IsEditing { get; internal set; }
+
+    [ObservableProperty]
+    public partial string EditName { get; set; } = string.Empty;
 }
 
 // Root item: the current Project, with its worksheets as direct children in creation order.
-public sealed class ProjectExplorerProjectItem : ProjectExplorerItem
+public sealed partial class ProjectExplorerProjectItem : ProjectExplorerItem
 {
     internal ProjectExplorerProjectItem(Project project, ICommand newWorksheetCommand)
     {
@@ -25,7 +33,9 @@ public sealed class ProjectExplorerProjectItem : ProjectExplorerItem
         IsExpanded = true;
     }
 
-    public Project Project { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Name))]
+    public partial Project Project { get; internal set; }
 
     public override string Name => Project.Name;
 
@@ -43,7 +53,10 @@ public sealed partial class ProjectExplorerWorksheetItem : ProjectExplorerItem
         Worksheet = worksheet;
     }
 
-    public Worksheet Worksheet { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Name))]
+    [NotifyPropertyChangedFor(nameof(WorksheetId))]
+    public partial Worksheet Worksheet { get; internal set; }
 
     public Guid WorksheetId => Worksheet.Id;
 

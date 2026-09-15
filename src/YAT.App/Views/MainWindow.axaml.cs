@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using YAT.app.Composition;
 using YAT.app.ViewModels;
@@ -102,6 +103,13 @@ public partial class MainWindow : Window
             case nameof(MainWindowViewModel.IsProjectPanelVisible):
                 ApplyProjectExplorerVisibility();
                 break;
+            case nameof(MainWindowViewModel.SelectedWorksheet):
+                // A rename can change the worksheet title in the same layout pass that hides the error bar. Avalonia then
+                // re-measures the title while resizing the workspace, but never re-arranges the header (its bounds did
+                // not change), so the title kept its previous width and was clipped. Invalidating the header here
+                // makes the layout pass arrange it again.
+                WorksheetHeader.InvalidateMeasure();
+                break;
             case nameof(MainWindowViewModel.GridColumns):
                 RebuildGridColumns();
                 break;
@@ -130,6 +138,71 @@ public partial class MainWindow : Window
             _hiddenProjectExplorerColumn = null;
             column.Width = shown.Width;
             column.MinWidth = shown.MinWidth;
+        }
+    }
+
+    // Double-click on a Project Explorer name starts inline rename. Only the name text starts it: the event is handled
+    // here so the tree item does not also expand or collapse, while the expander chevron keeps its own behavior.
+    private void OnExplorerNameDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (_viewModel is null || sender is not Control { DataContext: ProjectExplorerItem item, Parent: Panel panel })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        _viewModel.ProjectExplorer.BeginRename(item);
+
+        if (panel.Children.OfType<TextBox>().FirstOrDefault() is { } editor)
+        {
+            // The editor becomes visible on the next layout pass; focus it once it can take focus.
+            Dispatcher.UIThread.Post(
+                () =>
+                {
+                    editor.Focus();
+                    editor.SelectAll();
+                },
+                DispatcherPriority.Loaded);
+        }
+    }
+
+    // Enter commits (a rejected name stays in edit mode), Esc cancels. Up/Down are kept from the tree while editing, so
+    // they cannot move the tree selection to another item.
+    private async void OnExplorerEditorKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_viewModel is null || sender is not TextBox { DataContext: ProjectExplorerItem item } editor)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.Enter:
+                e.Handled = true;
+                if (await _viewModel.ProjectExplorer.CommitRenameAsync(item) || !item.IsEditing)
+                {
+                    editor.FindAncestorOfType<TreeViewItem>()?.Focus();
+                }
+
+                break;
+            case Key.Escape:
+                e.Handled = true;
+                _viewModel.ProjectExplorer.CancelRename(item);
+                editor.FindAncestorOfType<TreeViewItem>()?.Focus();
+                break;
+            case Key.Up:
+            case Key.Down:
+                e.Handled = true;
+                break;
+        }
+    }
+
+    // Focus loss commits; a rejected name ends editing and restores the current name (the error stays shown).
+    private async void OnExplorerEditorLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel is not null && sender is TextBox { DataContext: ProjectExplorerItem item })
+        {
+            await _viewModel.ProjectExplorer.CommitOrCancelRenameAsync(item);
         }
     }
 

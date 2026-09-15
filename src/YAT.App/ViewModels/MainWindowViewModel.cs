@@ -10,6 +10,8 @@ using YAT.Domain.Entities;
 using YAT.Domain.Enums;
 using CreateProjectRequest = YAT.Application.Features.Projects.CreateProject.CreateProjectCommand;
 using CreateWorksheetRequest = YAT.Application.Features.Worksheets.CreateWorksheet.CreateWorksheetCommand;
+using RenameProjectRequest = YAT.Application.Features.Projects.RenameProject.RenameProjectCommand;
+using RenameWorksheetRequest = YAT.Application.Features.Worksheets.RenameWorksheet.RenameWorksheetCommand;
 
 namespace YAT.app.ViewModels;
 
@@ -39,7 +41,10 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(MainWindowSession session)
     {
         _session = session;
-        ProjectExplorer = new ProjectExplorerViewModel(NewWorksheetCommand, worksheet => SelectedWorksheet = worksheet);
+        ProjectExplorer = new ProjectExplorerViewModel(
+            NewWorksheetCommand,
+            worksheet => SelectedWorksheet = worksheet,
+            RenameExplorerItemAsync);
     }
 
     // Left panel navigation tree: the current Project and its worksheets (metadata only).
@@ -212,12 +217,28 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CopySelectedColumnsCommand))]
     public partial bool IsBusy { get; private set; }
 
-    partial void OnCurrentProjectChanged(Project? value) =>
-        ProjectExplorer.ShowProject(value, Worksheets, SelectedWorksheet?.Id);
-
-    partial void OnSelectedWorksheetChanged(Worksheet? value)
+    // A new instance of the same Project (a rename result) only refreshes its tree item; another Project rebuilds the tree.
+    partial void OnCurrentProjectChanged(Project? oldValue, Project? newValue)
     {
-        ProjectExplorer.SetActiveWorksheet(value?.Id);
+        if (oldValue is not null && newValue is not null && oldValue.Id == newValue.Id)
+        {
+            ProjectExplorer.UpdateProject(newValue);
+            return;
+        }
+
+        ProjectExplorer.ShowProject(newValue, Worksheets, SelectedWorksheet?.Id);
+    }
+
+    partial void OnSelectedWorksheetChanged(Worksheet? oldValue, Worksheet? newValue)
+    {
+        // A new instance of the same worksheet (a rename result) is still the same selection: the grid page, column
+        // selection and error stay as they are.
+        if (oldValue is not null && newValue is not null && oldValue.Id == newValue.Id)
+        {
+            return;
+        }
+
+        ProjectExplorer.SetActiveWorksheet(newValue?.Id);
 
         // An error raised for the previously selected Worksheet no longer applies.
         ErrorMessage = null;
@@ -226,17 +247,17 @@ public partial class MainWindowViewModel : ViewModelBase
         // Never show the previous worksheet's page while the new one loads.
         ApplyGridPage(WorksheetGridPage.Empty);
 
-        if (value is null)
+        if (newValue is null)
         {
             SelectedWorksheetColumns = null;
             GridLoadTask = LoadGridPageAsync(0);
             return;
         }
 
-        if (!_columnsByWorksheet.TryGetValue(value.Id, out var columns))
+        if (!_columnsByWorksheet.TryGetValue(newValue.Id, out var columns))
         {
             columns = [];
-            _columnsByWorksheet[value.Id] = columns;
+            _columnsByWorksheet[newValue.Id] = columns;
         }
 
         SelectedWorksheetColumns = columns;
@@ -535,6 +556,71 @@ public partial class MainWindowViewModel : ViewModelBase
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    // Project Explorer inline rename: the session validates and stores the name; the UI then shows the returned entity
+    // everywhere it appears (tree, breadcrumb, worksheet title). Returns false when the rename was rejected (the reason
+    // is in ErrorMessage) or another operation is running.
+    private async Task<bool> RenameExplorerItemAsync(ProjectExplorerItem item, string name)
+    {
+        if (IsBusy)
+        {
+            return false;
+        }
+
+        ErrorMessage = null;
+        IsBusy = true;
+        try
+        {
+            switch (item)
+            {
+                case ProjectExplorerProjectItem projectItem:
+                    var project = await _session.RenameProjectAsync(
+                        new RenameProjectRequest(projectItem.Project.Id, name), CancellationToken.None);
+                    if (CurrentProject?.Id == project.Id)
+                    {
+                        // Same Id: refreshes the tree item, breadcrumb and title without rebuilding the tree.
+                        CurrentProject = project;
+                    }
+
+                    return true;
+
+                case ProjectExplorerWorksheetItem worksheetItem:
+                    var worksheet = await _session.RenameWorksheetAsync(
+                        new RenameWorksheetRequest(worksheetItem.WorksheetId, name), CancellationToken.None);
+                    ShowRenamedWorksheet(worksheet);
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+        catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
+        {
+            ErrorMessage = ex.Message;
+            return false;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void ShowRenamedWorksheet(Worksheet worksheet)
+    {
+        for (var index = 0; index < Worksheets.Count; index++)
+        {
+            if (Worksheets[index].Id == worksheet.Id)
+            {
+                Worksheets[index] = worksheet;
+            }
+        }
+
+        ProjectExplorer.UpdateWorksheet(worksheet);
+        if (SelectedWorksheet?.Id == worksheet.Id)
+        {
+            SelectedWorksheet = worksheet;
         }
     }
 

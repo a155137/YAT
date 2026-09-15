@@ -162,7 +162,9 @@ public class MainWindowSessionCompositionTests
             "System.Threading",
             "System.Threading.Tasks",
             "YAT.Application.Features.Projects.CreateProject",
+            "YAT.Application.Features.Projects.RenameProject",
             "YAT.Application.Features.Worksheets.CreateWorksheet",
+            "YAT.Application.Features.Worksheets.RenameWorksheet",
             "YAT.Application.Features.Worksheets.AddWorksheetColumn",
             "YAT.app.Composition",
             "YAT.Domain.Entities"

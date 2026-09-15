@@ -94,6 +94,13 @@
         <Style Selector="TreeView#ProjectExplorerTree TextBlock.active">
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
+        <!-- Inline rename editor: sized like the name it replaces. -->
+        <Style Selector="TreeView#ProjectExplorerTree TextBox.yat-explorer-editor">
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="MinWidth" Value="120" />
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
 
         <Style Selector="Button.yat-pager">
             <Setter Property="Padding" Value="8,2" />
@@ -179,7 +186,8 @@
                                Opacity="0.6"
                                IsVisible="{Binding !HasCurrentProject}" />
 
-                    <!-- Navigation only: items are Project / Worksheet metadata. Selecting a worksheet shows it. -->
+                    <!-- Navigation only: items are Project / Worksheet metadata. Selecting a worksheet shows it; double-clicking a name
+                         renames it inline (Enter or focus loss commits, Esc cancels). -->
                     <TreeView x:Name="ProjectExplorerTree"
                               ItemsSource="{Binding ProjectExplorer.Items}"
                               SelectedItem="{Binding ProjectExplorer.SelectedItem, Mode=TwoWay}">
@@ -192,14 +200,36 @@
                                         </ContextMenu>
                                     </StackPanel.ContextMenu>
                                     <PathIcon Classes="yat-explorer-icon" Data="{StaticResource ProjectExplorerProjectIcon}" />
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <Panel>
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   IsVisible="{Binding !IsEditing}"
+                                                   DoubleTapped="OnExplorerNameDoubleTapped" />
+                                        <TextBox Classes="yat-explorer-editor"
+                                                 Text="{Binding EditName}"
+                                                 IsVisible="{Binding IsEditing}"
+                                                 KeyDown="OnExplorerEditorKeyDown"
+                                                 LostFocus="OnExplorerEditorLostFocus" />
+                                    </Panel>
                                 </StackPanel>
                             </TreeDataTemplate>
                             <DataTemplate DataType="vm:ProjectExplorerWorksheetItem">
                                 <StackPanel Orientation="Horizontal" Spacing="6" Background="Transparent">
                                     <PathIcon Classes="yat-explorer-icon" Classes.active="{Binding IsActive}"
                                               Data="{StaticResource ProjectExplorerWorksheetIcon}" />
-                                    <TextBlock Classes.active="{Binding IsActive}" Text="{Binding Name}" VerticalAlignment="Center" />
+                                    <Panel>
+                                        <TextBlock Classes.active="{Binding IsActive}"
+                                                   Text="{Binding Name}"
+                                                   VerticalAlignment="Center"
+                                                   IsVisible="{Binding !IsEditing}"
+                                                   DoubleTapped="OnExplorerNameDoubleTapped" />
+                                        <TextBox Classes="yat-explorer-editor"
+                                                 Text="{Binding EditName}"
+                                                 IsVisible="{Binding IsEditing}"
+                                                 KeyDown="OnExplorerEditorKeyDown"
+                                                 LostFocus="OnExplorerEditorLostFocus" />
+                                    </Panel>
                                 </StackPanel>
                             </DataTemplate>
                         </TreeView.DataTemplates>
@@ -230,7 +260,8 @@
                 <DockPanel Margin="8,6,8,8"
                            IsVisible="{Binding SelectedWorksheet, Converter={x:Static ObjectConverters.IsNotNull}}">
                     <!-- One compact bar: worksheet name, summary and paste progress on the left; paging on the right. -->
-                    <Grid DockPanel.Dock="Top"
+                    <Grid x:Name="WorksheetHeader"
+                          DockPanel.Dock="Top"
                           Margin="0,0,0,6"
                           ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
                         <TextBlock Grid.Column="0"

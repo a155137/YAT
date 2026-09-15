@@ -1,9 +1,11 @@
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Exceptions;
 using YAT.Application.Features.Projects.CreateProject;
+using YAT.Application.Features.Projects.RenameProject;
 using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
+using YAT.Application.Features.Worksheets.RenameWorksheet;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
@@ -24,7 +26,9 @@ public sealed class MainWindowSession
     public const int GridPageSize = WorksheetDataQueryService.MaxPageRowCount;
 
     private readonly CreateProjectHandler _createProject;
+    private readonly RenameProjectHandler _renameProject;
     private readonly CreateWorksheetHandler _createWorksheet;
+    private readonly RenameWorksheetHandler _renameWorksheet;
     private readonly AddWorksheetColumnHandler _addWorksheetColumn;
     private readonly IClipboardTextReader _clipboard;
     private readonly IClipboardTextWriter _clipboardWriter;
@@ -39,7 +43,9 @@ public sealed class MainWindowSession
 
     internal MainWindowSession(
         CreateProjectHandler createProject,
+        RenameProjectHandler renameProject,
         CreateWorksheetHandler createWorksheet,
+        RenameWorksheetHandler renameWorksheet,
         AddWorksheetColumnHandler addWorksheetColumn,
         IClipboardTextReader clipboard,
         IClipboardTextWriter clipboardWriter,
@@ -52,7 +58,9 @@ public sealed class MainWindowSession
         WorksheetColumnsTsvExporter columnsExporter)
     {
         _createProject = createProject;
+        _renameProject = renameProject;
         _createWorksheet = createWorksheet;
+        _renameWorksheet = renameWorksheet;
         _addWorksheetColumn = addWorksheetColumn;
         _clipboard = clipboard;
         _clipboardWriter = clipboardWriter;
@@ -68,8 +76,16 @@ public sealed class MainWindowSession
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>
         RunExclusiveAsync(() => _createProject.HandleAsync(command, cancellationToken), cancellationToken);
 
+    // Renames go through the Application handlers, which validate the name and store a renamed copy; the returned entity
+    // is the stored state the UI should show.
+    public Task<Project> RenameProjectAsync(RenameProjectCommand command, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(() => _renameProject.HandleAsync(command, cancellationToken), cancellationToken);
+
     public Task<Worksheet> CreateWorksheetAsync(CreateWorksheetCommand command, CancellationToken cancellationToken) =>
         RunExclusiveAsync(() => _createWorksheet.HandleAsync(command, cancellationToken), cancellationToken);
+
+    public Task<Worksheet> RenameWorksheetAsync(RenameWorksheetCommand command, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(() => _renameWorksheet.HandleAsync(command, cancellationToken), cancellationToken);
 
     public Task<WorksheetColumn> AddWorksheetColumnAsync(AddWorksheetColumnCommand command, CancellationToken cancellationToken) =>
         RunExclusiveAsync(() => _addWorksheetColumn.HandleAsync(command, cancellationToken), cancellationToken);
