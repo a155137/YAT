@@ -13,6 +13,9 @@ internal sealed class FakeWorksheetRawDataStore : IWorksheetRawDataStore
 
     public List<(Guid WorksheetId, IReadOnlyList<Guid> ColumnIds, long RowOffset, int RowCount)> Reads { get; } = [];
 
+    // Thrown by ReadColumnsAsync instead of returning a block.
+    public Exception? ReadFailure { get; set; }
+
     // Thrown by WriteColumnsAsync instead of recording the write.
     public Exception? WriteFailure { get; set; }
 
@@ -47,6 +50,11 @@ internal sealed class FakeWorksheetRawDataStore : IWorksheetRawDataStore
         int rowCount,
         CancellationToken cancellationToken)
     {
+        if (ReadFailure is not null)
+        {
+            throw ReadFailure;
+        }
+
         Reads.Add((worksheetId, columnIds.ToArray(), rowOffset, rowCount));
 
         var columns = columnIds

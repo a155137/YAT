@@ -167,6 +167,7 @@ public class MainWindowSessionCompositionTests
             "YAT.Application.Features.Worksheets.RenameWorksheet",
             "YAT.Application.Features.Worksheets.AddWorksheetColumn",
             "YAT.Application.Queries",
+            "YAT.Application.Graphs",
             "YAT.app.Composition",
             "YAT.Domain.Entities"
         ];

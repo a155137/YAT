@@ -21,6 +21,9 @@ internal sealed class FakeWorksheetColumnRepository : IWorksheetColumnRepository
 
     public void Seed(WorksheetColumn column) => _stored[column.Id] = column;
 
+    // Removes a column without recording a delete, e.g. to simulate a column deleted by another operation.
+    public void Delete(Guid columnId) => _stored.Remove(columnId);
+
     public Task<IReadOnlyList<WorksheetColumn>> GetByWorksheetIdAsync(Guid worksheetId, CancellationToken cancellationToken)
     {
         IReadOnlyList<WorksheetColumn> columns = _stored.Values

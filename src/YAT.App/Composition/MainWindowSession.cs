@@ -6,6 +6,7 @@ using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
 using YAT.Application.Features.Worksheets.RenameWorksheet;
+using YAT.Application.Graphs;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
@@ -40,6 +41,7 @@ public sealed class MainWindowSession
     private readonly DeleteWorksheetColumnsHandler _deleteWorksheetColumns;
     private readonly WorksheetColumnsTsvExporter _columnsExporter;
     private readonly ProjectMetadataQueryService _metadataQuery;
+    private readonly GraphDataQueryService _graphData;
     private readonly Guid? _projectId;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _retired;
@@ -60,6 +62,7 @@ public sealed class MainWindowSession
         DeleteWorksheetColumnsHandler deleteWorksheetColumns,
         WorksheetColumnsTsvExporter columnsExporter,
         ProjectMetadataQueryService metadataQuery,
+        GraphDataQueryService graphData,
         Guid? projectId)
     {
         _createProject = createProject;
@@ -77,6 +80,7 @@ public sealed class MainWindowSession
         _deleteWorksheetColumns = deleteWorksheetColumns;
         _columnsExporter = columnsExporter;
         _metadataQuery = metadataQuery;
+        _graphData = graphData;
         _projectId = projectId;
     }
 
@@ -97,6 +101,13 @@ public sealed class MainWindowSession
             () => Task.Run(() => _metadataQuery.LoadAsync(projectId, cancellationToken), cancellationToken),
             cancellationToken);
     }
+
+    // The observations of a graph configuration (see GraphDataQueryService), read off the UI thread. The values stay in
+    // the returned graph data: they never pass through a view model.
+    public Task<GraphData> LoadGraphDataAsync(GraphConfiguration configuration, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(() => _graphData.LoadAsync(configuration, cancellationToken), cancellationToken),
+            cancellationToken);
 
     // The column metadata of one worksheet (Id, Index, Name, DataType, ...), read off the UI thread. Never raw values.
     public Task<IReadOnlyList<WorksheetColumn>> LoadWorksheetColumnsAsync(Guid worksheetId, CancellationToken cancellationToken) =>
