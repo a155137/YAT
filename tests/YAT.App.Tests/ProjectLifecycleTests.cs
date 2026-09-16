@@ -2,6 +2,7 @@ using DuckDB.NET.Data;
 using YAT.App.Tests.TestDoubles;
 using YAT.Application.Abstractions.Persistence;
 using YAT.app.Composition;
+using YAT.app.Graphs;
 using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 
@@ -24,7 +25,8 @@ public class ProjectLifecycleTests
             Composition = new CompositionRoot(new FixedTimeProvider(Now), TemporaryRoot);
             Workspace = Composition.CreateProjectWorkspace();
             Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, Dialogs);
-            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle);
+            Graphs = Composition.CreateGraphSetup(GraphDialogs);
+            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs);
         }
 
         private readonly bool _ownsDirectory;
@@ -40,6 +42,10 @@ public class ProjectLifecycleTests
         public FakeClipboard Clipboard { get; } = new();
 
         public FakeProjectLifecycleDialogs Dialogs { get; } = new();
+
+        public FakeGraphSetupDialogs GraphDialogs { get; } = new();
+
+        public GraphSetupController Graphs { get; }
 
         public ProjectLifecycleController Lifecycle { get; }
 

@@ -8,6 +8,7 @@ using YAT.Application.Features.Worksheets.RenameWorksheet;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
+using YAT.app.Graphs;
 using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
@@ -128,7 +129,14 @@ public sealed class CompositionRoot
         return new ProjectLifecycleController(this, workspace, clipboardReader, clipboardWriter, dialogs);
     }
 
-    public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle) => new(lifecycle);
+    public GraphSetupController CreateGraphSetup(IGraphSetupDialogs dialogs)
+    {
+        ArgumentNullException.ThrowIfNull(dialogs);
+        return new GraphSetupController(dialogs);
+    }
+
+    public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle, GraphSetupController graphs) =>
+        new(lifecycle, graphs);
 
     private ProjectSession CreatePersistentSession(DuckDbProjectDatabase database, DuckDbProjectRepository? projects = null)
     {

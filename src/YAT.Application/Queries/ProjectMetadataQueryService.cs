@@ -21,6 +21,10 @@ public sealed class ProjectMetadataQueryService
         _worksheetColumns = worksheetColumns;
     }
 
+    // The column metadata of one worksheet, ordered by Index. Never any raw values.
+    public Task<IReadOnlyList<WorksheetColumn>> LoadWorksheetColumnsAsync(Guid worksheetId, CancellationToken cancellationToken) =>
+        _worksheetColumns.GetByWorksheetIdAsync(worksheetId, cancellationToken);
+
     public async Task<ProjectMetadata> LoadAsync(Guid projectId, CancellationToken cancellationToken)
     {
         var project = await _projects.GetByIdAsync(projectId, cancellationToken)

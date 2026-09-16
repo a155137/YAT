@@ -98,6 +98,12 @@ public sealed class MainWindowSession
             cancellationToken);
     }
 
+    // The column metadata of one worksheet (Id, Index, Name, DataType, ...), read off the UI thread. Never raw values.
+    public Task<IReadOnlyList<WorksheetColumn>> LoadWorksheetColumnsAsync(Guid worksheetId, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(() => _metadataQuery.LoadWorksheetColumnsAsync(worksheetId, cancellationToken), cancellationToken),
+            cancellationToken);
+
     public Task<Project> CreateProjectAsync(CreateProjectCommand command, CancellationToken cancellationToken) =>
         RunModifyingAsync(() => _createProject.HandleAsync(command, cancellationToken), cancellationToken);
 

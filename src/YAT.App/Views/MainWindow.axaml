@@ -137,6 +137,13 @@
                           IsChecked="{Binding Project.IsProjectPanelVisible, Mode=OneWay, FallbackValue=True}"
                           Command="{Binding Project.ToggleProjectPanelCommand, FallbackValue={x:Null}}" />
             </MenuItem>
+            <!-- Graph setup for the active worksheet; nothing is drawn yet (Task #024 produces the configuration). -->
+            <MenuItem Header="_Graph">
+                <MenuItem Header="_Scatter Plot..." Command="{Binding ScatterPlotCommand}" />
+                <MenuItem Header="_Histogram..." Command="{Binding HistogramCommand}" />
+                <MenuItem Header="_Probability Plot..." Command="{Binding ProbabilityPlotCommand}" />
+                <MenuItem Header="_Empirical CDF..." Command="{Binding EmpiricalCdfCommand}" />
+            </MenuItem>
         </Menu>
 
         <Border DockPanel.Dock="Top"

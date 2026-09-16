@@ -1,0 +1,178 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
+using Avalonia.Data;
+using Avalonia.Layout;
+using Avalonia.Media;
+using YAT.Application.Graphs;
+using YAT.app.ViewModels;
+
+namespace YAT.app.Views;
+
+// The graph setup dialog, shared by every graph type: the worksheet's columns on the left, one selector per role of the
+// chosen graph type on the right. The roles come from the graph specification, so this window has no per-graph logic.
+internal sealed class GraphSetupWindow : Window
+{
+    private readonly GraphSetupViewModel _setup;
+    private readonly TextBlock _validation;
+    private readonly Button _confirm;
+
+    private GraphSetupWindow(GraphSetupViewModel setup)
+    {
+        _setup = setup;
+        DataContext = setup;
+        Title = setup.Title;
+        SizeToContent = SizeToContent.WidthAndHeight;
+        CanResize = false;
+        ShowInTaskbar = false;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        MinWidth = 520;
+
+        _validation = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(0xD1, 0x34, 0x38)),
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = false
+        };
+
+        _confirm = new Button
+        {
+            Content = "OK",
+            MinWidth = 88,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            IsDefault = true,
+            IsEnabled = setup.CanConfirm
+        };
+        _confirm.Classes.Add("accent");
+        _confirm.Click += (_, _) => Confirm();
+
+        var cancel = new Button
+        {
+            Content = "Cancel",
+            MinWidth = 88,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            IsCancel = true
+        };
+        cancel.Click += (_, _) => Close(null);
+
+        setup.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(GraphSetupViewModel.CanConfirm))
+            {
+                _confirm.IsEnabled = setup.CanConfirm;
+            }
+            else if (e.PropertyName == nameof(GraphSetupViewModel.ValidationMessage))
+            {
+                _validation.Text = setup.ValidationMessage;
+                _validation.IsVisible = !string.IsNullOrEmpty(setup.ValidationMessage);
+            }
+        };
+
+        Content = new StackPanel
+        {
+            Margin = new Thickness(20, 18),
+            Spacing = 14,
+            Children =
+            {
+                new TextBlock { Text = $"Worksheet: {setup.WorksheetName}", Opacity = 0.7 },
+                new Grid
+                {
+                    ColumnDefinitions = new ColumnDefinitions("240,24,*"),
+                    Children = { AvailableColumns(setup), Roles(setup) }
+                },
+                _validation,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Children = { _confirm, cancel }
+                }
+            }
+        };
+    }
+
+    // Shows the dialog and returns the confirmed configuration, or null when it was cancelled.
+    public static Task<GraphConfiguration?> ShowAsync(Window owner, GraphSetupViewModel setup) =>
+        new GraphSetupWindow(setup).ShowDialog<GraphConfiguration?>(owner);
+
+    private static Control AvailableColumns(GraphSetupViewModel setup)
+    {
+        var panel = new StackPanel { Spacing = 6 };
+        panel.Children.Add(new TextBlock { Text = "Available Columns", FontWeight = FontWeight.SemiBold });
+        panel.Children.Add(new ListBox
+        {
+            ItemsSource = setup.AvailableColumns,
+            Height = 180,
+            ItemTemplate = ColumnTemplate(),
+            SelectionMode = SelectionMode.Single
+        });
+
+        Grid.SetColumn(panel, 0);
+        return panel;
+    }
+
+    private static Control Roles(GraphSetupViewModel setup)
+    {
+        var panel = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
+        foreach (var role in setup.Roles)
+        {
+            var selector = new ComboBox
+            {
+                ItemsSource = role.Options,
+                ItemTemplate = ColumnTemplate(),
+                MinWidth = 200,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                PlaceholderText = role.IsRequired ? "Select a column" : null
+            };
+            selector.Bind(SelectingItemsControl.SelectedItemProperty, new Binding(nameof(GraphRoleViewModel.SelectedOption))
+            {
+                Source = role,
+                Mode = BindingMode.TwoWay
+            });
+
+            panel.Children.Add(new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("90,*"),
+                Children =
+                {
+                    new TextBlock { Text = role.DisplayName, VerticalAlignment = VerticalAlignment.Center },
+                    Column(selector, 1)
+                }
+            });
+        }
+
+        Grid.SetColumn(panel, 2);
+        return panel;
+    }
+
+    // Name, with the column's data type beside it; ids are never shown.
+    private static IDataTemplate ColumnTemplate() =>
+        new FuncDataTemplate<GraphColumnOption>((option, _) => option is null
+            ? null
+            : new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock { Text = option.Name },
+                    new TextBlock { Text = option.DataTypeName, Opacity = 0.6, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 }
+                }
+            });
+
+    private static Control Column(Control control, int column)
+    {
+        Grid.SetColumn(control, column);
+        return control;
+    }
+
+    private void Confirm()
+    {
+        if (_setup.Confirm() is { } configuration)
+        {
+            Close(configuration);
+        }
+    }
+}
