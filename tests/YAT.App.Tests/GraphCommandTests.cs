@@ -2,13 +2,14 @@ using YAT.App.Tests.TestDoubles;
 using YAT.Application.Graphs;
 using YAT.app.Composition;
 using YAT.app.Graphs;
+using YAT.app.Graphs.Rendering;
 using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 
 namespace YAT.App.Tests;
 
 // The Graph menu over a real project: the setup is built from the active worksheet's stored column metadata, and a
-// confirmed setup produces a validated configuration. Nothing is rendered.
+// confirmed setup produces a validated configuration and opens a graph window.
 public class GraphCommandTests
 {
     private static readonly DateTimeOffset Now = new(2026, 5, 1, 12, 0, 0, TimeSpan.Zero);
@@ -22,7 +23,7 @@ public class GraphCommandTests
             Composition = new CompositionRoot(new FixedTimeProvider(Now), Directory.File("temp"));
             Workspace = Composition.CreateProjectWorkspace();
             Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, ProjectDialogs);
-            Graphs = Composition.CreateGraphSetup(GraphDialogs);
+            Graphs = Composition.CreateGraphSetup(GraphDialogs, GraphWindows);
             Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs);
         }
 
@@ -37,6 +38,8 @@ public class GraphCommandTests
         public FakeProjectLifecycleDialogs ProjectDialogs { get; } = new();
 
         public FakeGraphSetupDialogs GraphDialogs { get; } = new();
+
+        public FakeGraphWindowPresenter GraphWindows { get; } = new();
 
         public ProjectLifecycleController Lifecycle { get; }
 
@@ -161,6 +164,41 @@ public class GraphCommandTests
         Assert.Null(runtime.Graphs.LastConfiguration);
         Assert.Empty(runtime.GraphDialogs.Errors);
         Assert.Null(runtime.Project.ErrorMessage);
+        Assert.Empty(runtime.GraphWindows.Shown);
+    }
+
+    // Task #026: the confirmed setup opens a graph window. Until a graph type computes a model of its own, the sample
+    // render model is shown there, so the path from the menu to a drawn graph is complete and testable.
+    [Fact]
+    public async Task ConfirmingTheSetupOpensAGraphWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t2\n");
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
+        await runtime.Shell.ScatterPlotCommand.ExecuteAsync(null);
+
+        var model = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal(SyntheticGraphRenderModel.Title, model.Title);
+        Assert.Equal("X Axis", model.XAxis.Title);
+        Assert.Equal("Y Axis", model.YAxis.Title);
+        Assert.NotEmpty(model.XAxis.Ticks);
+        Assert.NotEmpty(model.YAxis.Ticks);
+    }
+
+    // Nothing to graph means nothing to show: the error path never opens a window.
+    [Fact]
+    public async Task AGraphCommandOnAWorksheetWithoutColumnsOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["This worksheet has no columns to graph."], runtime.GraphDialogs.Errors);
     }
 
     [Fact]

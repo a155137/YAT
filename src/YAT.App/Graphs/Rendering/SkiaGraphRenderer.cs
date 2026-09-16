@@ -1,0 +1,325 @@
+using SkiaSharp;
+
+namespace YAT.app.Graphs.Rendering;
+
+// Draws a graph render model with SkiaSharp, and does nothing else: no statistics, no worksheet data, no knowledge of
+// where the model came from. Every graph type shares this frame (background, plot area, grid, axes, ticks, labels,
+// titles, legend); the series themselves are drawn by the graph-specific renderers that follow.
+//
+// The renderer is stateless, so one instance can draw any model into any canvas.
+public sealed class SkiaGraphRenderer
+{
+    private const float LegendSwatchSize = 11f;
+    private const float LegendPadding = 8f;
+    private const float LegendMaximumWidth = 220f;
+    private const float LegendEntrySpacing = 5f;
+
+    // Ticks are drawn only where they land on the plot area. This tolerance keeps the ticks at the exact ends of the
+    // range, which rounding can push a fraction of a pixel outside it.
+    private const float EdgeTolerance = 0.5f;
+
+    public void Render(SKCanvas canvas, GraphRenderModel model, SKRect bounds, GraphTheme theme)
+    {
+        ArgumentNullException.ThrowIfNull(canvas);
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(theme);
+
+        if (!IsFinite(bounds) || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+
+        using var titleFont = Font(theme.TitleFontSize);
+        using var axisTitleFont = Font(theme.AxisTitleFontSize);
+        using var tickFont = Font(theme.TickLabelFontSize);
+        using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+        using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke };
+
+        fill.Color = theme.Background;
+        canvas.DrawRect(bounds, fill);
+
+        var metrics = Measure(model, titleFont, axisTitleFont, tickFont);
+        var layout = GraphLayoutCalculator.Calculate(bounds, model, metrics);
+        if (!layout.HasPlotArea)
+        {
+            // Too small for a usable plot: the background alone, rather than axes drawn over each other.
+            return;
+        }
+
+        var transform = new GraphCoordinateTransform(model.XAxis.Range, model.YAxis.Range, layout.PlotArea);
+
+        fill.Color = theme.PlotBackground;
+        canvas.DrawRect(layout.PlotArea, fill);
+
+        DrawGrid(canvas, model, layout, transform, theme, stroke);
+        DrawAxisLines(canvas, layout, theme, stroke);
+        DrawTicks(canvas, model, layout, metrics, transform, theme, stroke, fill, tickFont);
+        DrawAxisTitles(canvas, model, layout, theme, fill, axisTitleFont);
+        DrawTitle(canvas, model, layout, theme, fill, titleFont);
+        DrawLegend(canvas, model, layout, theme, fill, stroke, tickFont);
+    }
+
+    // The renderer measures the text it is about to draw and hands the sizes to the layout, so the layout needs no font
+    // of its own and the labels get the space they actually take.
+    private static GraphLayoutMetrics Measure(GraphRenderModel model, SKFont titleFont, SKFont axisTitleFont, SKFont tickFont)
+    {
+        var hasAxisTitle = !string.IsNullOrWhiteSpace(model.XAxis.Title) || !string.IsNullOrWhiteSpace(model.YAxis.Title);
+
+        return new GraphLayoutMetrics
+        {
+            TitleHeight = string.IsNullOrWhiteSpace(model.Title) ? 0f : LineHeight(titleFont),
+            AxisTitleHeight = hasAxisTitle ? LineHeight(axisTitleFont) : 0f,
+            TickLabelHeight = LineHeight(tickFont),
+            YTickLabelWidth = WidestLabel(model.YAxis, tickFont),
+            XTickLabelOverflow = WidestLabel(model.XAxis, tickFont) / 2f,
+            LegendWidth = LegendWidth(model.Legend, tickFont)
+        };
+    }
+
+    private static void DrawGrid(
+        SKCanvas canvas,
+        GraphRenderModel model,
+        GraphLayout layout,
+        GraphCoordinateTransform transform,
+        GraphTheme theme,
+        SKPaint stroke)
+    {
+        stroke.Color = theme.Grid;
+        stroke.StrokeWidth = theme.GridThickness;
+
+        var restore = canvas.Save();
+        canvas.ClipRect(layout.PlotArea);
+
+        foreach (var tick in model.XAxis.Ticks)
+        {
+            var x = (float)transform.ToScreenX(tick.Value);
+            if (IsVisible(x, layout.PlotArea.Left, layout.PlotArea.Right))
+            {
+                canvas.DrawLine(x, layout.PlotArea.Top, x, layout.PlotArea.Bottom, stroke);
+            }
+        }
+
+        foreach (var tick in model.YAxis.Ticks)
+        {
+            var y = (float)transform.ToScreenY(tick.Value);
+            if (IsVisible(y, layout.PlotArea.Top, layout.PlotArea.Bottom))
+            {
+                canvas.DrawLine(layout.PlotArea.Left, y, layout.PlotArea.Right, y, stroke);
+            }
+        }
+
+        canvas.RestoreToCount(restore);
+    }
+
+    // The axes themselves: the bottom and the left edge of the plot area.
+    private static void DrawAxisLines(SKCanvas canvas, GraphLayout layout, GraphTheme theme, SKPaint stroke)
+    {
+        stroke.Color = theme.Axis;
+        stroke.StrokeWidth = theme.AxisThickness;
+        canvas.DrawLine(layout.PlotArea.Left, layout.PlotArea.Bottom, layout.PlotArea.Right, layout.PlotArea.Bottom, stroke);
+        canvas.DrawLine(layout.PlotArea.Left, layout.PlotArea.Top, layout.PlotArea.Left, layout.PlotArea.Bottom, stroke);
+    }
+
+    private static void DrawTicks(
+        SKCanvas canvas,
+        GraphRenderModel model,
+        GraphLayout layout,
+        GraphLayoutMetrics metrics,
+        GraphCoordinateTransform transform,
+        GraphTheme theme,
+        SKPaint stroke,
+        SKPaint fill,
+        SKFont tickFont)
+    {
+        stroke.Color = theme.Axis;
+        stroke.StrokeWidth = theme.AxisThickness;
+        fill.Color = theme.SecondaryText;
+
+        var fontMetrics = tickFont.Metrics;
+        var labelBaseline = layout.PlotArea.Bottom + metrics.TickLength + metrics.Gap - fontMetrics.Ascent;
+        var labelRight = layout.PlotArea.Left - metrics.TickLength - metrics.Gap;
+
+        foreach (var tick in model.XAxis.Ticks)
+        {
+            var x = (float)transform.ToScreenX(tick.Value);
+            if (!IsVisible(x, layout.PlotArea.Left, layout.PlotArea.Right))
+            {
+                continue;
+            }
+
+            canvas.DrawLine(x, layout.PlotArea.Bottom, x, layout.PlotArea.Bottom + metrics.TickLength, stroke);
+            canvas.DrawText(tick.Label, x, labelBaseline, SKTextAlign.Center, tickFont, fill);
+        }
+
+        foreach (var tick in model.YAxis.Ticks)
+        {
+            var y = (float)transform.ToScreenY(tick.Value);
+            if (!IsVisible(y, layout.PlotArea.Top, layout.PlotArea.Bottom))
+            {
+                continue;
+            }
+
+            canvas.DrawLine(layout.PlotArea.Left - metrics.TickLength, y, layout.PlotArea.Left, y, stroke);
+            canvas.DrawText(tick.Label, labelRight, CenteredBaseline(y, fontMetrics), SKTextAlign.Right, tickFont, fill);
+        }
+    }
+
+    private static void DrawAxisTitles(
+        SKCanvas canvas,
+        GraphRenderModel model,
+        GraphLayout layout,
+        GraphTheme theme,
+        SKPaint fill,
+        SKFont axisTitleFont)
+    {
+        fill.Color = theme.Text;
+        var fontMetrics = axisTitleFont.Metrics;
+
+        if (!string.IsNullOrWhiteSpace(model.XAxis.Title))
+        {
+            var centerY = layout.XAxisArea.Bottom - (LineHeight(axisTitleFont) / 2f);
+            canvas.DrawText(model.XAxis.Title, layout.PlotArea.MidX, CenteredBaseline(centerY, fontMetrics), SKTextAlign.Center, axisTitleFont, fill);
+        }
+
+        if (!string.IsNullOrWhiteSpace(model.YAxis.Title))
+        {
+            // Turned a quarter turn anticlockwise: the glyphs then grow to the left of the baseline, so the baseline is
+            // offset by half the text band to centre the title on the left edge of the Y axis area.
+            var centerX = layout.YAxisArea.Left + (LineHeight(axisTitleFont) / 2f);
+            var restore = canvas.Save();
+            canvas.Translate(centerX - ((fontMetrics.Ascent + fontMetrics.Descent) / 2f), layout.PlotArea.MidY);
+            canvas.RotateDegrees(-90);
+            canvas.DrawText(model.YAxis.Title, 0, 0, SKTextAlign.Center, axisTitleFont, fill);
+            canvas.RestoreToCount(restore);
+        }
+    }
+
+    private static void DrawTitle(SKCanvas canvas, GraphRenderModel model, GraphLayout layout, GraphTheme theme, SKPaint fill, SKFont titleFont)
+    {
+        if (string.IsNullOrWhiteSpace(model.Title))
+        {
+            return;
+        }
+
+        fill.Color = theme.Text;
+        canvas.DrawText(
+            model.Title,
+            layout.PlotArea.MidX,
+            CenteredBaseline(layout.TitleArea.MidY, titleFont.Metrics),
+            SKTextAlign.Center,
+            titleFont,
+            fill);
+    }
+
+    // The legend foundation: the reserved area with one row per series, drawn only when the model has series. There is
+    // no interaction, and an empty legend is never laid out.
+    private static void DrawLegend(
+        SKCanvas canvas,
+        GraphRenderModel model,
+        GraphLayout layout,
+        GraphTheme theme,
+        SKPaint fill,
+        SKPaint stroke,
+        SKFont font)
+    {
+        if (model.Legend is null || layout.LegendArea.IsEmpty)
+        {
+            return;
+        }
+
+        var fontMetrics = font.Metrics;
+        var rowHeight = Math.Max(LineHeight(font), LegendSwatchSize);
+        var rows = model.Legend.Entries.Count + (string.IsNullOrWhiteSpace(model.Legend.Title) ? 0 : 1);
+
+        // The box keeps to its rows instead of filling the reserved area, which stays as tall as the plot so that a
+        // legend with many series still has somewhere to go.
+        var box = layout.LegendArea;
+        box.Bottom = Math.Min(
+            box.Top + (LegendPadding * 2f) + (rows * rowHeight) + (Math.Max(rows - 1, 0) * LegendEntrySpacing),
+            layout.LegendArea.Bottom);
+
+        stroke.Color = theme.LegendBorder;
+        stroke.StrokeWidth = 1f;
+        canvas.DrawRect(box, stroke);
+
+        var top = box.Top + LegendPadding;
+        var left = box.Left + LegendPadding;
+
+        var restore = canvas.Save();
+        canvas.ClipRect(box);
+
+        if (!string.IsNullOrWhiteSpace(model.Legend.Title))
+        {
+            fill.Color = theme.Text;
+            canvas.DrawText(model.Legend.Title, left, top - fontMetrics.Ascent, SKTextAlign.Left, font, fill);
+            top += rowHeight + LegendEntrySpacing;
+        }
+
+        foreach (var entry in model.Legend.Entries)
+        {
+            var centerY = top + (rowHeight / 2f);
+
+            fill.Color = theme.SeriesColor(entry.SeriesIndex);
+            canvas.DrawRect(
+                new SKRect(left, centerY - (LegendSwatchSize / 2f), left + LegendSwatchSize, centerY + (LegendSwatchSize / 2f)),
+                fill);
+
+            fill.Color = theme.SecondaryText;
+            canvas.DrawText(
+                entry.Label,
+                left + LegendSwatchSize + LegendEntrySpacing,
+                CenteredBaseline(centerY, fontMetrics),
+                SKTextAlign.Left,
+                font,
+                fill);
+
+            top += rowHeight + LegendEntrySpacing;
+        }
+
+        canvas.RestoreToCount(restore);
+    }
+
+    private static bool IsVisible(float position, float lower, float upper) =>
+        float.IsFinite(position) && position >= lower - EdgeTolerance && position <= upper + EdgeTolerance;
+
+    private static SKFont Font(float size) => new() { Size = size, Edging = SKFontEdging.Antialias, Subpixel = true };
+
+    private static float LineHeight(SKFont font)
+    {
+        var metrics = font.Metrics;
+        return metrics.Descent - metrics.Ascent;
+    }
+
+    // The baseline that centres one line of text on centerY (Ascent is negative, Descent positive).
+    private static float CenteredBaseline(float centerY, SKFontMetrics metrics) => centerY - ((metrics.Ascent + metrics.Descent) / 2f);
+
+    private static float WidestLabel(GraphAxisModel axis, SKFont font)
+    {
+        var widest = 0f;
+        foreach (var tick in axis.Ticks)
+        {
+            widest = Math.Max(widest, font.MeasureText(tick.Label));
+        }
+
+        return widest;
+    }
+
+    private static float LegendWidth(GraphLegendModel? legend, SKFont font)
+    {
+        if (legend is null)
+        {
+            return 0f;
+        }
+
+        var widest = string.IsNullOrWhiteSpace(legend.Title) ? 0f : font.MeasureText(legend.Title);
+        foreach (var entry in legend.Entries)
+        {
+            widest = Math.Max(widest, LegendSwatchSize + LegendEntrySpacing + font.MeasureText(entry.Label));
+        }
+
+        return Math.Min(widest + (LegendPadding * 2f), LegendMaximumWidth);
+    }
+
+    private static bool IsFinite(SKRect rect) =>
+        float.IsFinite(rect.Left) && float.IsFinite(rect.Top) && float.IsFinite(rect.Right) && float.IsFinite(rect.Bottom);
+}

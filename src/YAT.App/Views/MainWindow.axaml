@@ -137,7 +137,8 @@
                           IsChecked="{Binding Project.IsProjectPanelVisible, Mode=OneWay, FallbackValue=True}"
                           Command="{Binding Project.ToggleProjectPanelCommand, FallbackValue={x:Null}}" />
             </MenuItem>
-            <!-- Graph setup for the active worksheet; nothing is drawn yet (Task #024 produces the configuration). -->
+            <!-- Graph setup for the active worksheet; a confirmed setup opens a graph window (Task #026 draws the
+                 sample render model there, Task #027 the scatter plot itself). -->
             <MenuItem Header="_Graph">
                 <MenuItem Header="_Scatter Plot..." Command="{Binding ScatterPlotCommand}" />
                 <MenuItem Header="_Histogram..." Command="{Binding HistogramCommand}" />

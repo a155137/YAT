@@ -25,7 +25,7 @@ public class ProjectLifecycleTests
             Composition = new CompositionRoot(new FixedTimeProvider(Now), TemporaryRoot);
             Workspace = Composition.CreateProjectWorkspace();
             Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, Dialogs);
-            Graphs = Composition.CreateGraphSetup(GraphDialogs);
+            Graphs = Composition.CreateGraphSetup(GraphDialogs, GraphWindows);
             Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs);
         }
 
@@ -44,6 +44,8 @@ public class ProjectLifecycleTests
         public FakeProjectLifecycleDialogs Dialogs { get; } = new();
 
         public FakeGraphSetupDialogs GraphDialogs { get; } = new();
+
+        public FakeGraphWindowPresenter GraphWindows { get; } = new();
 
         public GraphSetupController Graphs { get; }
 

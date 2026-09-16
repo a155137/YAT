@@ -22,6 +22,9 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- Graph rendering draws with SkiaSharp directly, so it is declared here instead of being taken from Avalonia's
+         own dependency. The version is the one Avalonia 12.1.1 already resolves; no other package changes. -->
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
   </ItemGroup>
 
   <ItemGroup>

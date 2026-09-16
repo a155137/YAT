@@ -1,21 +1,26 @@
 using YAT.Application.Exceptions;
 using YAT.Application.Graphs;
 using YAT.app.Composition;
+using YAT.app.Graphs.Rendering;
 using YAT.app.ViewModels;
 using YAT.Domain.Entities;
 
 namespace YAT.app.Graphs;
 
 // The Graph menu commands: read the active worksheet's column metadata through the current session, show the graph
-// setup for the chosen graph type, and return the configuration the user confirmed. It renders nothing; Task #025 adds
-// the graph data pipeline.
+// setup for the chosen graph type, and open a graph window for the configuration the user confirmed.
+//
+// Task #026 shows the sample render model there, because no graph type computes one yet: the menu, the setup and the
+// whole rendering path are exercised, and Task #027 only replaces which model is shown.
 public sealed class GraphSetupController
 {
     private readonly IGraphSetupDialogs _dialogs;
+    private readonly IGraphWindowPresenter _windows;
 
-    internal GraphSetupController(IGraphSetupDialogs dialogs)
+    internal GraphSetupController(IGraphSetupDialogs dialogs, IGraphWindowPresenter windows)
     {
         _dialogs = dialogs;
+        _windows = windows;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until graphs become documents.
@@ -61,6 +66,7 @@ public sealed class GraphSetupController
         if (configuration is not null)
         {
             LastConfiguration = configuration;
+            _windows.ShowGraph(SyntheticGraphRenderModel.Create());
         }
 
         return configuration;

@@ -31,7 +31,7 @@ public partial class App : AvaloniaApplication
             var mainWindow = new MainWindow();
             var clipboard = new AvaloniaClipboard(mainWindow);
             var lifecycle = Composition.CreateProjectLifecycle(workspace, clipboard, clipboard, new AvaloniaProjectLifecycleDialogs(mainWindow));
-            var graphs = Composition.CreateGraphSetup(new AvaloniaGraphSetupDialogs(mainWindow));
+            var graphs = Composition.CreateGraphSetup(new AvaloniaGraphSetupDialogs(mainWindow), new AvaloniaGraphWindowPresenter(mainWindow));
             var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs);
 
             mainWindow.DataContext = shell;

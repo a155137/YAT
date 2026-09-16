@@ -22,7 +22,7 @@ public class GraphDataSessionTests
             Composition = new CompositionRoot(new FixedTimeProvider(Now), Directory.File("temp"));
             Workspace = Composition.CreateProjectWorkspace();
             Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, ProjectDialogs);
-            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Composition.CreateGraphSetup(GraphDialogs));
+            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Composition.CreateGraphSetup(GraphDialogs, GraphWindows));
         }
 
         public TemporaryDirectory Directory { get; } = new();
@@ -36,6 +36,8 @@ public class GraphDataSessionTests
         public FakeProjectLifecycleDialogs ProjectDialogs { get; } = new();
 
         public FakeGraphSetupDialogs GraphDialogs { get; } = new();
+
+        public FakeGraphWindowPresenter GraphWindows { get; } = new();
 
         public ProjectLifecycleController Lifecycle { get; }
 

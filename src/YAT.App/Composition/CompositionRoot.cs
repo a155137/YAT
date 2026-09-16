@@ -131,10 +131,11 @@ public sealed class CompositionRoot
         return new ProjectLifecycleController(this, workspace, clipboardReader, clipboardWriter, dialogs);
     }
 
-    public GraphSetupController CreateGraphSetup(IGraphSetupDialogs dialogs)
+    public GraphSetupController CreateGraphSetup(IGraphSetupDialogs dialogs, IGraphWindowPresenter windows)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
-        return new GraphSetupController(dialogs);
+        ArgumentNullException.ThrowIfNull(windows);
+        return new GraphSetupController(dialogs, windows);
     }
 
     public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle, GraphSetupController graphs) =>
