@@ -4,7 +4,7 @@ namespace YAT.app.Graphs.Rendering;
 
 // Draws a graph render model with SkiaSharp, and does nothing else: no statistics, no worksheet data, no knowledge of
 // where the model came from. Every graph type shares this frame (background, plot area, grid, axes, ticks, labels,
-// titles, legend); the series themselves are drawn by the graph-specific renderers that follow.
+// titles, legend); what goes inside the plot area is drawn by the graph type's own IGraphPlotRenderer.
 //
 // The renderer is stateless, so one instance can draw any model into any canvas.
 public sealed class SkiaGraphRenderer
@@ -18,7 +18,8 @@ public sealed class SkiaGraphRenderer
     // range, which rounding can push a fraction of a pixel outside it.
     private const float EdgeTolerance = 0.5f;
 
-    public void Render(SKCanvas canvas, GraphRenderModel model, SKRect bounds, GraphTheme theme)
+    // plot: what this graph type draws inside the plot area, or null for a graph frame with nothing in it.
+    public void Render(SKCanvas canvas, GraphRenderModel model, SKRect bounds, GraphTheme theme, IGraphPlotRenderer? plot = null)
     {
         ArgumentNullException.ThrowIfNull(canvas);
         ArgumentNullException.ThrowIfNull(model);
@@ -52,6 +53,7 @@ public sealed class SkiaGraphRenderer
         canvas.DrawRect(layout.PlotArea, fill);
 
         DrawGrid(canvas, model, layout, transform, theme, stroke);
+        DrawPlot(canvas, layout, transform, theme, plot);
         DrawAxisLines(canvas, layout, theme, stroke);
         DrawTicks(canvas, model, layout, metrics, transform, theme, stroke, fill, tickFont);
         DrawAxisTitles(canvas, model, layout, theme, fill, axisTitleFont);
@@ -108,6 +110,27 @@ public sealed class SkiaGraphRenderer
             }
         }
 
+        canvas.RestoreToCount(restore);
+    }
+
+    // The data of the graph, over the grid and under the axes. The clip is what keeps a point outside the axis ranges
+    // from being drawn over the tick labels, the titles, the legend or the window behind them; the transform itself
+    // still places such a point where it belongs, outside the plot area.
+    private static void DrawPlot(
+        SKCanvas canvas,
+        GraphLayout layout,
+        GraphCoordinateTransform transform,
+        GraphTheme theme,
+        IGraphPlotRenderer? plot)
+    {
+        if (plot is null)
+        {
+            return;
+        }
+
+        var restore = canvas.Save();
+        canvas.ClipRect(layout.PlotArea);
+        plot.RenderPlot(canvas, transform, theme);
         canvas.RestoreToCount(restore);
     }
 

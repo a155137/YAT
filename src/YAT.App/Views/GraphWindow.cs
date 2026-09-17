@@ -12,7 +12,7 @@ internal sealed class GraphWindow : Window
     private const int DefaultWidth = 760;
     private const int DefaultHeight = 520;
 
-    public GraphWindow(GraphRenderModel model)
+    public GraphWindow(GraphRenderModel model, IGraphPlotRenderer? plot = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -22,6 +22,6 @@ internal sealed class GraphWindow : Window
         MinWidth = 320;
         MinHeight = 240;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Content = new GraphCanvas { Model = model };
+        Content = new GraphCanvas { Model = model, Plot = plot };
     }
 }

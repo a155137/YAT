@@ -87,6 +87,18 @@ public class GraphCommandTests
         return setup.Confirm();
     }
 
+    // Confirms the setup with named columns in named roles ("X-axis", "Y-axis", "Group").
+    private static GraphConfiguration? ConfirmWith(GraphSetupViewModel setup, params (string Role, string Column)[] assignments)
+    {
+        foreach (var (roleName, columnName) in assignments)
+        {
+            var role = setup.Roles.Single(candidate => candidate.DisplayName == roleName);
+            role.SelectedOption = role.Options.Single(option => !option.IsNone && option.Name == columnName);
+        }
+
+        return setup.Confirm();
+    }
+
     [Fact]
     public async Task AGraphCommandShowsTheSetupForTheActiveWorksheetsColumns()
     {
@@ -167,24 +179,116 @@ public class GraphCommandTests
         Assert.Empty(runtime.GraphWindows.Shown);
     }
 
-    // Task #026: the confirmed setup opens a graph window. Until a graph type computes a model of its own, the sample
-    // render model is shown there, so the path from the menu to a drawn graph is complete and testable.
+    // A confirmed scatter setup reads the worksheet through the session, prepares the plot and opens a graph window
+    // showing the worksheet's own values.
     [Fact]
-    public async Task ConfirmingTheSetupOpensAGraphWindow()
+    public async Task ConfirmingAScatterSetupOpensAGraphWindowOfTheWorksheetData()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t10\n2\t20\n3\t30\n");
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
+        await runtime.Shell.ScatterPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal("Scatterplot of Reg2 vs Reg1", frame.Title);
+        Assert.Equal("Reg1", frame.XAxis.Title);
+        Assert.Equal("Reg2", frame.YAxis.Title);
+        Assert.NotEmpty(frame.XAxis.Ticks);
+        Assert.NotEmpty(frame.YAxis.Ticks);
+        Assert.Null(frame.Legend);
+
+        var scatter = Assert.IsType<ScatterRenderer>(plot).Model;
+        Assert.Equal(3, scatter.SourcePointCount);
+        Assert.Equal(3, scatter.RenderedPointCount);
+        Assert.False(scatter.WasSampled);
+        Assert.Equal(
+            [new ScatterPoint(1, 10), new ScatterPoint(2, 20), new ScatterPoint(3, 30)],
+            Assert.Single(scatter.Series).Points.ToArray());
+    }
+
+    // A group column becomes one series per value, with the legend the graph window shows.
+    [Fact]
+    public async Task AGroupedScatterSetupOpensAGraphWindowWithOneSeriesPerGroup()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\tSITE\n1\t10\t1\n2\t20\t2\n3\t30\t1\n4\t40\t\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("X-axis", "Reg1"), ("Y-axis", "Reg2"), ("Group", "SITE"));
+
+        await runtime.Shell.ScatterPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var scatter = Assert.IsType<ScatterRenderer>(plot).Model;
+
+        Assert.Equal(["1", "2", ScatterRenderModelBuilder.MissingGroupLabel], scatter.Series.Select(series => series.Label));
+        Assert.Equal([0, 1, 2], scatter.Series.Select(series => series.SeriesIndex));
+        Assert.Equal(4, scatter.RenderedPointCount);
+        Assert.NotNull(frame.Legend);
+        Assert.Equal("SITE", frame.Legend.Title);
+        Assert.Equal(["1", "2", ScatterRenderModelBuilder.MissingGroupLabel], frame.Legend.Entries.Select(entry => entry.Label));
+    }
+
+    // The other graph types are not drawn yet, and say so instead of opening a window.
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public async Task AGraphTypeThatIsNotImplementedYetOpensNoWindow(GraphType graphType)
     {
         using var runtime = new Runtime();
         await runtime.StartAsync();
         await runtime.PasteAsync("Reg1\tReg2\n1\t2\n");
         runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
 
+        await Command(runtime, graphType).ExecuteAsync(null);
+
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["This graph type is not implemented yet."], runtime.GraphDialogs.Errors);
+        Assert.NotNull(runtime.Graphs.LastConfiguration);
+    }
+
+    // A configuration can be valid while its columns hold nothing that can be plotted.
+    [Fact]
+    public async Task AScatterSetupWithoutUsableObservationsOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+
+        // Every row misses one of the two values, so no row survives the graph's null rules.
+        await runtime.PasteAsync("Reg1\tReg2\n1\t\n\t20\n");
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
         await runtime.Shell.ScatterPlotCommand.ExecuteAsync(null);
 
-        var model = Assert.Single(runtime.GraphWindows.Shown);
-        Assert.Equal(SyntheticGraphRenderModel.Title, model.Title);
-        Assert.Equal("X Axis", model.XAxis.Title);
-        Assert.Equal("Y Axis", model.YAxis.Title);
-        Assert.NotEmpty(model.XAxis.Ticks);
-        Assert.NotEmpty(model.YAxis.Ticks);
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["This graph has no data to plot."], runtime.GraphDialogs.Errors);
+    }
+
+    // A cancelled graph request leaves no window behind.
+    [Fact]
+    public async Task ACancelledScatterRequestOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t10\n2\t20\n");
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
+        // Cancelled while the setup is open: the configuration is confirmed, but its data is never loaded.
+        using var cancellation = new CancellationTokenSource();
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            cancellation.Cancel();
+            return ConfirmWithFirstColumns(setup);
+        };
+
+        await runtime.Graphs.ConfigureAsync(
+            GraphType.ScatterPlot, runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, cancellation.Token);
+
+        Assert.NotNull(runtime.Graphs.LastConfiguration);
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Empty(runtime.GraphDialogs.Errors);
     }
 
     // Nothing to graph means nothing to show: the error path never opens a window.

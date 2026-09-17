@@ -133,20 +133,4 @@ public class GraphRenderModelTests
         Assert.Throws<ArgumentNullException>(() => new GraphRenderModel("Sample Graph", null!, Axis(0, 1)));
         Assert.Throws<ArgumentNullException>(() => new GraphRenderModel("Sample Graph", Axis(0, 1), null!));
     }
-
-    // 13
-    [Fact]
-    public void TheSampleGraphDescribesTheTaskTwentySixGraph()
-    {
-        var model = SyntheticGraphRenderModel.Create();
-
-        Assert.Equal("Sample Graph", model.Title);
-        Assert.Equal("X Axis", model.XAxis.Title);
-        Assert.Equal("Y Axis", model.YAxis.Title);
-        Assert.Equal(new GraphAxisRange(0, 100), model.XAxis.Range);
-        Assert.Equal(new GraphAxisRange(0, 500), model.YAxis.Range);
-        Assert.Equal(GraphAxisTicks.DefaultCount, model.XAxis.Ticks.Count);
-        Assert.Equal(GraphAxisTicks.DefaultCount, model.YAxis.Ticks.Count);
-        Assert.Null(model.Legend);
-    }
 }

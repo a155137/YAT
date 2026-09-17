@@ -7,13 +7,14 @@ namespace YAT.App.Tests.TestDoubles;
 // be tested without a window.
 internal sealed class FakeGraphWindowPresenter : IGraphWindowPresenter
 {
-    public List<GraphRenderModel> Shown { get; } = [];
+    public List<(GraphRenderModel Frame, IGraphPlotRenderer? Plot)> Shown { get; } = [];
 
-    public GraphRenderModel LastModel => Shown.Count > 0 ? Shown[^1] : throw new InvalidOperationException("No graph was shown.");
+    public (GraphRenderModel Frame, IGraphPlotRenderer? Plot) Last =>
+        Shown.Count > 0 ? Shown[^1] : throw new InvalidOperationException("No graph was shown.");
 
-    public void ShowGraph(GraphRenderModel model)
+    public void ShowGraph(GraphRenderModel frame, IGraphPlotRenderer? plot)
     {
-        ArgumentNullException.ThrowIfNull(model);
-        Shown.Add(model);
+        ArgumentNullException.ThrowIfNull(frame);
+        Shown.Add((frame, plot));
     }
 }

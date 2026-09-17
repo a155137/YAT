@@ -16,9 +16,9 @@ public sealed class AvaloniaGraphWindowPresenter : IGraphWindowPresenter
         _owner = owner;
     }
 
-    public void ShowGraph(GraphRenderModel model)
+    public void ShowGraph(GraphRenderModel frame, IGraphPlotRenderer? plot)
     {
-        ArgumentNullException.ThrowIfNull(model);
-        new GraphWindow(model).Show(_owner);
+        ArgumentNullException.ThrowIfNull(frame);
+        new GraphWindow(frame, plot).Show(_owner);
     }
 }

@@ -23,11 +23,14 @@ internal sealed class GraphCanvas : Control
     public static readonly StyledProperty<GraphRenderModel?> ModelProperty =
         AvaloniaProperty.Register<GraphCanvas, GraphRenderModel?>(nameof(Model));
 
+    public static readonly StyledProperty<IGraphPlotRenderer?> PlotProperty =
+        AvaloniaProperty.Register<GraphCanvas, IGraphPlotRenderer?>(nameof(Plot));
+
     private readonly SkiaGraphRenderer _renderer = new();
 
     static GraphCanvas()
     {
-        AffectsRender<GraphCanvas>(ModelProperty);
+        AffectsRender<GraphCanvas>(ModelProperty, PlotProperty);
     }
 
     public GraphCanvas()
@@ -39,6 +42,13 @@ internal sealed class GraphCanvas : Control
     {
         get => GetValue(ModelProperty);
         set => SetValue(ModelProperty, value);
+    }
+
+    // What the graph type draws inside the plot area (the scatter markers, later the bars and curves of other graphs).
+    public IGraphPlotRenderer? Plot
+    {
+        get => GetValue(PlotProperty);
+        set => SetValue(PlotProperty, value);
     }
 
     public override void Render(DrawingContext context)
@@ -56,7 +66,7 @@ internal sealed class GraphCanvas : Control
             return;
         }
 
-        context.Custom(new GraphDrawOperation(bounds, model, ThemeFor(ActualThemeVariant), _renderer));
+        context.Custom(new GraphDrawOperation(bounds, model, Plot, ThemeFor(ActualThemeVariant), _renderer));
     }
 
     private static GraphTheme ThemeFor(ThemeVariant variant) =>
@@ -68,13 +78,20 @@ internal sealed class GraphCanvas : Control
     private sealed class GraphDrawOperation : ICustomDrawOperation
     {
         private readonly GraphRenderModel _model;
+        private readonly IGraphPlotRenderer? _plot;
         private readonly GraphTheme _theme;
         private readonly SkiaGraphRenderer _renderer;
 
-        public GraphDrawOperation(Rect bounds, GraphRenderModel model, GraphTheme theme, SkiaGraphRenderer renderer)
+        public GraphDrawOperation(
+            Rect bounds,
+            GraphRenderModel model,
+            IGraphPlotRenderer? plot,
+            GraphTheme theme,
+            SkiaGraphRenderer renderer)
         {
             Bounds = bounds;
             _model = model;
+            _plot = plot;
             _theme = theme;
             _renderer = renderer;
         }
@@ -93,13 +110,14 @@ internal sealed class GraphCanvas : Control
             }
 
             using var lease = feature.Lease();
-            _renderer.Render(lease.SkCanvas, _model, new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height), _theme);
+            _renderer.Render(lease.SkCanvas, _model, new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height), _theme, _plot);
         }
 
         public bool Equals(ICustomDrawOperation? other) =>
             other is GraphDrawOperation operation
             && operation.Bounds == Bounds
             && ReferenceEquals(operation._model, _model)
+            && ReferenceEquals(operation._plot, _plot)
             && operation._theme == _theme;
 
         public void Dispose()

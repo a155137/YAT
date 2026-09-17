@@ -8,19 +8,26 @@ using YAT.Domain.Entities;
 namespace YAT.app.Graphs;
 
 // The Graph menu commands: read the active worksheet's column metadata through the current session, show the graph
-// setup for the chosen graph type, and open a graph window for the configuration the user confirmed.
+// setup for the chosen graph type, and turn the configuration the user confirmed into a graph window.
 //
-// Task #026 shows the sample render model there, because no graph type computes one yet: the menu, the setup and the
-// whole rendering path are exercised, and Task #027 only replaces which model is shown.
+// It owns the order of the steps, not the work: the data comes from the session, the render model from the graph type's
+// own builder, and the window from the presenter. It never touches a repository or a raw data store.
+//
+// Scatter plots are drawn from Task #027 on; the other graph types say so until their own tasks implement them.
 public sealed class GraphSetupController
 {
+    private const string NotImplementedMessage = "This graph type is not implemented yet.";
+    private const string NoDataMessage = "This graph has no data to plot.";
+
     private readonly IGraphSetupDialogs _dialogs;
     private readonly IGraphWindowPresenter _windows;
+    private readonly ScatterRenderModelBuilder _scatter;
 
-    internal GraphSetupController(IGraphSetupDialogs dialogs, IGraphWindowPresenter windows)
+    internal GraphSetupController(IGraphSetupDialogs dialogs, IGraphWindowPresenter windows, ScatterRenderModelBuilder scatter)
     {
         _dialogs = dialogs;
         _windows = windows;
+        _scatter = scatter;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until graphs become documents.
@@ -44,8 +51,9 @@ public sealed class GraphSetupController
             // Metadata only: Id, Index, Name and DataType of the worksheet's columns, read fresh for the active project.
             columns = await session.LoadWorksheetColumnsAsync(worksheet.Id, cancellationToken);
         }
-        catch (ProjectSessionClosedException)
+        catch (Exception exception) when (exception is ProjectSessionClosedException or OperationCanceledException)
         {
+            // The project was closed, replaced or the request was cancelled: there is nothing to set up any more.
             return null;
         }
         catch (Exception exception) when (exception is ProjectStorageException or RawDataStorageException or EntityNotFoundException)
@@ -66,9 +74,70 @@ public sealed class GraphSetupController
         if (configuration is not null)
         {
             LastConfiguration = configuration;
-            _windows.ShowGraph(SyntheticGraphRenderModel.Create());
+            await ShowGraphAsync(configuration, session, cancellationToken);
         }
 
         return configuration;
+    }
+
+    // Reads the graph's observations through the session, prepares them and opens the window. A graph window appears
+    // only for a graph that can actually be drawn: nothing is shown for a cancelled request, a failed read or a
+    // configuration that leaves no observations.
+    private async Task ShowGraphAsync(GraphConfiguration configuration, MainWindowSession session, CancellationToken cancellationToken)
+    {
+        if (configuration.GraphType != GraphType.ScatterPlot)
+        {
+            await _dialogs.ShowErrorAsync(NotImplementedMessage);
+            return;
+        }
+
+        GraphData data;
+        try
+        {
+            data = await session.LoadGraphDataAsync(configuration, cancellationToken);
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed or replaced while the data was being read: there is nothing left to show it for.
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (GraphDataException exception)
+        {
+            // The message of a GraphDataException is written for the user; the storage error stays inside it.
+            await _dialogs.ShowErrorAsync(exception.Message);
+            return;
+        }
+
+        if (data is not ScatterGraphData scatter)
+        {
+            await _dialogs.ShowErrorAsync(NotImplementedMessage);
+            return;
+        }
+
+        ScatterRenderModel? model;
+        try
+        {
+            // Preparing up to a million observations is real work: it runs off the UI thread and can be cancelled, so a
+            // cancelled request never leaves a half-prepared graph behind.
+            model = await Task.Run(
+                () => _scatter.Build(scatter, new ScatterPlotLabels(scatter.X.Name, scatter.Y.Name, scatter.Group?.Column.Name), cancellationToken),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (model is null)
+        {
+            await _dialogs.ShowErrorAsync(NoDataMessage);
+            return;
+        }
+
+        _windows.ShowGraph(model.Frame, new ScatterRenderer(model));
     }
 }

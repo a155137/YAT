@@ -10,6 +10,7 @@ using YAT.Application.Ingestion;
 using YAT.Application.Queries;
 using YAT.app.Clipboard;
 using YAT.app.Graphs;
+using YAT.app.Graphs.Rendering;
 using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
@@ -135,7 +136,7 @@ public sealed class CompositionRoot
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         ArgumentNullException.ThrowIfNull(windows);
-        return new GraphSetupController(dialogs, windows);
+        return new GraphSetupController(dialogs, windows, new ScatterRenderModelBuilder());
     }
 
     public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle, GraphSetupController graphs) =>
