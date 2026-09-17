@@ -113,9 +113,23 @@ internal sealed class GraphSetupWindow : Window
         return panel;
     }
 
+    // One grid for every role, so the selectors line up under each other whatever the roles are called: the label
+    // column takes the width of the longest label ("Categorical variable for grouping" is a good deal longer than
+    // "X-axis"), and the selectors share what is left.
     private static Control Roles(GraphSetupViewModel setup)
     {
-        var panel = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
+        var panel = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+            VerticalAlignment = VerticalAlignment.Top
+        };
+
+        for (var index = 0; index < setup.Roles.Count; index++)
+        {
+            panel.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        }
+
+        var row = 0;
         foreach (var role in setup.Roles)
         {
             var selector = new ComboBox
@@ -132,15 +146,22 @@ internal sealed class GraphSetupWindow : Window
                 Mode = BindingMode.TwoWay
             });
 
-            panel.Children.Add(new Grid
+            var label = new TextBlock
             {
-                ColumnDefinitions = new ColumnDefinitions("90,*"),
-                Children =
-                {
-                    new TextBlock { Text = role.DisplayName, VerticalAlignment = VerticalAlignment.Center },
-                    Column(selector, 1)
-                }
-            });
+                Text = role.DisplayName,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 5, 12, 5)
+            };
+
+            Grid.SetRow(label, row);
+            Grid.SetColumn(label, 0);
+            panel.Children.Add(label);
+
+            selector.Margin = new Thickness(0, 5);
+            Grid.SetRow(selector, row);
+            Grid.SetColumn(selector, 1);
+            panel.Children.Add(selector);
+            row++;
         }
 
         Grid.SetColumn(panel, 2);
@@ -161,12 +182,6 @@ internal sealed class GraphSetupWindow : Window
                     new TextBlock { Text = option.DataTypeName, Opacity = 0.6, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 }
                 }
             });
-
-    private static Control Column(Control control, int column)
-    {
-        Grid.SetColumn(control, column);
-        return control;
-    }
 
     private void Confirm()
     {

@@ -230,9 +230,75 @@ public class GraphCommandTests
         Assert.Equal(["1", "2", ScatterRenderModelBuilder.MissingGroupLabel], frame.Legend.Entries.Select(entry => entry.Label));
     }
 
+    // A confirmed histogram setup counts the worksheet's own values into bins and opens a graph window.
+    [Fact]
+    public async Task ConfirmingAHistogramSetupOpensAGraphWindowOfTheWorksheetData()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t10\n2\t20\n3\t30\n4\t40\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"));
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal("Histogram of Reg1", frame.Title);
+        Assert.Equal("Reg1", frame.XAxis.Title);
+        Assert.Equal("Frequency", frame.YAxis.Title);
+        Assert.Equal(0, frame.YAxis.Range.Minimum);
+        Assert.Null(frame.Legend);
+
+        var histogram = Assert.IsType<HistogramRenderer>(plot).Model;
+        Assert.Equal(4, histogram.SourceObservationCount);
+        Assert.Equal(4, Assert.Single(histogram.Series).Counts.Sum());
+        Assert.Equal(1, histogram.Bins[0].LowerEdge);
+        Assert.Equal(4, histogram.Bins[^1].UpperEdge);
+    }
+
+    // A group column becomes one series per value, counted into the same bins, with the legend the window shows.
+    [Fact]
+    public async Task AGroupedHistogramSetupCountsEveryGroupIntoTheSameBins()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tSITE\n1\t1\n2\t2\n3\t1\n4\t\n");
+        runtime.GraphDialogs.Answer = setup =>
+            ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "SITE"));
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var histogram = Assert.IsType<HistogramRenderer>(plot).Model;
+
+        Assert.Equal(["1", "2", HistogramRenderModelBuilder.MissingGroupLabel], histogram.Series.Select(series => series.Label));
+        Assert.All(histogram.Series, series => Assert.Equal(histogram.Bins.Count, series.Counts.Count));
+        Assert.Equal(4, histogram.SourceObservationCount);
+        Assert.NotNull(frame.Legend);
+        Assert.Equal("SITE", frame.Legend.Title);
+    }
+
+    // A histogram over a column with no values has nothing to count.
+    [Fact]
+    public async Task AHistogramSetupWithoutUsableObservationsOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg2\n10\n20\n");
+
+        // A numeric column that was added but never filled in: a valid configuration with nothing behind it.
+        runtime.Project.ColumnName = "Reg1";
+        await runtime.Project.AddColumnCommand.ExecuteAsync(null);
+        await runtime.Project.GridLoadTask;
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"));
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["This graph has no data to plot."], runtime.GraphDialogs.Errors);
+    }
+
     // The other graph types are not drawn yet, and say so instead of opening a window.
     [Theory]
-    [InlineData(GraphType.Histogram)]
     [InlineData(GraphType.ProbabilityPlot)]
     [InlineData(GraphType.EmpiricalCdf)]
     public async Task AGraphTypeThatIsNotImplementedYetOpensNoWindow(GraphType graphType)

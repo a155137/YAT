@@ -13,7 +13,8 @@ namespace YAT.app.Graphs;
 // It owns the order of the steps, not the work: the data comes from the session, the render model from the graph type's
 // own builder, and the window from the presenter. It never touches a repository or a raw data store.
 //
-// Scatter plots are drawn from Task #027 on; the other graph types say so until their own tasks implement them.
+// Scatter plots are drawn from Task #027 on and histograms from Task #028; the other graph types say so until their
+// own tasks implement them.
 public sealed class GraphSetupController
 {
     private const string NotImplementedMessage = "This graph type is not implemented yet.";
@@ -22,12 +23,18 @@ public sealed class GraphSetupController
     private readonly IGraphSetupDialogs _dialogs;
     private readonly IGraphWindowPresenter _windows;
     private readonly ScatterRenderModelBuilder _scatter;
+    private readonly HistogramRenderModelBuilder _histogram;
 
-    internal GraphSetupController(IGraphSetupDialogs dialogs, IGraphWindowPresenter windows, ScatterRenderModelBuilder scatter)
+    internal GraphSetupController(
+        IGraphSetupDialogs dialogs,
+        IGraphWindowPresenter windows,
+        ScatterRenderModelBuilder scatter,
+        HistogramRenderModelBuilder histogram)
     {
         _dialogs = dialogs;
         _windows = windows;
         _scatter = scatter;
+        _histogram = histogram;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until graphs become documents.
@@ -85,7 +92,7 @@ public sealed class GraphSetupController
     // configuration that leaves no observations.
     private async Task ShowGraphAsync(GraphConfiguration configuration, MainWindowSession session, CancellationToken cancellationToken)
     {
-        if (configuration.GraphType != GraphType.ScatterPlot)
+        if (configuration.GraphType is not (GraphType.ScatterPlot or GraphType.Histogram))
         {
             await _dialogs.ShowErrorAsync(NotImplementedMessage);
             return;
@@ -112,32 +119,49 @@ public sealed class GraphSetupController
             return;
         }
 
-        if (data is not ScatterGraphData scatter)
-        {
-            await _dialogs.ShowErrorAsync(NotImplementedMessage);
-            return;
-        }
-
-        ScatterRenderModel? model;
+        (GraphRenderModel Frame, IGraphPlotRenderer Plot)? graph;
         try
         {
             // Preparing up to a million observations is real work: it runs off the UI thread and can be cancelled, so a
             // cancelled request never leaves a half-prepared graph behind.
-            model = await Task.Run(
-                () => _scatter.Build(scatter, new ScatterPlotLabels(scatter.X.Name, scatter.Y.Name, scatter.Group?.Column.Name), cancellationToken),
-                cancellationToken);
+            graph = await Task.Run(() => Prepare(data, cancellationToken), cancellationToken);
         }
         catch (OperationCanceledException)
         {
             return;
         }
 
-        if (model is null)
+        if (graph is not { } prepared)
         {
             await _dialogs.ShowErrorAsync(NoDataMessage);
             return;
         }
 
-        _windows.ShowGraph(model.Frame, new ScatterRenderer(model));
+        _windows.ShowGraph(prepared.Frame, prepared.Plot);
+    }
+
+    // The graph type's own preparation, which is the only place that turns graph data into something drawable. Null
+    // means the configuration was valid but left nothing to draw.
+    private (GraphRenderModel Frame, IGraphPlotRenderer Plot)? Prepare(GraphData data, CancellationToken cancellationToken)
+    {
+        switch (data)
+        {
+            case ScatterGraphData scatter:
+                var scatterModel = _scatter.Build(
+                    scatter,
+                    new ScatterPlotLabels(scatter.X.Name, scatter.Y.Name, scatter.Group?.Column.Name),
+                    cancellationToken);
+                return scatterModel is null ? null : (scatterModel.Frame, new ScatterRenderer(scatterModel));
+
+            case UnivariateGraphData univariate when univariate.GraphType == GraphType.Histogram:
+                var histogramModel = _histogram.Build(
+                    univariate,
+                    new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    cancellationToken);
+                return histogramModel is null ? null : (histogramModel.Frame, new HistogramRenderer(histogramModel));
+
+            default:
+                return null;
+        }
     }
 }

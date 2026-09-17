@@ -136,7 +136,7 @@ public sealed class CompositionRoot
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         ArgumentNullException.ThrowIfNull(windows);
-        return new GraphSetupController(dialogs, windows, new ScatterRenderModelBuilder());
+        return new GraphSetupController(dialogs, windows, new ScatterRenderModelBuilder(), new HistogramRenderModelBuilder());
     }
 
     public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle, GraphSetupController graphs) =>

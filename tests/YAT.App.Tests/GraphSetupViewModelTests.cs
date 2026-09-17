@@ -54,7 +54,6 @@ public class GraphSetupViewModelTests
     }
 
     [Theory]
-    [InlineData(GraphType.Histogram)]
     [InlineData(GraphType.ProbabilityPlot)]
     [InlineData(GraphType.EmpiricalCdf)]
     public void SingleVariableGraphsShowVariableAndGroup(GraphType graphType)
@@ -63,6 +62,19 @@ public class GraphSetupViewModelTests
 
         Assert.Equal([GraphVariableRole.Variable, GraphVariableRole.Group], setup.Roles.Select(role => role.Role));
         Assert.Equal(["Variable", "Group"], setup.Roles.Select(role => role.DisplayName));
+    }
+
+    // A histogram names the same two roles the way the people who use one do; the roles themselves are unchanged.
+    [Fact]
+    public void HistogramShowsItsOwnRoleNames()
+    {
+        var setup = Setup(GraphType.Histogram);
+
+        Assert.Equal("Histogram", setup.Title);
+        Assert.Equal([GraphVariableRole.Variable, GraphVariableRole.Group], setup.Roles.Select(role => role.Role));
+        Assert.Equal(["Graph variables", "Categorical variable for grouping"], setup.Roles.Select(role => role.DisplayName));
+        Assert.True(setup.Roles[0].IsRequired);
+        Assert.False(setup.Roles[1].IsRequired);
     }
 
     [Fact]

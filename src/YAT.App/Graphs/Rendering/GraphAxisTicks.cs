@@ -2,6 +2,9 @@ using System.Globalization;
 
 namespace YAT.app.Graphs.Rendering;
 
+// A whole-number axis and the ticks that belong to it: what GraphAxisTicks.NiceCounts works out for a frequency axis.
+public sealed record GraphCountAxis(GraphAxisRange Range, IReadOnlyList<GraphAxisTick> Ticks);
+
 // Axis tick policy: turns a range into the major ticks a graph shows.
 //
 // Nice produces the engineering scale a reader expects - steps of 1, 2 or 5 times a power of ten, so an axis reads
@@ -72,6 +75,28 @@ public static class GraphAxisTicks
 
         // A range too narrow to contain two multiples of its own step says nothing; even division is then clearer.
         return values.Count >= 2 ? Label(values, step) : Evenly(range, 2);
+    }
+
+    // The axis a count is read on: it starts at zero, every tick is a whole number, the step is at least one, and the
+    // top of the axis is at or above the largest count, so the tallest bar is never cut off.
+    //
+    //     largest count 83  ->  0, 20, 40, 60, 80, 100
+    public static GraphCountAxis NiceCounts(int maximumCount, int intervals = DefaultIntervals)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumCount);
+        ArgumentOutOfRangeException.ThrowIfLessThan(intervals, 2);
+
+        // Half a count means nothing, so the 1-2-5 step is rounded up to a whole number.
+        var step = Math.Max(1, (int)NiceStep(Math.Max(maximumCount, 1) / (double)intervals));
+        var maximum = Math.Max(step, (int)(Math.Ceiling(maximumCount / (double)step) * step));
+
+        var ticks = new List<GraphAxisTick>((maximum / step) + 1);
+        for (var value = 0; value <= maximum; value += step)
+        {
+            ticks.Add(new GraphAxisTick(value, value.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        return new GraphCountAxis(new GraphAxisRange(0, maximum), ticks);
     }
 
     // count ticks over the whole range, the first at Minimum and the last at Maximum.

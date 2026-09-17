@@ -20,7 +20,13 @@ public static class GraphTypeDefinitions
             new(GraphVariableRole.Y, "Y-axis", IsRequired: true, Numeric),
             GroupRole
         ]),
-        new(GraphType.Histogram, "Histogram", [SingleVariableRole, GroupRole]),
+        // A histogram names its roles the way the people who use it do; the role and the column id are what identify
+        // them, so the wording is presentation only.
+        new(GraphType.Histogram, "Histogram",
+        [
+            new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
+            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
+        ]),
         new(GraphType.ProbabilityPlot, "Probability Plot", [SingleVariableRole, GroupRole]),
         new(GraphType.EmpiricalCdf, "Empirical CDF", [SingleVariableRole, GroupRole])
     ];

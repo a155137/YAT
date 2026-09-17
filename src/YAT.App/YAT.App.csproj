@@ -28,6 +28,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Graph preparation uses the statistics of YAT.Analytics (histogram bin counts, quantiles); the graph models and
+         the drawing stay here. -->
+    <ProjectReference Include="..\YAT.Analytics\YAT.Analytics.csproj" />
     <ProjectReference Include="..\YAT.Application\YAT.Application.csproj" />
     <ProjectReference Include="..\YAT.Infrastructure\YAT.Infrastructure.csproj" />
   </ItemGroup>
