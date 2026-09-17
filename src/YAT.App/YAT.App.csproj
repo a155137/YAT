@@ -25,6 +25,9 @@
     <!-- Graph rendering draws with SkiaSharp directly, so it is declared here instead of being taken from Avalonia's
          own dependency. The version is the one Avalonia 12.1.1 already resolves; no other package changes. -->
     <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <!-- Graph export writes .pptx packages with the Open XML SDK: no Office installation and no COM automation. The
+         dependency and its types stay inside the export implementation. -->
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
   </ItemGroup>
 
   <ItemGroup>

@@ -31,7 +31,12 @@ public partial class App : AvaloniaApplication
             var mainWindow = new MainWindow();
             var clipboard = new AvaloniaClipboard(mainWindow);
             var lifecycle = Composition.CreateProjectLifecycle(workspace, clipboard, clipboard, new AvaloniaProjectLifecycleDialogs(mainWindow));
-            var graphs = Composition.CreateGraphSetup(new AvaloniaGraphSetupDialogs(mainWindow), new AvaloniaGraphWindowPresenter(mainWindow));
+            // Graph windows export through a workflow built here: the shared parts come from the composition root, and
+            // each window adds its own dialogs when it opens.
+            var exports = new AvaloniaGraphExportWorkflowFactory(Composition.CreateGraphExportService(), Composition.CreatePowerPointExporter());
+            var graphs = Composition.CreateGraphSetup(
+                new AvaloniaGraphSetupDialogs(mainWindow),
+                new AvaloniaGraphWindowPresenter(mainWindow, exports));
             var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs);
 
             mainWindow.DataContext = shell;

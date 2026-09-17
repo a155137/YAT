@@ -11,6 +11,7 @@ using YAT.Application.Queries;
 using YAT.app.Clipboard;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Rendering;
+using YAT.app.Graphs.Export;
 using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
@@ -131,6 +132,12 @@ public sealed class CompositionRoot
         ArgumentNullException.ThrowIfNull(dialogs);
         return new ProjectLifecycleController(this, workspace, clipboardReader, clipboardWriter, dialogs);
     }
+
+    // The window-independent halves of a graph export: drawing the graph off screen, and writing a presentation. The
+    // dialogs belong to the graph window that shows them, so the UI adds those (see IGraphExportWorkflowFactory).
+    public GraphExportService CreateGraphExportService() => new();
+
+    public IPowerPointGraphExporter CreatePowerPointExporter() => new PowerPointGraphExporter();
 
     public GraphSetupController CreateGraphSetup(IGraphSetupDialogs dialogs, IGraphWindowPresenter windows)
     {

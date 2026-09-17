@@ -51,6 +51,10 @@ internal sealed class GraphCanvas : Control
         set => SetValue(PlotProperty, value);
     }
 
+    // The theme this graph is being drawn in right now. An export takes it once, so that a theme change while a file is
+    // being written cannot change what was exported.
+    public GraphTheme CurrentTheme => ThemeFor(ActualThemeVariant);
+
     public override void Render(DrawingContext context)
     {
         base.Render(context);
