@@ -7,6 +7,16 @@ public class DescriptivesTests
 {
     private const double Tolerance = 1e-12;
 
+    // 0
+    [Fact]
+    public void TheMeanIsTheArithmeticOne()
+    {
+        Assert.Equal(5, Descriptives.Mean([2, 4, 4, 4, 5, 5, 7, 9]), Tolerance);
+        Assert.Equal(-1.5, Descriptives.Mean([-3, 0]), Tolerance);
+        Assert.Equal(7, Descriptives.Mean([7]), Tolerance);
+        Assert.Equal(0, Descriptives.Mean([]));
+    }
+
     // 1
     [Fact]
     public void TheStandardDeviationIsTheSampleOneNotThePopulationOne()

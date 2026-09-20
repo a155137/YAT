@@ -12,7 +12,7 @@ public sealed class ScatterRenderModelBuilder
 {
     // The most points a scatter plot draws. It is a hard cap: beyond it the model carries a deterministic sample, so
     // the drawing stays responsive no matter how many rows the worksheet has.
-    public const int DefaultMaximumRenderedPoints = 100_000;
+    public const int DefaultMaximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints;
 
     // The series of observations whose group value is empty. They are plotted, never dropped.
     public const string MissingGroupLabel = "(Missing)";
@@ -45,7 +45,8 @@ public sealed class ScatterRenderModelBuilder
             return null;
         }
 
-        var quotas = Quotas(partition.Series, partition.PointCount);
+        var quotas = DisplaySampling.Quotas(
+            [.. partition.Series.Select(series => series.Count)], partition.PointCount, _maximumRenderedPoints);
 
         var series = new List<ScatterSeriesRenderModel>(partition.Series.Count);
         var legendEntries = new List<GraphLegendEntry>(partition.Series.Count);
@@ -151,79 +152,6 @@ public sealed class ScatterRenderModelBuilder
         return partition;
     }
 
-    // How many points each series may draw, spending a fixed budget: never more than the cap in total, and as even a
-    // share of it as the series sizes allow.
-    private int[] Quotas(IReadOnlyList<SeriesBuffer> series, int pointCount)
-    {
-        var quotas = new int[series.Count];
-
-        if (pointCount <= _maximumRenderedPoints)
-        {
-            for (var index = 0; index < series.Count; index++)
-            {
-                quotas[index] = series[index].Count;
-            }
-
-            return quotas;
-        }
-
-        // More groups than the cap allows points: a categorical case no scatter plot can show anyway. The first groups
-        // in first-observed order get one point each, and the cap still holds.
-        if (series.Count >= _maximumRenderedPoints)
-        {
-            for (var index = 0; index < _maximumRenderedPoints; index++)
-            {
-                quotas[index] = 1;
-            }
-
-            return quotas;
-        }
-
-        // Every series keeps one point first, so no group disappears; the rest of the budget follows the sizes of the
-        // series, and what rounding leaves over goes to the largest remainders (ties in first-observed order).
-        var budget = _maximumRenderedPoints - series.Count;
-        var pool = pointCount - series.Count;
-        var remainders = new (double Fraction, int Index)[series.Count];
-        var granted = 0;
-
-        for (var index = 0; index < series.Count; index++)
-        {
-            var exact = budget * (double)(series[index].Count - 1) / pool;
-            var whole = (int)exact;
-            quotas[index] = 1 + whole;
-            granted += whole;
-            remainders[index] = (exact - whole, index);
-        }
-
-        var leftover = budget - granted;
-        if (leftover > 0)
-        {
-            Array.Sort(remainders, (first, second) =>
-            {
-                var byFraction = second.Fraction.CompareTo(first.Fraction);
-                return byFraction != 0 ? byFraction : first.Index.CompareTo(second.Index);
-            });
-
-            foreach (var (_, index) in remainders)
-            {
-                if (leftover == 0)
-                {
-                    break;
-                }
-
-                if (quotas[index] >= series[index].Count)
-                {
-                    continue;
-                }
-
-                quotas[index]++;
-                leftover--;
-            }
-        }
-
-        return quotas;
-    }
-
     // The points a series contributes: all of them when it may draw all of them, otherwise evenly spread indexes that
     // keep the first and the last observation of the series. Index arithmetic only, so the same data always samples the
     // same way - at every window size, on every redraw and in every theme.
@@ -248,7 +176,7 @@ public sealed class ScatterRenderModelBuilder
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            sampled[index] = series[(int)((long)index * (series.Count - 1) / (quota - 1))];
+            sampled[index] = series[DisplaySampling.SampleIndex(index, series.Count, quota)];
         }
 
         return sampled;

@@ -3,6 +3,23 @@ namespace YAT.Analytics.Statistics;
 // Summary statistics of a sample. Nothing here knows what the numbers describe.
 public static class Descriptives
 {
+    // The arithmetic mean. An empty sample has no mean and returns 0.
+    public static double Mean(ReadOnlySpan<double> values)
+    {
+        if (values.IsEmpty)
+        {
+            return 0;
+        }
+
+        var sum = 0d;
+        foreach (var value in values)
+        {
+            sum += value;
+        }
+
+        return sum / values.Length;
+    }
+
     // The SAMPLE standard deviation: the sum of squared deviations divided by n - 1 (Bessel's correction), not by n.
     // A sample of fewer than two values has no spread to measure and returns 0.
     //

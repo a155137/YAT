@@ -13,8 +13,8 @@ namespace YAT.app.Graphs;
 // It owns the order of the steps, not the work: the data comes from the session, the render model from the graph type's
 // own builder, and the window from the presenter. It never touches a repository or a raw data store.
 //
-// Scatter plots are drawn from Task #027 on and histograms from Task #028; the other graph types say so until their
-// own tasks implement them.
+// Scatter plots are drawn from Task #027 on, histograms from Task #028 and normal probability plots from Task #030;
+// the empirical CDF says so until its own task implements it.
 public sealed class GraphSetupController
 {
     private const string NotImplementedMessage = "This graph type is not implemented yet.";
@@ -24,17 +24,20 @@ public sealed class GraphSetupController
     private readonly IGraphWindowPresenter _windows;
     private readonly ScatterRenderModelBuilder _scatter;
     private readonly HistogramRenderModelBuilder _histogram;
+    private readonly ProbabilityPlotRenderModelBuilder _probabilityPlot;
 
     internal GraphSetupController(
         IGraphSetupDialogs dialogs,
         IGraphWindowPresenter windows,
         ScatterRenderModelBuilder scatter,
-        HistogramRenderModelBuilder histogram)
+        HistogramRenderModelBuilder histogram,
+        ProbabilityPlotRenderModelBuilder probabilityPlot)
     {
         _dialogs = dialogs;
         _windows = windows;
         _scatter = scatter;
         _histogram = histogram;
+        _probabilityPlot = probabilityPlot;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until graphs become documents.
@@ -92,7 +95,7 @@ public sealed class GraphSetupController
     // configuration that leaves no observations.
     private async Task ShowGraphAsync(GraphConfiguration configuration, MainWindowSession session, CancellationToken cancellationToken)
     {
-        if (configuration.GraphType is not (GraphType.ScatterPlot or GraphType.Histogram))
+        if (configuration.GraphType is not (GraphType.ScatterPlot or GraphType.Histogram or GraphType.ProbabilityPlot))
         {
             await _dialogs.ShowErrorAsync(NotImplementedMessage);
             return;
@@ -159,6 +162,13 @@ public sealed class GraphSetupController
                     new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
                     cancellationToken);
                 return histogramModel is null ? null : (histogramModel.Frame, new HistogramRenderer(histogramModel));
+
+            case UnivariateGraphData univariate when univariate.GraphType == GraphType.ProbabilityPlot:
+                var probabilityModel = _probabilityPlot.Build(
+                    univariate,
+                    new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    cancellationToken);
+                return probabilityModel is null ? null : (probabilityModel.Frame, new ProbabilityPlotRenderer(probabilityModel));
 
             default:
                 return null;

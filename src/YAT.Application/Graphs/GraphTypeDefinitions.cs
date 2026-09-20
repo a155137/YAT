@@ -27,7 +27,12 @@ public static class GraphTypeDefinitions
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
         ]),
-        new(GraphType.ProbabilityPlot, "Probability Plot", [SingleVariableRole, GroupRole]),
+        // Like a histogram, a probability plot names its roles the way the people who use it do.
+        new(GraphType.ProbabilityPlot, "Probability Plot",
+        [
+            new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
+            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
+        ]),
         new(GraphType.EmpiricalCdf, "Empirical CDF", [SingleVariableRole, GroupRole])
     ];
 

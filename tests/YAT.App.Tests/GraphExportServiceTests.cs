@@ -53,6 +53,20 @@ public class GraphExportServiceTests
             Token)!;
     }
 
+    private static ProbabilityPlotRenderModel ProbabilityPlot()
+    {
+        var values = new double[120];
+        for (var index = 0; index < values.Length; index++)
+        {
+            values[index] = 10 + (index * 0.25);
+        }
+
+        return new ProbabilityPlotRenderModelBuilder().Build(
+            new UnivariateGraphData(GraphType.ProbabilityPlot, Guid.NewGuid(), Column("Reg1"), values, null),
+            new ProbabilityPlotLabels("Reg1"),
+            Token)!;
+    }
+
     private static GraphExportSnapshot ScatterSnapshot(GraphTheme? theme = null)
     {
         var model = Scatter();
@@ -83,6 +97,23 @@ public class GraphExportServiceTests
 
         Assert.NotEmpty(png);
         Assert.Equal(PngSignature, png.Take(PngSignature.Length));
+    }
+
+    // 2a
+    [Fact]
+    public void AProbabilityPlotIsExportedThroughTheSamePathAsEveryOtherGraph()
+    {
+        var model = ProbabilityPlot();
+        var snapshot = new GraphExportSnapshot(model.Frame, new ProbabilityPlotRenderer(model), GraphThemes.Light);
+
+        var png = new GraphExportService().RenderPng(snapshot);
+
+        Assert.Equal(PngSignature, png.Take(PngSignature.Length));
+
+        using var bitmap = SKBitmap.Decode(png);
+        Assert.Equal(GraphExportService.ExportWidth, bitmap.Width);
+        Assert.Equal(GraphExportService.ExportHeight, bitmap.Height);
+        Assert.Equal(GraphThemes.Light.Background, bitmap.GetPixel(0, 0));
     }
 
     // 3

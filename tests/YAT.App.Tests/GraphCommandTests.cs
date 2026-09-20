@@ -297,9 +297,74 @@ public class GraphCommandTests
         Assert.Equal(["This graph has no data to plot."], runtime.GraphDialogs.Errors);
     }
 
+    // A confirmed probability plot setup ranks the worksheet's own values and opens a graph window.
+    [Fact]
+    public async Task ConfirmingAProbabilityPlotSetupOpensAGraphWindowOfTheWorksheetData()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t10\n2\t20\n3\t30\n4\t40\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"));
+
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal("Normal Probability Plot of Reg1", frame.Title);
+        Assert.Equal("Reg1", frame.XAxis.Title);
+        Assert.Equal("Percent", frame.YAxis.Title);
+        Assert.Contains(frame.YAxis.Ticks, tick => tick.Label == "50");
+        Assert.Null(frame.Legend);
+
+        var probability = Assert.IsType<ProbabilityPlotRenderer>(plot).Model;
+        Assert.Equal(4, probability.SourceObservationCount);
+        Assert.Equal(4, probability.RenderedPointCount);
+        Assert.Equal([1, 2, 3, 4], Assert.Single(probability.Series).Points.ToArray().Select(point => point.Value));
+        Assert.NotNull(probability.Series[0].FittedLine);
+    }
+
+    // A group column becomes one series per value, each ranked on its own, with the legend the window shows.
+    [Fact]
+    public async Task AGroupedProbabilityPlotRanksEveryGroupOnItsOwn()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tSITE\n1\t1\n2\t2\n3\t1\n4\t\n");
+        runtime.GraphDialogs.Answer = setup =>
+            ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "SITE"));
+
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var probability = Assert.IsType<ProbabilityPlotRenderer>(plot).Model;
+
+        Assert.Equal(["1", "2", ProbabilityPlotRenderModelBuilder.MissingGroupLabel], probability.Series.Select(series => series.Label));
+        Assert.Equal([2, 1, 1], probability.Series.Select(series => series.Points.Length));
+        Assert.Equal(4, probability.SourceObservationCount);
+        Assert.NotNull(frame.Legend);
+        Assert.Equal("SITE", frame.Legend.Title);
+    }
+
+    // A probability plot over a column with no values has nothing to rank.
+    [Fact]
+    public async Task AProbabilityPlotSetupWithoutUsableObservationsOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg2\n10\n20\n");
+
+        runtime.Project.ColumnName = "Reg1";
+        await runtime.Project.AddColumnCommand.ExecuteAsync(null);
+        await runtime.Project.GridLoadTask;
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"));
+
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["This graph has no data to plot."], runtime.GraphDialogs.Errors);
+    }
+
     // The other graph types are not drawn yet, and say so instead of opening a window.
     [Theory]
-    [InlineData(GraphType.ProbabilityPlot)]
     [InlineData(GraphType.EmpiricalCdf)]
     public async Task AGraphTypeThatIsNotImplementedYetOpensNoWindow(GraphType graphType)
     {
