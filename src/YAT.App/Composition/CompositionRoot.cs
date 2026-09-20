@@ -148,7 +148,8 @@ public sealed class CompositionRoot
             windows,
             new ScatterRenderModelBuilder(),
             new HistogramRenderModelBuilder(),
-            new ProbabilityPlotRenderModelBuilder());
+            new ProbabilityPlotRenderModelBuilder(),
+            new EmpiricalCdfRenderModelBuilder());
     }
 
     public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle, GraphSetupController graphs) =>

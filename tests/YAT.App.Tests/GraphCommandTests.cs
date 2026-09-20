@@ -363,20 +363,92 @@ public class GraphCommandTests
         Assert.Equal(["This graph has no data to plot."], runtime.GraphDialogs.Errors);
     }
 
-    // The other graph types are not drawn yet, and say so instead of opening a window.
-    [Theory]
-    [InlineData(GraphType.EmpiricalCdf)]
-    public async Task AGraphTypeThatIsNotImplementedYetOpensNoWindow(GraphType graphType)
+    // A confirmed empirical CDF setup turns the worksheet's own values into a step function and opens a graph window.
+    [Fact]
+    public async Task ConfirmingAnEmpiricalCdfSetupOpensAGraphWindowOfTheWorksheetData()
     {
         using var runtime = new Runtime();
         await runtime.StartAsync();
-        await runtime.PasteAsync("Reg1\tReg2\n1\t2\n");
+        await runtime.PasteAsync("Reg1\tReg2\n1\t10\n1\t20\n1\t30\n2\t40\n3\t50\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"));
+
+        await runtime.Shell.EmpiricalCdfCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal("Empirical CDF of Reg1", frame.Title);
+        Assert.Equal("Reg1", frame.XAxis.Title);
+        Assert.Equal("Percent", frame.YAxis.Title);
+        Assert.Equal(0, frame.YAxis.Range.Minimum);
+        Assert.Equal(100, frame.YAxis.Range.Maximum);
+        Assert.Null(frame.Legend);
+
+        // 1, 1, 1, 2, 3: one step at each distinct value, at the share of the sample it reaches.
+        var cdf = Assert.IsType<EmpiricalCdfRenderer>(plot).Model;
+        Assert.Equal(5, cdf.SourceObservationCount);
+        Assert.Equal(
+            [new EmpiricalCdfPoint(1, 60), new EmpiricalCdfPoint(2, 80), new EmpiricalCdfPoint(3, 100)],
+            Assert.Single(cdf.Series).Points.ToArray());
+    }
+
+    // A group column becomes one series per value, each counted against its own size.
+    [Fact]
+    public async Task AGroupedEmpiricalCdfCountsEveryGroupAgainstItsOwnSize()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tSITE\n1\t1\n2\t2\n3\t1\n4\t\n");
+        runtime.GraphDialogs.Answer = setup =>
+            ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "SITE"));
+
+        await runtime.Shell.EmpiricalCdfCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var cdf = Assert.IsType<EmpiricalCdfRenderer>(plot).Model;
+
+        Assert.Equal(["1", "2", EmpiricalCdfRenderModelBuilder.MissingGroupLabel], cdf.Series.Select(series => series.Label));
+        Assert.All(cdf.Series, series => Assert.Equal(100, series.Points.Span[^1].CumulativePercent, 1e-9));
+        Assert.Equal(4, cdf.SourceObservationCount);
+        Assert.NotNull(frame.Legend);
+        Assert.Equal("SITE", frame.Legend.Title);
+    }
+
+    // An empirical CDF over a column with no values has nothing to describe.
+    [Fact]
+    public async Task AnEmpiricalCdfSetupWithoutUsableObservationsOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg2\n10\n20\n");
+
+        runtime.Project.ColumnName = "Reg1";
+        await runtime.Project.AddColumnCommand.ExecuteAsync(null);
+        await runtime.Project.GridLoadTask;
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"));
+
+        await runtime.Shell.EmpiricalCdfCommand.ExecuteAsync(null);
+
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["This graph has no data to plot."], runtime.GraphDialogs.Errors);
+    }
+
+    // Every graph type of this version draws a real graph: none of them answers with the unimplemented message.
+    [Theory]
+    [InlineData(GraphType.ScatterPlot, typeof(ScatterRenderer))]
+    [InlineData(GraphType.Histogram, typeof(HistogramRenderer))]
+    [InlineData(GraphType.ProbabilityPlot, typeof(ProbabilityPlotRenderer))]
+    [InlineData(GraphType.EmpiricalCdf, typeof(EmpiricalCdfRenderer))]
+    public async Task EveryGraphTypeHasARealExecutionPath(GraphType graphType, Type renderer)
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t2\n3\t4\n5\t6\n");
         runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
 
         await Command(runtime, graphType).ExecuteAsync(null);
 
-        Assert.Empty(runtime.GraphWindows.Shown);
-        Assert.Equal(["This graph type is not implemented yet."], runtime.GraphDialogs.Errors);
+        var (_, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.IsType(renderer, plot);
+        Assert.Empty(runtime.GraphDialogs.Errors);
         Assert.NotNull(runtime.Graphs.LastConfiguration);
     }
 

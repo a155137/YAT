@@ -33,11 +33,12 @@ public static class GraphTypeDefinitions
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
         ]),
-        new(GraphType.EmpiricalCdf, "Empirical CDF", [SingleVariableRole, GroupRole])
+        new(GraphType.EmpiricalCdf, "Empirical CDF",
+        [
+            new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
+            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
+        ])
     ];
-
-    private static GraphRoleDefinition SingleVariableRole =>
-        new(GraphVariableRole.Variable, "Variable", IsRequired: true, Numeric);
 
     // In menu order.
     public static IReadOnlyList<GraphTypeDefinition> All => Definitions;

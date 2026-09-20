@@ -116,6 +116,32 @@ public class GraphExportServiceTests
         Assert.Equal(GraphThemes.Light.Background, bitmap.GetPixel(0, 0));
     }
 
+    // 2b
+    [Fact]
+    public void AnEmpiricalCdfIsExportedThroughTheSamePathAsEveryOtherGraph()
+    {
+        var values = new double[120];
+        for (var index = 0; index < values.Length; index++)
+        {
+            values[index] = 10 + (index * 0.25);
+        }
+
+        var model = new EmpiricalCdfRenderModelBuilder().Build(
+            new UnivariateGraphData(GraphType.EmpiricalCdf, Guid.NewGuid(), Column("Reg1"), values, null),
+            new EmpiricalCdfLabels("Reg1"),
+            Token)!;
+
+        var png = new GraphExportService().RenderPng(
+            new GraphExportSnapshot(model.Frame, new EmpiricalCdfRenderer(model), GraphThemes.Dark));
+
+        Assert.Equal(PngSignature, png.Take(PngSignature.Length));
+
+        using var bitmap = SKBitmap.Decode(png);
+        Assert.Equal(GraphExportService.ExportWidth, bitmap.Width);
+        Assert.Equal(GraphExportService.ExportHeight, bitmap.Height);
+        Assert.Equal(GraphThemes.Dark.Background, bitmap.GetPixel(0, 0));
+    }
+
     // 3
     [Fact]
     public void TheImageIsAlwaysTheExportSizeWhateverAWindowWouldHaveBeen()

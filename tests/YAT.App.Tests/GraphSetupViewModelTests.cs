@@ -53,21 +53,12 @@ public class GraphSetupViewModelTests
         Assert.Equal(["Numeric", "Numeric", "String", "Numeric", "Numeric"], setup.AvailableColumns.Select(option => option.DataTypeName));
     }
 
-    [Theory]
-    [InlineData(GraphType.EmpiricalCdf)]
-    public void SingleVariableGraphsShowVariableAndGroup(GraphType graphType)
-    {
-        var setup = Setup(graphType);
-
-        Assert.Equal([GraphVariableRole.Variable, GraphVariableRole.Group], setup.Roles.Select(role => role.Role));
-        Assert.Equal(["Variable", "Group"], setup.Roles.Select(role => role.DisplayName));
-    }
-
-    // A histogram and a probability plot name the same two roles the way the people who use them do; the roles
-    // themselves are unchanged.
+    // The single-variable graphs all name the same two roles the way the people who use them do; the roles themselves
+    // are unchanged.
     [Theory]
     [InlineData(GraphType.Histogram, "Histogram")]
     [InlineData(GraphType.ProbabilityPlot, "Probability Plot")]
+    [InlineData(GraphType.EmpiricalCdf, "Empirical CDF")]
     public void GraphsWithMinitabStyleRoleNamesShowThem(GraphType graphType, string title)
     {
         var setup = Setup(graphType);
