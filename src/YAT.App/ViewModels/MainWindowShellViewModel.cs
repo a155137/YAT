@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YAT.Application.Graphs;
+using YAT.app.Analyses;
 using YAT.app.Graphs;
 using YAT.app.Lifecycle;
 
@@ -14,12 +15,17 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     private MainWindowViewModel? _observedProject;
 
-    public MainWindowShellViewModel(ProjectLifecycleController lifecycle, GraphSetupController graphs)
+    public MainWindowShellViewModel(
+        ProjectLifecycleController lifecycle,
+        GraphSetupController graphs,
+        DescriptiveStatisticsController statistics)
     {
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(graphs);
+        ArgumentNullException.ThrowIfNull(statistics);
         Lifecycle = lifecycle;
         Graphs = graphs;
+        Statistics = statistics;
         Lifecycle.ProjectReplaced += OnProjectReplaced;
         ObserveProject();
     }
@@ -28,6 +34,9 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     // Graph menu: set up a graph over the active worksheet of the current project.
     public GraphSetupController Graphs { get; }
+
+    // Statistics menu: run an analysis over the active worksheet of the current project.
+    public DescriptiveStatisticsController Statistics { get; }
 
     public MainWindowViewModel? Project => Lifecycle.Project;
 
@@ -62,6 +71,10 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     [RelayCommand]
     private Task EmpiricalCdfAsync() => ConfigureGraphAsync(GraphType.EmpiricalCdf);
+
+    [RelayCommand]
+    private Task DescriptiveStatisticsAsync() =>
+        Statistics.ConfigureAsync(Lifecycle.CurrentSession, Project?.SelectedWorksheet, CancellationToken.None);
 
     // Always the current project's session and its active worksheet, so a project switch is picked up automatically.
     private Task ConfigureGraphAsync(GraphType graphType) =>

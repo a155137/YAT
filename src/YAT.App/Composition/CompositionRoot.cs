@@ -1,3 +1,4 @@
+using YAT.Application.Analyses;
 using YAT.Application.Exceptions;
 using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Projects.RenameProject;
@@ -8,6 +9,7 @@ using YAT.Application.Features.Worksheets.RenameWorksheet;
 using YAT.Application.Graphs;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
+using YAT.app.Analyses;
 using YAT.app.Clipboard;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Rendering;
@@ -110,6 +112,7 @@ public sealed class CompositionRoot
             new WorksheetColumnsTsvExporter(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             new ProjectMetadataQueryService(projectSession.Projects, projectSession.Worksheets, projectSession.WorksheetColumns),
             new GraphDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
+            new AnalysisDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             projectSession.ProjectId);
     }
 
@@ -152,8 +155,22 @@ public sealed class CompositionRoot
             new EmpiricalCdfRenderModelBuilder());
     }
 
-    public MainWindowShellViewModel CreateMainWindowShellViewModel(ProjectLifecycleController lifecycle, GraphSetupController graphs) =>
-        new(lifecycle, graphs);
+    // The Statistics menu's analyses. The setup dialogs and the result window belong to the UI, which supplies them;
+    // the statistics themselves are the builder's, which is why it is built here and not in a window.
+    public DescriptiveStatisticsController CreateDescriptiveStatistics(
+        IAnalysisSetupDialogs dialogs,
+        IAnalysisResultPresenter results)
+    {
+        ArgumentNullException.ThrowIfNull(dialogs);
+        ArgumentNullException.ThrowIfNull(results);
+        return new DescriptiveStatisticsController(dialogs, results, new DescriptiveStatisticsBuilder());
+    }
+
+    public MainWindowShellViewModel CreateMainWindowShellViewModel(
+        ProjectLifecycleController lifecycle,
+        GraphSetupController graphs,
+        DescriptiveStatisticsController statistics) =>
+        new(lifecycle, graphs, statistics);
 
     private ProjectSession CreatePersistentSession(DuckDbProjectDatabase database, DuckDbProjectRepository? projects = null)
     {

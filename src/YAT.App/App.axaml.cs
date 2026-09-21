@@ -37,7 +37,11 @@ public partial class App : AvaloniaApplication
             var graphs = Composition.CreateGraphSetup(
                 new AvaloniaGraphSetupDialogs(mainWindow),
                 new AvaloniaGraphWindowPresenter(mainWindow, exports));
-            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs);
+            // Analyses show their results in the shared analysis result window, which the presenter opens.
+            var statistics = Composition.CreateDescriptiveStatistics(
+                new AvaloniaAnalysisSetupDialogs(mainWindow),
+                new AvaloniaAnalysisResultPresenter(mainWindow));
+            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics);
 
             mainWindow.DataContext = shell;
             desktop.MainWindow = mainWindow;

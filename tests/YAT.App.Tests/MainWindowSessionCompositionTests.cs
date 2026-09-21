@@ -168,6 +168,7 @@ public class MainWindowSessionCompositionTests
             "YAT.Application.Features.Worksheets.AddWorksheetColumn",
             "YAT.Application.Queries",
             "YAT.Application.Graphs",
+            "YAT.Application.Analyses",
             "YAT.app.Composition",
             "YAT.Domain.Entities"
         ];

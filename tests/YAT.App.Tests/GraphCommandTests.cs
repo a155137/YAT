@@ -1,5 +1,6 @@
 using YAT.App.Tests.TestDoubles;
 using YAT.Application.Graphs;
+using YAT.app.Analyses;
 using YAT.app.Composition;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Rendering;
@@ -24,7 +25,8 @@ public class GraphCommandTests
             Workspace = Composition.CreateProjectWorkspace();
             Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, ProjectDialogs);
             Graphs = Composition.CreateGraphSetup(GraphDialogs, GraphWindows);
-            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs);
+            Statistics = Composition.CreateDescriptiveStatistics(AnalysisDialogs, AnalysisResults);
+            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs, Statistics);
         }
 
         public TemporaryDirectory Directory { get; } = new();
@@ -41,9 +43,15 @@ public class GraphCommandTests
 
         public FakeGraphWindowPresenter GraphWindows { get; } = new();
 
+        public FakeAnalysisSetupDialogs AnalysisDialogs { get; } = new();
+
+        public FakeAnalysisResultPresenter AnalysisResults { get; } = new();
+
         public ProjectLifecycleController Lifecycle { get; }
 
         public GraphSetupController Graphs { get; }
+
+        public DescriptiveStatisticsController Statistics { get; }
 
         public MainWindowShellViewModel Shell { get; }
 

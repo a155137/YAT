@@ -1,4 +1,5 @@
 using YAT.Application.Abstractions.Persistence;
+using YAT.Application.Analyses;
 using YAT.Application.Exceptions;
 using YAT.Application.Features.Projects.CreateProject;
 using YAT.Application.Features.Projects.RenameProject;
@@ -42,6 +43,7 @@ public sealed class MainWindowSession
     private readonly WorksheetColumnsTsvExporter _columnsExporter;
     private readonly ProjectMetadataQueryService _metadataQuery;
     private readonly GraphDataQueryService _graphData;
+    private readonly AnalysisDataQueryService _analysisData;
     private readonly Guid? _projectId;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _retired;
@@ -63,6 +65,7 @@ public sealed class MainWindowSession
         WorksheetColumnsTsvExporter columnsExporter,
         ProjectMetadataQueryService metadataQuery,
         GraphDataQueryService graphData,
+        AnalysisDataQueryService analysisData,
         Guid? projectId)
     {
         _createProject = createProject;
@@ -81,6 +84,7 @@ public sealed class MainWindowSession
         _columnsExporter = columnsExporter;
         _metadataQuery = metadataQuery;
         _graphData = graphData;
+        _analysisData = analysisData;
         _projectId = projectId;
     }
 
@@ -107,6 +111,13 @@ public sealed class MainWindowSession
     public Task<GraphData> LoadGraphDataAsync(GraphConfiguration configuration, CancellationToken cancellationToken) =>
         RunExclusiveAsync(
             () => Task.Run(() => _graphData.LoadAsync(configuration, cancellationToken), cancellationToken),
+            cancellationToken);
+
+    // The worksheet rows of an analysis configuration (see AnalysisDataQueryService), read off the UI thread. The
+    // values stay in the returned analysis data: they never pass through a view model.
+    public Task<AnalysisData> LoadAnalysisDataAsync(AnalysisConfiguration configuration, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(() => _analysisData.LoadAsync(configuration, cancellationToken), cancellationToken),
             cancellationToken);
 
     // The column metadata of one worksheet (Id, Index, Name, DataType, ...), read off the UI thread. Never raw values.
