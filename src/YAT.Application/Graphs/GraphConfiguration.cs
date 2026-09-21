@@ -8,6 +8,13 @@ public sealed record GraphColumnAssignment(GraphVariableRole Role, Guid Workshee
 // roles. Validate it with GraphConfigurationValidator before using it; nothing here reads worksheet values.
 public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, IReadOnlyList<GraphColumnAssignment> Assignments)
 {
+    // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
+    // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>
         Assignments.FirstOrDefault(assignment => assignment.Role == role)?.WorksheetColumnId;
+
+    // Every column assigned to a role, in the order the configuration lists them (which is the order the graph reads
+    // them in). Empty when the role has none.
+    public IReadOnlyList<Guid> FindColumnIds(GraphVariableRole role) =>
+        [.. Assignments.Where(assignment => assignment.Role == role).Select(assignment => assignment.WorksheetColumnId)];
 }

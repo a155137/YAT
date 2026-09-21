@@ -142,6 +142,7 @@
             <MenuItem Header="_Graph">
                 <MenuItem Header="_Scatter Plot..." Command="{Binding ScatterPlotCommand}" />
                 <MenuItem Header="_Histogram..." Command="{Binding HistogramCommand}" />
+                <MenuItem Header="_Box Plot..." Command="{Binding BoxPlotCommand}" />
                 <MenuItem Header="_Probability Plot..." Command="{Binding ProbabilityPlotCommand}" />
                 <MenuItem Header="_Empirical CDF..." Command="{Binding EmpiricalCdfCommand}" />
             </MenuItem>

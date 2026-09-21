@@ -136,6 +136,7 @@ public class GraphCommandTests
     [Theory]
     [InlineData(GraphType.ScatterPlot, "Scatter Plot")]
     [InlineData(GraphType.Histogram, "Histogram")]
+    [InlineData(GraphType.BoxPlot, "Box Plot")]
     [InlineData(GraphType.ProbabilityPlot, "Probability Plot")]
     [InlineData(GraphType.EmpiricalCdf, "Empirical CDF")]
     public async Task EveryGraphMenuCommandOpensItsOwnSetup(GraphType graphType, string title)
@@ -632,10 +633,123 @@ public class GraphCommandTests
         Assert.NotNull(runtime.Graphs.LastConfiguration);
     }
 
+    // ---- Box Plot ----
+
+    // A box plot's variable role takes several columns, so its setup offers them as a multi-selection; every other
+    // role keeps its single selection.
+    [Fact]
+    public async Task TheBoxPlotSetupTakesSeveralGraphVariablesAndOneGroupingColumn()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\tSITE\n1\t10\tA\n");
+        runtime.GraphDialogs.Answer = _ => null;
+
+        await runtime.Shell.BoxPlotCommand.ExecuteAsync(null);
+
+        var setup = runtime.GraphDialogs.LastSetup;
+        Assert.Equal("Box Plot", setup.Title);
+        Assert.Equal(GraphType.BoxPlot, setup.GraphType);
+
+        var variables = Assert.Single(setup.Roles, role => role.Role == GraphVariableRole.Variable);
+        Assert.True(variables.AllowsMultiple);
+        Assert.Equal("Graph variables", variables.DisplayName);
+        Assert.Equal(["Reg1", "Reg2"], variables.Options.Select(option => option.Name));
+
+        var group = Assert.Single(setup.Roles, role => role.Role == GraphVariableRole.Group);
+        Assert.False(group.AllowsMultiple);
+        Assert.Equal(["(None)", "Reg1", "Reg2", "SITE"], group.Options.Select(option => option.Name));
+    }
+
+    //
+    [Fact]
+    public async Task ConfirmingABoxPlotOfSeveralVariablesOpensAWindowWithOneBoxEach()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+
+        // Reg1 is empty in the last row and Reg2 in the first: neither takes the other's observations away.
+        await runtime.PasteAsync("Reg1\tReg2\n1\t\n2\t20\n3\t30\n4\t40\n5\t50\n\t60\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWithVariables(setup, "Reg1", "Reg2");
+
+        await runtime.Shell.BoxPlotCommand.ExecuteAsync(null);
+
+        var configuration = runtime.Graphs.LastConfiguration!;
+        Assert.Equal(GraphType.BoxPlot, configuration.GraphType);
+        Assert.Equal(2, configuration.FindColumnIds(GraphVariableRole.Variable).Count);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal("Boxplot of Reg1, Reg2", frame.Title);
+
+        var model = Assert.IsType<BoxPlotRenderer>(plot).Model;
+        Assert.Equal(["Reg1", "Reg2"], model.Categories);
+        Assert.Equal([5, 5], model.Boxes.Select(box => box.ObservationCount));
+        Assert.Equal([3, 40], model.Boxes.Select(box => box.Median));
+        Assert.Null(frame.Legend);
+    }
+
+    //
+    [Fact]
+    public async Task ConfirmingAGroupedBoxPlotOpensAWindowWithOneBoxPerVariableAndGroup()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\tSITE\n1\t10\tB\n2\t20\tA\n3\t30\tB\n4\t40\tA\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWithVariables(setup, ["Reg1", "Reg2"], "SITE");
+
+        await runtime.Shell.BoxPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var model = Assert.IsType<BoxPlotRenderer>(plot).Model;
+
+        Assert.Equal(["Reg1 / B", "Reg1 / A", "Reg2 / B", "Reg2 / A"], model.Categories);
+        Assert.Equal(["B", "A"], frame.Legend!.Entries.Select(entry => entry.Label));
+
+        // Site B keeps series 0 in both variables, site A series 1.
+        Assert.Equal([0, 1, 0, 1], model.Boxes.Select(box => box.SeriesIndex));
+    }
+
+    //
+    [Fact]
+    public async Task ABoxPlotReadsItsVariablesInWorksheetOrderWhateverOrderTheyWerePicked()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\tReg3\n1\t10\t100\n2\t20\t200\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWithVariables(setup, "Reg3", "Reg1");
+
+        await runtime.Shell.BoxPlotCommand.ExecuteAsync(null);
+
+        var model = Assert.IsType<BoxPlotRenderer>(Assert.Single(runtime.GraphWindows.Shown).Plot).Model;
+        Assert.Equal(["Reg1", "Reg3"], model.Categories);
+    }
+
+    // Confirms a box plot setup by ticking the named graph variables, and optionally a grouping column.
+    private static GraphConfiguration? ConfirmWithVariables(GraphSetupViewModel setup, params string[] variables) =>
+        ConfirmWithVariables(setup, variables, null);
+
+    private static GraphConfiguration? ConfirmWithVariables(GraphSetupViewModel setup, string[] variables, string? group)
+    {
+        var role = setup.Roles.Single(candidate => candidate.AllowsMultiple);
+        foreach (var name in variables)
+        {
+            role.SelectedOptions.Add(role.Options.Single(option => option.Name == name));
+        }
+
+        if (group is not null)
+        {
+            var grouping = setup.Roles.Single(candidate => candidate.Role == GraphVariableRole.Group);
+            grouping.SelectedOption = grouping.Options.Single(option => option.Name == group);
+        }
+
+        return setup.Confirm();
+    }
+
     private static CommunityToolkit.Mvvm.Input.IAsyncRelayCommand Command(Runtime runtime, GraphType graphType) => graphType switch
     {
         GraphType.ScatterPlot => runtime.Shell.ScatterPlotCommand,
         GraphType.Histogram => runtime.Shell.HistogramCommand,
+        GraphType.BoxPlot => runtime.Shell.BoxPlotCommand,
         GraphType.ProbabilityPlot => runtime.Shell.ProbabilityPlotCommand,
         _ => runtime.Shell.EmpiricalCdfCommand
     };

@@ -15,13 +15,13 @@ public class GraphTypeDefinitionsTests
     }
 
     [Fact]
-    public void TheFourV1GraphTypesAreDefinedInMenuOrderWithTheirDisplayNames()
+    public void TheGraphTypesAreDefinedInMenuOrderWithTheirDisplayNames()
     {
         Assert.Equal(
-            [GraphType.ScatterPlot, GraphType.Histogram, GraphType.ProbabilityPlot, GraphType.EmpiricalCdf],
+            [GraphType.ScatterPlot, GraphType.Histogram, GraphType.BoxPlot, GraphType.ProbabilityPlot, GraphType.EmpiricalCdf],
             GraphTypeDefinitions.All.Select(definition => definition.GraphType));
         Assert.Equal(
-            ["Scatter Plot", "Histogram", "Probability Plot", "Empirical CDF"],
+            ["Scatter Plot", "Histogram", "Box Plot", "Probability Plot", "Empirical CDF"],
             GraphTypeDefinitions.All.Select(definition => definition.DisplayName));
     }
 

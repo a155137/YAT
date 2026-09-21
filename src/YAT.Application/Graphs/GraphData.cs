@@ -106,6 +106,40 @@ public sealed record ScatterGraphData : GraphData
     public ReadOnlyMemory<double> YValues { get; }
 }
 
+// Several measured variables of one worksheet, read together: the shape a box plot reads.
+//
+// Each variable keeps its own observations and its own group values, because the rows they can use are not the same:
+// a row where Reg1 is empty is dropped from Reg1 and kept for Reg2. The columns are still read in the same aligned row
+// windows, so every observation is paired with the group value of the row it came from; only the compaction is
+// per variable.
+public sealed record MultiVariableGraphData : GraphData
+{
+    public MultiVariableGraphData(GraphType graphType, Guid worksheetId, IReadOnlyList<UnivariateGraphData> variables)
+        : base(graphType, worksheetId, TotalCount(variables), null)
+    {
+        Variables = variables;
+    }
+
+    // In the order the configuration selected them.
+    public IReadOnlyList<UnivariateGraphData> Variables { get; }
+
+    private static int TotalCount(IReadOnlyList<UnivariateGraphData> variables)
+    {
+        ArgumentNullException.ThrowIfNull(variables);
+        if (variables.Count == 0)
+        {
+            throw new ArgumentException("A multi-variable graph needs at least one variable.", nameof(variables));
+        }
+
+        if (variables.Any(variable => variable is null))
+        {
+            throw new ArgumentException("A graph variable must not be null.", nameof(variables));
+        }
+
+        return variables.Sum(variable => variable.Count);
+    }
+}
+
 // One measured variable: the shape a histogram, probability plot and empirical CDF all read. Rows whose variable is
 // empty are dropped.
 public sealed record UnivariateGraphData : GraphData

@@ -8,7 +8,11 @@ public enum GraphType
     ScatterPlot,
     Histogram,
     ProbabilityPlot,
-    EmpiricalCdf
+    EmpiricalCdf,
+
+    // Added after the first four; the order graphs are offered in is the order of GraphTypeDefinitions.All, not of
+    // this enum.
+    BoxPlot
 }
 
 // What a worksheet column is used for in a graph. Roles differ per graph type: a scatter plot has X and Y, the
@@ -21,12 +25,22 @@ public enum GraphVariableRole
     Group
 }
 
-// One role of one graph type: whether it must be assigned, and which column data types it accepts.
+// One role of one graph type: whether it must be assigned, which column data types it accepts, and whether it takes
+// more than one column.
+//
+// Cardinality is these two flags and nothing more:
+//
+//     required, single    -> exactly one column (a scatter plot's X axis)
+//     required, multiple  -> one or more columns (a box plot's graph variables)
+//     optional, single    -> at most one column (a grouping column)
+//
+// AllowsMultiple is what the generic validator and the setup dialog read; no graph type is named anywhere in them.
 public sealed record GraphRoleDefinition(
     GraphVariableRole Role,
     string DisplayName,
     bool IsRequired,
-    IReadOnlyList<WorksheetDataType> AllowedDataTypes)
+    IReadOnlyList<WorksheetDataType> AllowedDataTypes,
+    bool AllowsMultiple = false)
 {
     public bool Allows(WorksheetDataType dataType) => AllowedDataTypes.Contains(dataType);
 }

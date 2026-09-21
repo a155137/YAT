@@ -56,8 +56,16 @@ public sealed class GraphDataQueryService
         Validate(configuration, worksheetColumns);
 
         var group = FindColumn(configuration, worksheetColumns, GraphVariableRole.Group);
-        return definition.GraphType == GraphType.ScatterPlot
-            ? await LoadScatterAsync(configuration, worksheetColumns, group, cancellationToken)
+
+        // What the graph data looks like follows the graph's own roles: a scatter plot pairs two measured columns,
+        // a role that takes several columns reads one variable per column, and everything else reads one variable.
+        if (definition.GraphType == GraphType.ScatterPlot)
+        {
+            return await LoadScatterAsync(configuration, worksheetColumns, group, cancellationToken);
+        }
+
+        return definition.FindRole(GraphVariableRole.Variable)?.AllowsMultiple == true
+            ? await LoadMultiVariableAsync(configuration, worksheetColumns, group, cancellationToken)
             : await LoadUnivariateAsync(configuration, worksheetColumns, group, cancellationToken);
     }
 
@@ -137,19 +145,87 @@ public sealed class GraphDataQueryService
             configuration.GraphType, configuration.WorksheetId, Info(variable), values.Values, groupValues?.ToGroupData(Info(group!)));
     }
 
+    // Several measured variables of one worksheet: every variable and the group column are read in the same aligned
+    // row windows, and each variable then keeps the rows it has a value in.
+    //
+    // The compaction is per variable on purpose: an empty Reg1 cell must not take that row's Reg2 observation away.
+    // Because the group value is taken from the same row while the block is still aligned, every observation keeps the
+    // group of the worksheet row it came from, whatever the other variables did with that row.
+    private async Task<GraphData> LoadMultiVariableAsync(
+        GraphConfiguration configuration,
+        IReadOnlyList<WorksheetColumn> worksheetColumns,
+        WorksheetColumn? group,
+        CancellationToken cancellationToken)
+    {
+        var variables = configuration.FindColumnIds(GraphVariableRole.Variable)
+            .Select(columnId => worksheetColumns.First(column => column.Id == columnId))
+            .ToArray();
+
+        IReadOnlySet<Guid> storedColumnIds;
+        try
+        {
+            storedColumnIds = await _rawDataStore.GetStoredColumnIdsAsync(configuration.WorksheetId, cancellationToken);
+        }
+        catch (RawDataStorageException exception)
+        {
+            throw ReadFailed(exception);
+        }
+
+        // A variable without stored raw values simply has no observations; the other variables are still read.
+        var readable = variables.Where(column => storedColumnIds.Contains(column.Id)).ToArray();
+        var values = variables.Select(_ => new DoubleBuffer()).ToArray();
+        var groupValues = variables.Select(_ => GroupBuffer.For(group)).ToArray();
+        var ordinals = variables.Select(column => Array.IndexOf(readable, column)).ToArray();
+
+        if (readable.Length > 0)
+        {
+            await ReadAsync(configuration.WorksheetId, readable, group, (block, reader, row) =>
+            {
+                // One worksheet row, offered to every variable: each keeps it only if it has a value there, and takes
+                // this row's own group value with it.
+                for (var index = 0; index < variables.Length; index++)
+                {
+                    if (ordinals[index] < 0 || reader.Numeric(block, ordinals[index], row) is not { } value)
+                    {
+                        continue;
+                    }
+
+                    values[index].Add(value);
+                    groupValues[index]?.Add(block, reader, row);
+                }
+            }, cancellationToken, storedColumnIds);
+        }
+
+        return new MultiVariableGraphData(
+            configuration.GraphType,
+            configuration.WorksheetId,
+            [
+                .. variables.Select((column, index) => new UnivariateGraphData(
+                    configuration.GraphType,
+                    configuration.WorksheetId,
+                    Info(column),
+                    values[index].Values,
+                    groupValues[index]?.ToGroupData(Info(group!))))
+            ]);
+    }
+
     // Reads the value columns and the group column together, one bounded row window at a time, and offers every row to
     // the caller. A column without stored raw values reads as all-null, like a row beyond a shorter column.
+    //
+    // known: the worksheet's stored column ids when the caller has already looked them up (a graph that reads several
+    // variables decides for itself which of them can be read); null asks the store for them.
     private async Task ReadAsync(
         Guid worksheetId,
         IReadOnlyList<WorksheetColumn> valueColumns,
         WorksheetColumn? group,
         Action<RawDataBlock, BlockReader, int> onRow,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<Guid>? known = null)
     {
         IReadOnlySet<Guid> storedColumnIds;
         try
         {
-            storedColumnIds = await _rawDataStore.GetStoredColumnIdsAsync(worksheetId, cancellationToken);
+            storedColumnIds = known ?? await _rawDataStore.GetStoredColumnIdsAsync(worksheetId, cancellationToken);
         }
         catch (RawDataStorageException exception)
         {

@@ -27,6 +27,13 @@ public static class GraphTypeDefinitions
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
         ]),
+        // The only graph so far that draws several measured variables at once: its variable role takes as many columns
+        // as the user selects, and the generic setup and validation follow that flag rather than the graph type.
+        new(GraphType.BoxPlot, "Box Plot",
+        [
+            new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
+            GroupRole with { DisplayName = "Categorical variable for grouping" }
+        ]),
         // Like a histogram, a probability plot names its roles the way the people who use it do.
         new(GraphType.ProbabilityPlot, "Probability Plot",
         [

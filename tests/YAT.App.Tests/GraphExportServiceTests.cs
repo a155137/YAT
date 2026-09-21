@@ -116,6 +116,44 @@ public class GraphExportServiceTests
         Assert.Equal(GraphThemes.Light.Background, bitmap.GetPixel(0, 0));
     }
 
+    // 2c
+    [Fact]
+    public void ABoxPlotIsExportedThroughTheSamePathAsEveryOtherGraph()
+    {
+        var values = new double[120];
+        var groups = new string?[120];
+        for (var index = 0; index < values.Length; index++)
+        {
+            values[index] = index % 40;
+            groups[index] = $"SITE{index % 3}";
+        }
+
+        var data = new MultiVariableGraphData(
+            GraphType.BoxPlot,
+            Guid.NewGuid(),
+            [
+                new UnivariateGraphData(
+                    GraphType.BoxPlot,
+                    Guid.NewGuid(),
+                    Column("Reg1"),
+                    values,
+                    new StringGroupData(Column("SITE", WorksheetDataType.String), groups))
+            ]);
+
+        var model = new BoxPlotRenderModelBuilder().Build(data, new BoxPlotLabels(["Reg1"], "SITE"), Token)!;
+
+        // The same render model and renderer the window draws, given to the shared export path.
+        var png = new GraphExportService().RenderPng(
+            new GraphExportSnapshot(model.Frame, new BoxPlotRenderer(model), GraphThemes.Light));
+
+        Assert.Equal(PngSignature, png.Take(PngSignature.Length));
+
+        using var bitmap = SKBitmap.Decode(png);
+        Assert.Equal(GraphExportService.ExportWidth, bitmap.Width);
+        Assert.Equal(GraphExportService.ExportHeight, bitmap.Height);
+        Assert.Equal(GraphThemes.Light.Background, bitmap.GetPixel(0, 0));
+    }
+
     // 2b
     [Fact]
     public void AnEmpiricalCdfIsExportedThroughTheSamePathAsEveryOtherGraph()

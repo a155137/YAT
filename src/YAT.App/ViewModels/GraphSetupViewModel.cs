@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using YAT.Application.Graphs;
 using YAT.Domain.Entities;
@@ -15,6 +16,9 @@ public sealed record GraphColumnOption(Guid? WorksheetColumnId, string Name, str
 }
 
 // One role of the graph being set up, with the columns that may be assigned to it.
+//
+// A role takes either one column (SelectedOption) or several (SelectedOptions); which of the two is the role's own
+// business, not the graph type's, so the dialog reads AllowsMultiple and nothing else.
 public sealed partial class GraphRoleViewModel : ObservableObject
 {
     internal GraphRoleViewModel(GraphRoleDefinition definition, IReadOnlyList<GraphColumnOption> options)
@@ -31,13 +35,26 @@ public sealed partial class GraphRoleViewModel : ObservableObject
 
     public bool IsRequired => Definition.IsRequired;
 
+    // True when the role takes more than one column (a box plot's graph variables).
+    public bool AllowsMultiple => Definition.AllowsMultiple;
+
     // Only columns whose data type the role allows; an optional role also offers "(None)" first.
     public IReadOnlyList<GraphColumnOption> Options { get; }
 
     [ObservableProperty]
     public partial GraphColumnOption? SelectedOption { get; set; }
 
+    // The columns picked for a role that takes several. The order they were picked in is not kept: the configuration
+    // reads them in the order the worksheet lists them (see SelectedColumnIds).
+    public ObservableCollection<GraphColumnOption> SelectedOptions { get; } = [];
+
     public Guid? SelectedColumnId => SelectedOption?.WorksheetColumnId;
+
+    // Every column this role is assigned, in worksheet order.
+    public IReadOnlyList<Guid> SelectedColumnIds => AllowsMultiple
+        ? [.. Options.Where(option => !option.IsNone && SelectedOptions.Contains(option))
+            .Select(option => option.WorksheetColumnId!.Value)]
+        : SelectedColumnId is { } columnId ? [columnId] : [];
 }
 
 // The graph setup dialog's state: the worksheet's columns, the roles of the chosen graph type, and the configuration
@@ -83,6 +100,8 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
                     OnSelectionChanged();
                 }
             };
+
+            role.SelectedOptions.CollectionChanged += (_, _) => OnSelectionChanged();
         }
 
         OnSelectionChanged();
@@ -119,11 +138,12 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         return result.IsValid ? configuration : null;
     }
 
+    // One assignment per column a role is given: a role that takes several columns contributes one assignment each,
+    // in worksheet order.
     private GraphConfiguration BuildConfiguration() =>
         new(_definition.GraphType, WorksheetId,
         [
-            .. Roles.Where(role => role.SelectedColumnId is not null)
-                .Select(role => new GraphColumnAssignment(role.Role, role.SelectedColumnId!.Value))
+            .. Roles.SelectMany(role => role.SelectedColumnIds.Select(columnId => new GraphColumnAssignment(role.Role, columnId)))
         ]);
 
     private void OnSelectionChanged()

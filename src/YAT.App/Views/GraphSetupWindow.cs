@@ -132,19 +132,9 @@ internal sealed class GraphSetupWindow : Window
         var row = 0;
         foreach (var role in setup.Roles)
         {
-            var selector = new ComboBox
-            {
-                ItemsSource = role.Options,
-                ItemTemplate = ColumnTemplate(),
-                MinWidth = 200,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                PlaceholderText = role.IsRequired ? "Select a column" : null
-            };
-            selector.Bind(SelectingItemsControl.SelectedItemProperty, new Binding(nameof(GraphRoleViewModel.SelectedOption))
-            {
-                Source = role,
-                Mode = BindingMode.TwoWay
-            });
+            // A role that takes several columns is picked from a list; one that takes a single column keeps its
+            // selector. Which of the two is read from the role, so no graph type is named here.
+            var selector = role.AllowsMultiple ? MultipleSelector(role) : SingleSelector(role);
 
             var label = new TextBlock
             {
@@ -166,6 +156,58 @@ internal sealed class GraphSetupWindow : Window
 
         Grid.SetColumn(panel, 2);
         return panel;
+    }
+
+    // One column for a role that takes one.
+    private static Control SingleSelector(GraphRoleViewModel role)
+    {
+        var selector = new ComboBox
+        {
+            ItemsSource = role.Options,
+            ItemTemplate = ColumnTemplate(),
+            MinWidth = 200,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            PlaceholderText = role.IsRequired ? "Select a column" : null
+        };
+
+        selector.Bind(SelectingItemsControl.SelectedItemProperty, new Binding(nameof(GraphRoleViewModel.SelectedOption))
+        {
+            Source = role,
+            Mode = BindingMode.TwoWay
+        });
+
+        return selector;
+    }
+
+    // Several columns for a role that takes several: a list whose entries toggle, so picking a second variable does
+    // not need a modifier key. The list's selection is mirrored onto the role, which is what the configuration reads.
+    private static Control MultipleSelector(GraphRoleViewModel role)
+    {
+        var list = new ListBox
+        {
+            ItemsSource = role.Options,
+            ItemTemplate = ColumnTemplate(),
+            MinWidth = 200,
+            MaxHeight = 160,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            SelectionMode = SelectionMode.Multiple | SelectionMode.Toggle
+        };
+
+        list.SelectionChanged += (_, _) =>
+        {
+            var selected = list.SelectedItems?.OfType<GraphColumnOption>().ToArray() ?? [];
+            foreach (var option in role.SelectedOptions.Except(selected).ToArray())
+            {
+                role.SelectedOptions.Remove(option);
+            }
+
+            foreach (var option in selected.Where(option => !role.SelectedOptions.Contains(option)))
+            {
+                role.SelectedOptions.Add(option);
+            }
+        };
+
+        return list;
     }
 
     // Name, with the column's data type beside it; ids are never shown.

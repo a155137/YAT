@@ -73,6 +73,9 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
     private Task HistogramAsync() => ConfigureGraphAsync(GraphType.Histogram);
 
     [RelayCommand]
+    private Task BoxPlotAsync() => ConfigureGraphAsync(GraphType.BoxPlot);
+
+    [RelayCommand]
     private Task ProbabilityPlotAsync() => ConfigureGraphAsync(GraphType.ProbabilityPlot);
 
     [RelayCommand]

@@ -12,8 +12,11 @@ public enum GraphValidationReason
     // A role the graph type does not have was assigned.
     UnsupportedRole,
 
-    // The same role was assigned more than once.
+    // A role that takes one column was assigned more than once.
     DuplicateRole,
+
+    // A role that takes several columns was given the same column twice.
+    DuplicateColumn,
 
     // The assigned column is not among the worksheet's columns (e.g. it was deleted).
     ColumnNotFound,
@@ -64,9 +67,19 @@ public sealed class GraphConfigurationValidator
                 continue;
             }
 
-            if (configuration.Assignments.Count(other => other.Role == assignment.Role) > 1)
+            // Cardinality is read from the role, never from the graph type: a role that takes one column may be
+            // assigned once, and a role that takes several may not be given the same column twice.
+            if (!roleDefinition.AllowsMultiple && configuration.Assignments.Count(other => other.Role == assignment.Role) > 1)
             {
                 AddOnce(errors, new GraphValidationError(GraphValidationReason.DuplicateRole, assignment.Role));
+                continue;
+            }
+
+            if (roleDefinition.AllowsMultiple && configuration.Assignments.Count(other =>
+                    other.Role == assignment.Role && other.WorksheetColumnId == assignment.WorksheetColumnId) > 1)
+            {
+                AddOnce(errors, new GraphValidationError(
+                    GraphValidationReason.DuplicateColumn, assignment.Role, assignment.WorksheetColumnId));
                 continue;
             }
 

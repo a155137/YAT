@@ -26,6 +26,7 @@ public sealed class GraphSetupController
     private readonly HistogramRenderModelBuilder _histogram;
     private readonly ProbabilityPlotRenderModelBuilder _probabilityPlot;
     private readonly EmpiricalCdfRenderModelBuilder _empiricalCdf;
+    private readonly BoxPlotRenderModelBuilder _boxPlot;
 
     internal GraphSetupController(
         IGraphSetupDialogs dialogs,
@@ -33,7 +34,8 @@ public sealed class GraphSetupController
         ScatterRenderModelBuilder scatter,
         HistogramRenderModelBuilder histogram,
         ProbabilityPlotRenderModelBuilder probabilityPlot,
-        EmpiricalCdfRenderModelBuilder empiricalCdf)
+        EmpiricalCdfRenderModelBuilder empiricalCdf,
+        BoxPlotRenderModelBuilder boxPlot)
     {
         _dialogs = dialogs;
         _windows = windows;
@@ -41,6 +43,7 @@ public sealed class GraphSetupController
         _histogram = histogram;
         _probabilityPlot = probabilityPlot;
         _empiricalCdf = empiricalCdf;
+        _boxPlot = boxPlot;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until graphs become documents.
@@ -101,7 +104,7 @@ public sealed class GraphSetupController
         // Every graph type this version knows is drawn; the guard is what a graph type added to the enum without a
         // builder would meet.
         if (configuration.GraphType is not (GraphType.ScatterPlot or GraphType.Histogram
-            or GraphType.ProbabilityPlot or GraphType.EmpiricalCdf))
+            or GraphType.ProbabilityPlot or GraphType.EmpiricalCdf or GraphType.BoxPlot))
         {
             await _dialogs.ShowErrorAsync(NotImplementedMessage);
             return;
@@ -175,6 +178,15 @@ public sealed class GraphSetupController
                     new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
                     cancellationToken);
                 return probabilityModel is null ? null : (probabilityModel.Frame, new ProbabilityPlotRenderer(probabilityModel));
+
+            case MultiVariableGraphData boxPlot when boxPlot.GraphType == GraphType.BoxPlot:
+                var boxPlotModel = _boxPlot.Build(
+                    boxPlot,
+                    new BoxPlotLabels(
+                        [.. boxPlot.Variables.Select(variable => variable.Variable.Name)],
+                        boxPlot.Variables.Select(variable => variable.Group?.Column.Name).FirstOrDefault(name => name is not null)),
+                    cancellationToken);
+                return boxPlotModel is null ? null : (boxPlotModel.Frame, new BoxPlotRenderer(boxPlotModel));
 
             case UnivariateGraphData univariate when univariate.GraphType == GraphType.EmpiricalCdf:
                 var empiricalCdfModel = _empiricalCdf.Build(

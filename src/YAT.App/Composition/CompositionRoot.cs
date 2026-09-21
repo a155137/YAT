@@ -152,7 +152,8 @@ public sealed class CompositionRoot
             new ScatterRenderModelBuilder(),
             new HistogramRenderModelBuilder(),
             new ProbabilityPlotRenderModelBuilder(),
-            new EmpiricalCdfRenderModelBuilder());
+            new EmpiricalCdfRenderModelBuilder(),
+            new BoxPlotRenderModelBuilder());
     }
 
     // The Statistics menu's analyses. The setup dialogs and the result window belong to the UI, which supplies them;
