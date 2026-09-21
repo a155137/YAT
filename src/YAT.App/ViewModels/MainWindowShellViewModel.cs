@@ -18,14 +18,17 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
     public MainWindowShellViewModel(
         ProjectLifecycleController lifecycle,
         GraphSetupController graphs,
-        DescriptiveStatisticsController statistics)
+        DescriptiveStatisticsController statistics,
+        CapabilityAnalysisController capability)
     {
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(graphs);
         ArgumentNullException.ThrowIfNull(statistics);
+        ArgumentNullException.ThrowIfNull(capability);
         Lifecycle = lifecycle;
         Graphs = graphs;
         Statistics = statistics;
+        Capability = capability;
         Lifecycle.ProjectReplaced += OnProjectReplaced;
         ObserveProject();
     }
@@ -37,6 +40,9 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     // Statistics menu: run an analysis over the active worksheet of the current project.
     public DescriptiveStatisticsController Statistics { get; }
+
+    // Statistics menu: measure the active worksheet's variables against their specifications.
+    public CapabilityAnalysisController Capability { get; }
 
     public MainWindowViewModel? Project => Lifecycle.Project;
 
@@ -75,6 +81,10 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
     [RelayCommand]
     private Task DescriptiveStatisticsAsync() =>
         Statistics.ConfigureAsync(Lifecycle.CurrentSession, Project?.SelectedWorksheet, CancellationToken.None);
+
+    [RelayCommand]
+    private Task CapabilityAnalysisAsync() =>
+        Capability.ConfigureAsync(Lifecycle.CurrentSession, Project?.SelectedWorksheet, CancellationToken.None);
 
     // Always the current project's session and its active worksheet, so a project switch is picked up automatically.
     private Task ConfigureGraphAsync(GraphType graphType) =>

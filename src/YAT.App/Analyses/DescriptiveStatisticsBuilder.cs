@@ -14,8 +14,8 @@ namespace YAT.app.Analyses;
 // worksheet row, and neither is compacted before the rows are split.
 public sealed class DescriptiveStatisticsBuilder
 {
-    // The group of rows whose group value is empty. They are summarised, never dropped.
-    public const string MissingGroupLabel = "(Missing)";
+    // The group of rows whose group value is empty; the same group every analysis uses.
+    public const string MissingGroupLabel = AnalysisGroups.MissingGroupLabel;
 
     private const string TitlePrefix = "Descriptive Statistics";
 
@@ -30,7 +30,7 @@ public sealed class DescriptiveStatisticsBuilder
         ArgumentNullException.ThrowIfNull(data);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var groups = Split(data, cancellationToken);
+        var groups = AnalysisGroups.Split(data, cancellationToken);
         var isGrouped = data.Group is not null;
         var rows = new List<AnalysisResultRow>(data.Variables.Count * groups.Count);
 
@@ -60,7 +60,7 @@ public sealed class DescriptiveStatisticsBuilder
     // gathered, which is why no row is ever silently dropped.
     private static void Gather(
         AnalysisVariableData variable,
-        Groups groups,
+        AnalysisGroups groups,
         double[] buffer,
         int[] filled,
         CancellationToken cancellationToken)
@@ -81,80 +81,9 @@ public sealed class DescriptiveStatisticsBuilder
                 continue;
             }
 
-            var group = groups.IndexByRow is { } indexes ? indexes[row] : 0;
+            var group = groups.IndexOf(row);
             buffer[groups.Offsets[group] + filled[group]++] = value;
         }
-    }
-
-    // The groups of the worksheet rows, in the order they are first observed, with the rows each of them holds. Every
-    // row belongs to exactly one group, so the group row counts add up to the worksheet's rows - which is what makes
-    // N + Missing meaningful per group.
-    //
-    // Without a group column there is one unnamed group holding every row.
-    private static Groups Split(AnalysisData data, CancellationToken cancellationToken)
-    {
-        if (data.Group is not { } group)
-        {
-            return Groups.Single(data.RowCount);
-        }
-
-        var labels = new List<string>();
-        var rowCounts = new List<int>();
-        var indexByRow = new int[data.RowCount];
-        var textGroups = group is StringAnalysisGroupData text ? text.Values.Span : default;
-        var numericGroups = group is NumericAnalysisGroupData numeric ? numeric.Values.Span : default;
-
-        Dictionary<string, int>? byText = null;
-        Dictionary<double, int>? byNumber = null;
-        var missing = -1;
-
-        for (var row = 0; row < data.RowCount; row++)
-        {
-            if ((row & CancellationCheckMask) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-
-            int index;
-            if (group.IsMissing(row))
-            {
-                // A row whose group value is empty keeps its observation and joins "(Missing)", which takes its place
-                // in the order like any other group.
-                index = missing >= 0 ? missing : missing = Add(labels, rowCounts, MissingGroupLabel);
-            }
-            else if (!textGroups.IsEmpty)
-            {
-                var key = textGroups[row]!;
-                byText ??= new Dictionary<string, int>(StringComparer.Ordinal);
-                if (!byText.TryGetValue(key, out index))
-                {
-                    index = Add(labels, rowCounts, key);
-                    byText.Add(key, index);
-                }
-            }
-            else
-            {
-                var key = numericGroups[row]!.Value;
-                byNumber ??= [];
-                if (!byNumber.TryGetValue(key, out index))
-                {
-                    index = Add(labels, rowCounts, AnalysisNumberFormat.GroupValue(key));
-                    byNumber.Add(key, index);
-                }
-            }
-
-            indexByRow[row] = index;
-            rowCounts[index]++;
-        }
-
-        return Groups.Observed(labels, rowCounts, indexByRow);
-    }
-
-    private static int Add(List<string> labels, List<int> rowCounts, string label)
-    {
-        labels.Add(label);
-        rowCounts.Add(0);
-        return labels.Count - 1;
     }
 
     private static AnalysisResultRow Row(AnalysisVariableData variable, string? groupLabel, DescriptiveSummary summary)
@@ -201,44 +130,4 @@ public sealed class DescriptiveStatisticsBuilder
 
     private static string Title(AnalysisData data) =>
         $"{TitlePrefix}: {string.Join(", ", data.Variables.Select(variable => variable.Column.Name))}";
-
-    // The groups a table is built over: their labels, how many worksheet rows each holds, where each one's
-    // observations are gathered in the shared buffer, and which group every row belongs to (null when there is only
-    // one group, because then every row belongs to it).
-    private sealed class Groups
-    {
-        private Groups(IReadOnlyList<string> labels, int[] rowCounts, int[] offsets, int[]? indexByRow)
-        {
-            Labels = labels;
-            RowCounts = rowCounts;
-            Offsets = offsets;
-            IndexByRow = indexByRow;
-        }
-
-        public IReadOnlyList<string> Labels { get; }
-
-        public int[] RowCounts { get; }
-
-        public int[] Offsets { get; }
-
-        public int[]? IndexByRow { get; }
-
-        public int Count => Labels.Count;
-
-        public static Groups Single(int rowCount) => new([string.Empty], [rowCount], [0], null);
-
-        public static Groups Observed(IReadOnlyList<string> labels, IReadOnlyList<int> rowCounts, int[] indexByRow)
-        {
-            var counts = rowCounts.ToArray();
-            var offsets = new int[counts.Length];
-            var offset = 0;
-            for (var index = 0; index < counts.Length; index++)
-            {
-                offsets[index] = offset;
-                offset += counts[index];
-            }
-
-            return new Groups(labels, counts, offsets, indexByRow);
-        }
-    }
 }

@@ -1,0 +1,135 @@
+using YAT.Application.Analyses;
+using YAT.Application.Exceptions;
+using YAT.app.Composition;
+using YAT.app.ViewModels;
+using YAT.Domain.Entities;
+using YAT.Domain.Enums;
+
+namespace YAT.app.Analyses;
+
+// The Capability Analysis command: read the active worksheet's column metadata through the current session, show the
+// capability setup, and turn the configuration the user confirmed into a result table on screen.
+//
+// The same shape as the descriptive statistics command, and deliberately the same result path: the worksheet rows come
+// from the session's analysis data (its generic part of the configuration), the statistics from the builder, and the
+// window from the shared result presenter. It never touches a repository or a raw data store.
+public sealed class CapabilityAnalysisController
+{
+    public const string SetupTitle = "Capability Analysis";
+
+    private const string NoWorksheetMessage = "Select a worksheet before running an analysis.";
+    private const string NoColumnsMessage = "This worksheet has no numeric columns to analyse.";
+    private const string ColumnsUnreadableMessage = "The worksheet columns could not be read.";
+    private const string NoDataMessage = "This analysis has no data to summarise.";
+
+    private readonly ICapabilityAnalysisSetupDialogs _dialogs;
+    private readonly IAnalysisResultPresenter _results;
+    private readonly CapabilityAnalysisBuilder _builder;
+
+    internal CapabilityAnalysisController(
+        ICapabilityAnalysisSetupDialogs dialogs,
+        IAnalysisResultPresenter results,
+        CapabilityAnalysisBuilder builder)
+    {
+        _dialogs = dialogs;
+        _results = results;
+        _builder = builder;
+    }
+
+    // The last configuration a user confirmed, kept for tests and debugging until analyses become documents.
+    public CapabilityAnalysisConfiguration? LastConfiguration { get; private set; }
+
+    public async Task<CapabilityAnalysisConfiguration?> ConfigureAsync(
+        MainWindowSession? session,
+        Worksheet? worksheet,
+        CancellationToken cancellationToken)
+    {
+        if (session is null || worksheet is null)
+        {
+            await _dialogs.ShowErrorAsync(NoWorksheetMessage);
+            return null;
+        }
+
+        IReadOnlyList<WorksheetColumn> columns;
+        try
+        {
+            // Metadata only: Id, Index, Name and DataType of the worksheet's columns, read fresh for the active project.
+            columns = await session.LoadWorksheetColumnsAsync(worksheet.Id, cancellationToken);
+        }
+        catch (Exception exception) when (exception is ProjectSessionClosedException or OperationCanceledException)
+        {
+            // The project was closed, replaced or the request was cancelled: there is nothing to set up any more.
+            return null;
+        }
+        catch (Exception exception) when (exception is ProjectStorageException or RawDataStorageException or EntityNotFoundException)
+        {
+            await _dialogs.ShowErrorAsync(ColumnsUnreadableMessage);
+            return null;
+        }
+
+        // Capability is measured on measured values, so a worksheet without a Numeric column has nothing to offer.
+        if (!columns.Any(column => column.DataType == WorksheetDataType.Numeric))
+        {
+            await _dialogs.ShowErrorAsync(NoColumnsMessage);
+            return null;
+        }
+
+        var configuration = await _dialogs.ShowSetupAsync(new CapabilityAnalysisSetupViewModel(SetupTitle, worksheet, columns));
+        if (configuration is not null)
+        {
+            LastConfiguration = configuration;
+            await ShowResultAsync(configuration, session, cancellationToken);
+        }
+
+        return configuration;
+    }
+
+    private async Task ShowResultAsync(
+        CapabilityAnalysisConfiguration configuration,
+        MainWindowSession session,
+        CancellationToken cancellationToken)
+    {
+        AnalysisData data;
+        try
+        {
+            // The generic part of the configuration is what the worksheet rows are read for; the specifications never
+            // reach the data query.
+            data = await session.LoadAnalysisDataAsync(configuration.ToAnalysisConfiguration(), cancellationToken);
+        }
+        catch (ProjectSessionClosedException)
+        {
+            // The project was closed or replaced while the data was being read: there is nothing left to show it for.
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (AnalysisDataException exception)
+        {
+            // The message of an AnalysisDataException is written for the user; the storage error stays inside it.
+            await _dialogs.ShowErrorAsync(exception.Message);
+            return;
+        }
+
+        AnalysisResultTable table;
+        try
+        {
+            // Walking a million rows is real work: it runs off the UI thread and can be cancelled, so a cancelled
+            // request never leaves a half-built table behind.
+            table = await Task.Run(() => _builder.Build(data, configuration, cancellationToken), cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (table.Rows.Count == 0)
+        {
+            await _dialogs.ShowErrorAsync(NoDataMessage);
+            return;
+        }
+
+        _results.ShowResult(table);
+    }
+}

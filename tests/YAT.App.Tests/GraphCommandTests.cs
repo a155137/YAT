@@ -26,7 +26,8 @@ public class GraphCommandTests
             Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, ProjectDialogs);
             Graphs = Composition.CreateGraphSetup(GraphDialogs, GraphWindows);
             Statistics = Composition.CreateDescriptiveStatistics(AnalysisDialogs, AnalysisResults);
-            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs, Statistics);
+            Capability = Composition.CreateCapabilityAnalysis(new FakeCapabilityAnalysisSetupDialogs(), AnalysisResults);
+            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs, Statistics, Capability);
         }
 
         public TemporaryDirectory Directory { get; } = new();
@@ -52,6 +53,8 @@ public class GraphCommandTests
         public GraphSetupController Graphs { get; }
 
         public DescriptiveStatisticsController Statistics { get; }
+
+        public CapabilityAnalysisController Capability { get; }
 
         public MainWindowShellViewModel Shell { get; }
 

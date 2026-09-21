@@ -17,7 +17,26 @@ public enum AnalysisValidationReason
     ColumnFromAnotherWorksheet,
 
     // The column's data type is not allowed for its role (a variable must be Numeric; a group may also be String).
-    IncompatibleDataType
+    IncompatibleDataType,
+
+    // Capability: the text of a specification limit is not a finite number.
+    SpecificationLimitNotNumeric,
+
+    // Capability: the variable has neither a lower nor an upper specification limit.
+    SpecificationLimitMissing,
+
+    // Capability: the lower specification limit is not below the upper one.
+    SpecificationLimitsOutOfOrder,
+
+    // Capability: every optional result statistic was switched off, leaving nothing but the structural columns.
+    NoStatisticSelected
+}
+
+// Which side of a specification an error is about. Null for errors that are not about a specification limit.
+public enum AnalysisSpecificationField
+{
+    LowerSpecificationLimit,
+    UpperSpecificationLimit
 }
 
 // One reason a configuration cannot be used. Role and WorksheetColumnId identify what to correct; the UI turns this
@@ -25,7 +44,8 @@ public enum AnalysisValidationReason
 public sealed record AnalysisValidationError(
     AnalysisValidationReason Reason,
     AnalysisColumnRole? Role = null,
-    Guid? WorksheetColumnId = null);
+    Guid? WorksheetColumnId = null,
+    AnalysisSpecificationField? Field = null);
 
 public sealed record AnalysisValidationResult(IReadOnlyList<AnalysisValidationError> Errors)
 {

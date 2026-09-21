@@ -166,11 +166,21 @@ public sealed class CompositionRoot
         return new DescriptiveStatisticsController(dialogs, results, new DescriptiveStatisticsBuilder());
     }
 
+    public CapabilityAnalysisController CreateCapabilityAnalysis(
+        ICapabilityAnalysisSetupDialogs dialogs,
+        IAnalysisResultPresenter results)
+    {
+        ArgumentNullException.ThrowIfNull(dialogs);
+        ArgumentNullException.ThrowIfNull(results);
+        return new CapabilityAnalysisController(dialogs, results, new CapabilityAnalysisBuilder());
+    }
+
     public MainWindowShellViewModel CreateMainWindowShellViewModel(
         ProjectLifecycleController lifecycle,
         GraphSetupController graphs,
-        DescriptiveStatisticsController statistics) =>
-        new(lifecycle, graphs, statistics);
+        DescriptiveStatisticsController statistics,
+        CapabilityAnalysisController capability) =>
+        new(lifecycle, graphs, statistics, capability);
 
     private ProjectSession CreatePersistentSession(DuckDbProjectDatabase database, DuckDbProjectRepository? projects = null)
     {

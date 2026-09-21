@@ -25,7 +25,8 @@ public class GraphDataSessionTests
             Shell = Composition.CreateMainWindowShellViewModel(
                 Lifecycle,
                 Composition.CreateGraphSetup(GraphDialogs, GraphWindows),
-                Composition.CreateDescriptiveStatistics(new FakeAnalysisSetupDialogs(), new FakeAnalysisResultPresenter()));
+                Composition.CreateDescriptiveStatistics(new FakeAnalysisSetupDialogs(), new FakeAnalysisResultPresenter()),
+                Composition.CreateCapabilityAnalysis(new FakeCapabilityAnalysisSetupDialogs(), new FakeAnalysisResultPresenter()));
         }
 
         public TemporaryDirectory Directory { get; } = new();

@@ -27,7 +27,8 @@ public class DescriptiveStatisticsCommandTests
             Shell = Composition.CreateMainWindowShellViewModel(
                 Lifecycle,
                 Composition.CreateGraphSetup(new FakeGraphSetupDialogs(), new FakeGraphWindowPresenter()),
-                Statistics);
+                Statistics,
+                Composition.CreateCapabilityAnalysis(new FakeCapabilityAnalysisSetupDialogs(), new FakeAnalysisResultPresenter()));
         }
 
         public TemporaryDirectory Directory { get; } = new();

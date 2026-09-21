@@ -150,6 +150,7 @@
             <MenuItem Header="S_tatistics">
                 <MenuItem Header="_Basic Statistics">
                     <MenuItem Header="_Descriptive Statistics..." Command="{Binding DescriptiveStatisticsCommand}" />
+                    <MenuItem Header="_Capability Analysis..." Command="{Binding CapabilityAnalysisCommand}" />
                 </MenuItem>
             </MenuItem>
         </Menu>

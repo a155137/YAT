@@ -38,10 +38,10 @@ public partial class App : AvaloniaApplication
                 new AvaloniaGraphSetupDialogs(mainWindow),
                 new AvaloniaGraphWindowPresenter(mainWindow, exports));
             // Analyses show their results in the shared analysis result window, which the presenter opens.
-            var statistics = Composition.CreateDescriptiveStatistics(
-                new AvaloniaAnalysisSetupDialogs(mainWindow),
-                new AvaloniaAnalysisResultPresenter(mainWindow));
-            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics);
+            var results = new AvaloniaAnalysisResultPresenter(mainWindow);
+            var statistics = Composition.CreateDescriptiveStatistics(new AvaloniaAnalysisSetupDialogs(mainWindow), results);
+            var capability = Composition.CreateCapabilityAnalysis(new AvaloniaCapabilityAnalysisSetupDialogs(mainWindow), results);
+            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability);
 
             mainWindow.DataContext = shell;
             desktop.MainWindow = mainWindow;

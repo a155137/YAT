@@ -28,7 +28,8 @@ public class ProjectLifecycleTests
             Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, Dialogs);
             Graphs = Composition.CreateGraphSetup(GraphDialogs, GraphWindows);
             Statistics = Composition.CreateDescriptiveStatistics(new FakeAnalysisSetupDialogs(), new FakeAnalysisResultPresenter());
-            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs, Statistics);
+            Capability = Composition.CreateCapabilityAnalysis(new FakeCapabilityAnalysisSetupDialogs(), new FakeAnalysisResultPresenter());
+            Shell = Composition.CreateMainWindowShellViewModel(Lifecycle, Graphs, Statistics, Capability);
         }
 
         private readonly bool _ownsDirectory;
@@ -52,6 +53,8 @@ public class ProjectLifecycleTests
         public GraphSetupController Graphs { get; }
 
         public DescriptiveStatisticsController Statistics { get; }
+
+        public CapabilityAnalysisController Capability { get; }
 
         public ProjectLifecycleController Lifecycle { get; }
 
