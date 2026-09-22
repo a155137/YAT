@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using YAT.Application.Exceptions;
 using YAT.Application.Graphs;
 using YAT.app.Composition;
@@ -19,6 +20,7 @@ public sealed class GraphSetupController
 {
     private const string NotImplementedMessage = "This graph type is not implemented yet.";
     private const string NoDataMessage = "This graph has no data to plot.";
+    public const string PreparationFailedMessage = "This graph could not be drawn.";
 
     private readonly IGraphSetupDialogs _dialogs;
     private readonly IGraphWindowPresenter _windows;
@@ -27,7 +29,10 @@ public sealed class GraphSetupController
     private readonly ProbabilityPlotRenderModelBuilder _probabilityPlot;
     private readonly EmpiricalCdfRenderModelBuilder _empiricalCdf;
     private readonly BoxPlotRenderModelBuilder _boxPlot;
+    private readonly Func<GraphData, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?> _prepare;
 
+    // prepare: replaces the graph types' own preparation. Only tests pass one, to prove that a preparation that fails
+    // is contained; the application always uses Prepare.
     internal GraphSetupController(
         IGraphSetupDialogs dialogs,
         IGraphWindowPresenter windows,
@@ -35,7 +40,8 @@ public sealed class GraphSetupController
         HistogramRenderModelBuilder histogram,
         ProbabilityPlotRenderModelBuilder probabilityPlot,
         EmpiricalCdfRenderModelBuilder empiricalCdf,
-        BoxPlotRenderModelBuilder boxPlot)
+        BoxPlotRenderModelBuilder boxPlot,
+        Func<GraphData, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?>? prepare = null)
     {
         _dialogs = dialogs;
         _windows = windows;
@@ -44,6 +50,7 @@ public sealed class GraphSetupController
         _probabilityPlot = probabilityPlot;
         _empiricalCdf = empiricalCdf;
         _boxPlot = boxPlot;
+        _prepare = prepare ?? Prepare;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until graphs become documents.
@@ -136,10 +143,20 @@ public sealed class GraphSetupController
         {
             // Preparing up to a million observations is real work: it runs off the UI thread and can be cancelled, so a
             // cancelled request never leaves a half-prepared graph behind.
-            graph = await Task.Run(() => Prepare(data, cancellationToken), cancellationToken);
+            graph = await Task.Run(() => _prepare(data, cancellationToken), cancellationToken);
         }
         catch (OperationCanceledException)
         {
+            return;
+        }
+        catch (Exception exception)
+        {
+            // Preparation is computation over data that was read successfully, so a failure here is a defect in one
+            // graph type's preparation - not a reason to end the application. The boundary is only this call: the user
+            // is told the graph could not be drawn, no window opens, and the exception itself is not swallowed but
+            // written to the trace output the application already logs to.
+            Trace.TraceError($"Preparing a {configuration.GraphType} graph failed: {exception}");
+            await _dialogs.ShowErrorAsync(PreparationFailedMessage);
             return;
         }
 

@@ -5,9 +5,13 @@ namespace YAT.app.Graphs.Rendering;
 // Draws the boxes of a box plot, and nothing else: the frame around them belongs to SkiaGraphRenderer, and the boxes
 // themselves were worked out by BoxPlotRenderModelBuilder. Nothing here computes a quartile or reads worksheet data.
 //
-// One box is drawn as the reader expects to see it: a whisker line from the lower whisker to the upper one with a cap
-// at each end, the box of the middle half of the data over it, the median across that box, the mean as a cross, and
-// every outlier as a small circle on the box's own centre line.
+// One box is drawn as the reader expects to see it: the box of the middle half of the data, the median across it, a
+// whisker reaching out of each end of the box to its whisker value with a cap, the mean as a cross, and every outlier
+// as a small circle on the box's own centre line.
+//
+// A whisker only ever reaches outward. With interpolated quartiles a whisker can end inside its own box (when the value
+// Q3 is interpolated towards is an outlier, the upper whisker is below Q3); that side then has no whisker and no cap -
+// nothing is drawn inward through the box, and no whisker is invented at the box edge.
 //
 // The X axis is categorical - one unit per category - so the width of a box is a fraction of that unit, kept inside
 // sensible pixel limits so a plot of two boxes does not draw two slabs and a plot of forty still shows them.
@@ -88,10 +92,19 @@ public sealed class BoxPlotRenderer : IGraphPlotRenderer
             stroke.Color = colour;
             stroke.StrokeWidth = LineWidth;
 
-            // The whiskers first, so the box body covers the part of the line that runs behind it.
-            canvas.DrawLine(centre, upper, centre, lower, stroke);
-            canvas.DrawLine(centre - capHalfWidth, upper, centre + capHalfWidth, upper, stroke);
-            canvas.DrawLine(centre - capHalfWidth, lower, centre + capHalfWidth, lower, stroke);
+            // Each whisker from the edge of the box outward, and only when its value lies beyond that edge. Compared in
+            // data values, not pixels, so a whisker a fraction of a pixel outside the box still counts as outside.
+            if (box.UpperWhisker > box.ThirdQuartile)
+            {
+                canvas.DrawLine(centre, q3, centre, upper, stroke);
+                canvas.DrawLine(centre - capHalfWidth, upper, centre + capHalfWidth, upper, stroke);
+            }
+
+            if (box.LowerWhisker < box.FirstQuartile)
+            {
+                canvas.DrawLine(centre, q1, centre, lower, stroke);
+                canvas.DrawLine(centre - capHalfWidth, lower, centre + capHalfWidth, lower, stroke);
+            }
 
             // Screen Y grows downward, so Q3 is the top edge of the rectangle.
             var body = new SKRect(centre - halfWidth, q3, centre + halfWidth, q1);

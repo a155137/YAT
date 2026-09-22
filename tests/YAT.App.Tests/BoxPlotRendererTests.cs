@@ -82,6 +82,17 @@ public class BoxPlotRendererTests
         return false;
     }
 
+    // Whether a pixel belongs to a stroke of the first series colour (a whisker, a cap, an outline) rather than to the
+    // translucent box body or the background. Antialiased thin lines are rarely the pure colour, so the pixel's opacity
+    // is estimated from the red channel over the white plot: the body is drawn at FillAlpha (about 0.27), a stroke
+    // well above half.
+    private static bool IsStroke(SKColor pixel)
+    {
+        var series = GraphThemes.Light.SeriesColor(0);
+        var opacity = (255d - pixel.Red) / (255d - series.Red);
+        return opacity > 0.5;
+    }
+
     private static List<SKPointI> PixelsOf(SKBitmap bitmap, SKColor color)
     {
         var found = new List<SKPointI>();
@@ -216,6 +227,109 @@ public class BoxPlotRendererTests
         var drawn = PixelsOf(bitmap, GraphThemes.Light.SeriesColor(0)).Where(point => Math.Abs(point.Y - outlier) <= 2).ToArray();
         Assert.NotEmpty(drawn);
         Assert.All(drawn, point => Assert.InRange(point.X, centre - BoxPlotRenderer.OutlierDiameter, centre + BoxPlotRenderer.OutlierDiameter));
+    }
+
+    // ---- Whiskers only reach outward (hotfix: interpolated quartiles) ----
+
+    // Q1 = 1.75, median = 3.5, Q3 = 32.5; both 100s are beyond the upper fence, so the upper whisker is 10 - inside
+    // the box, well away from the median and from the mean (27.5).
+    private static readonly double[] UpperWhiskerInsideTheBox = [0, 1, 2, 3, 4, 10, 100, 100];
+
+    // The mirror image: the lower whisker (-10) above Q1 (-32.5).
+    private static readonly double[] LowerWhiskerInsideTheBox = [-100, -100, -10, -4, -3, -2, -1, 0];
+
+    // 11
+    [Fact]
+    public void AnUpperWhiskerInsideTheBoxDrawsNoWhiskerAndNoCapInwardThroughTheBox()
+    {
+        var model = Model(Data(("Reg1", UpperWhiskerInsideTheBox, null)));
+        var box = Assert.Single(model.Boxes);
+        Assert.True(box.UpperWhisker < box.ThirdQuartile);
+
+        var (bitmap, transform) = Render(model, GraphThemes.Light);
+        using var rendered = bitmap;
+
+        var centre = (int)Math.Round(transform.ToScreenX(BoxPlotRenderModelBuilder.CategoryPosition(0)));
+        var whisker = (int)Math.Round(transform.ToScreenY(box.UpperWhisker));
+        var capReach = (int)(HalfBoxWidth(transform) * BoxPlotRenderer.CapWidthFraction) - 2;
+
+        // Inside the box at the whisker's height there is only the translucent body: no whisker line on the centre,
+        // and no cap to either side of it.
+        for (var y = whisker - 1; y <= whisker + 1; y++)
+        {
+            Assert.False(IsStroke(bitmap.GetPixel(centre, y)));
+            Assert.False(IsStroke(bitmap.GetPixel(centre - capReach, y)));
+            Assert.False(IsStroke(bitmap.GetPixel(centre + capReach, y)));
+        }
+
+        // The other side is an ordinary outward whisker, drawn as before.
+        AssertOutwardWhisker(bitmap, transform, centre, box.FirstQuartile, box.LowerWhisker);
+    }
+
+    // 12
+    [Fact]
+    public void ALowerWhiskerInsideTheBoxDrawsNoWhiskerAndNoCapInwardThroughTheBox()
+    {
+        var model = Model(Data(("Reg1", LowerWhiskerInsideTheBox, null)));
+        var box = Assert.Single(model.Boxes);
+        Assert.True(box.LowerWhisker > box.FirstQuartile);
+
+        var (bitmap, transform) = Render(model, GraphThemes.Light);
+        using var rendered = bitmap;
+
+        var centre = (int)Math.Round(transform.ToScreenX(BoxPlotRenderModelBuilder.CategoryPosition(0)));
+        var whisker = (int)Math.Round(transform.ToScreenY(box.LowerWhisker));
+        var capReach = (int)(HalfBoxWidth(transform) * BoxPlotRenderer.CapWidthFraction) - 2;
+
+        for (var y = whisker - 1; y <= whisker + 1; y++)
+        {
+            Assert.False(IsStroke(bitmap.GetPixel(centre, y)));
+            Assert.False(IsStroke(bitmap.GetPixel(centre - capReach, y)));
+            Assert.False(IsStroke(bitmap.GetPixel(centre + capReach, y)));
+        }
+
+        AssertOutwardWhisker(bitmap, transform, centre, box.ThirdQuartile, box.UpperWhisker);
+    }
+
+    // 13
+    [Fact]
+    public void OrdinaryWhiskersStillReachOutOfBothEndsOfTheBoxWithTheirCaps()
+    {
+        var model = Model(Data(("Reg1", [1, 2, 3, 4, 5, 6, 7, 8, 9], null)));
+        var box = Assert.Single(model.Boxes);
+
+        var (bitmap, transform) = Render(model, GraphThemes.Light);
+        using var rendered = bitmap;
+
+        var centre = (int)Math.Round(transform.ToScreenX(BoxPlotRenderModelBuilder.CategoryPosition(0)));
+        AssertOutwardWhisker(bitmap, transform, centre, box.ThirdQuartile, box.UpperWhisker);
+        AssertOutwardWhisker(bitmap, transform, centre, box.FirstQuartile, box.LowerWhisker);
+    }
+
+    // The whisker line runs on the centre from the box edge to the whisker, and a cap crosses it at the whisker.
+    private static void AssertOutwardWhisker(
+        SKBitmap bitmap,
+        GraphCoordinateTransform transform,
+        int centre,
+        double boxEdge,
+        double whisker)
+    {
+        var edge = (int)Math.Round(transform.ToScreenY(boxEdge));
+        var end = (int)Math.Round(transform.ToScreenY(whisker));
+        var halfway = (edge + end) / 2;
+        Assert.True(Math.Abs(end - edge) > 4, "The whisker is long enough to be seen.");
+
+        Assert.Contains(Enumerable.Range(centre - 1, 3), x => IsStroke(bitmap.GetPixel(x, halfway)));
+
+        var capReach = (int)(HalfBoxWidth(transform) * BoxPlotRenderer.CapWidthFraction) - 2;
+        Assert.Contains(Enumerable.Range(end - 1, 3), y => IsStroke(bitmap.GetPixel(centre + capReach, y)));
+        Assert.Contains(Enumerable.Range(end - 1, 3), y => IsStroke(bitmap.GetPixel(centre - capReach, y)));
+    }
+
+    private static float HalfBoxWidth(GraphCoordinateTransform transform)
+    {
+        var slot = (float)(transform.ToScreenX(1) - transform.ToScreenX(0));
+        return Math.Clamp(slot * (float)BoxPlotRenderer.BoxWidthFraction, BoxPlotRenderer.MinimumBoxWidth, BoxPlotRenderer.MaximumBoxWidth) / 2f;
     }
 
     // 6

@@ -724,6 +724,81 @@ public class GraphCommandTests
         Assert.Equal(["Reg1", "Reg3"], model.Categories);
     }
 
+    // Regression (real-user crash): the reported column through the whole Box Plot command - worksheet, session, graph
+    // data, preparation - must open a graph window rather than throw.
+    [Fact]
+    public async Task ABoxPlotOfRepeatedDecimalsOpensAGraphWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg2\n" + string.Concat(Enumerable.Repeat("0.132\n0.157\n0.122\n0.133\n", 200)));
+        runtime.GraphDialogs.Answer = setup => ConfirmWithVariables(setup, "Reg2");
+
+        await runtime.Shell.BoxPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal("Boxplot of Reg2", frame.Title);
+        Assert.Equal(800, Assert.Single(Assert.IsType<BoxPlotRenderer>(plot).Model.Boxes).ObservationCount);
+        Assert.Empty(runtime.GraphDialogs.Errors);
+    }
+
+    // ---- A failing preparation cannot end the application (hotfix) ----
+
+    // A Graph menu command whose preparation throws: the same shell and session the application uses, with only the
+    // preparation replaced through the controller's test seam.
+    private static (MainWindowShellViewModel Shell, GraphSetupController Graphs) ShellWithPreparation(
+        Runtime runtime,
+        Func<GraphData, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?> prepare)
+    {
+        var graphs = new GraphSetupController(
+            runtime.GraphDialogs,
+            runtime.GraphWindows,
+            new ScatterRenderModelBuilder(),
+            new HistogramRenderModelBuilder(),
+            new ProbabilityPlotRenderModelBuilder(),
+            new EmpiricalCdfRenderModelBuilder(),
+            new BoxPlotRenderModelBuilder(),
+            prepare);
+
+        return (runtime.Composition.CreateMainWindowShellViewModel(runtime.Lifecycle, graphs, runtime.Statistics, runtime.Capability), graphs);
+    }
+
+    [Fact]
+    public async Task APreparationThatThrowsIsReportedAndOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n");
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
+        var (shell, graphs) = ShellWithPreparation(runtime, (_, _) => throw new InvalidOperationException("A defect in a builder."));
+
+        // The command completes: nothing escapes to the dispatcher that would end the process.
+        await shell.HistogramCommand.ExecuteAsync(null);
+
+        Assert.NotNull(graphs.LastConfiguration);
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal([GraphSetupController.PreparationFailedMessage], runtime.GraphDialogs.Errors);
+        Assert.Equal("This graph could not be drawn.", GraphSetupController.PreparationFailedMessage);
+    }
+
+    [Fact]
+    public async Task ACancelledPreparationIsStillSilent()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n");
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
+        var (shell, _) = ShellWithPreparation(runtime, (_, _) => throw new OperationCanceledException());
+
+        await shell.HistogramCommand.ExecuteAsync(null);
+
+        // Cancellation keeps its meaning: no window, and no error either.
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Empty(runtime.GraphDialogs.Errors);
+    }
+
     // Confirms a box plot setup by ticking the named graph variables, and optionally a grouping column.
     private static GraphConfiguration? ConfirmWithVariables(GraphSetupViewModel setup, params string[] variables) =>
         ConfirmWithVariables(setup, variables, null);

@@ -154,6 +154,28 @@ public class GraphExportServiceTests
         Assert.Equal(GraphThemes.Light.Background, bitmap.GetPixel(0, 0));
     }
 
+    // 2d (hotfix): the column that crashed the box plot exports like any other graph.
+    [Fact]
+    public void ABoxPlotOfRepeatedDecimalsIsExported()
+    {
+        var values = Enumerable.Range(0, 200).SelectMany(_ => (double[])[0.132, 0.157, 0.122, 0.133]).ToArray();
+        var data = new MultiVariableGraphData(
+            GraphType.BoxPlot,
+            Guid.NewGuid(),
+            [new UnivariateGraphData(GraphType.BoxPlot, Guid.NewGuid(), Column("Reg2"), values, null)]);
+
+        var model = new BoxPlotRenderModelBuilder().Build(data, new BoxPlotLabels(["Reg2"]), Token)!;
+
+        var png = new GraphExportService().RenderPng(
+            new GraphExportSnapshot(model.Frame, new BoxPlotRenderer(model), GraphThemes.Light));
+
+        Assert.Equal(PngSignature, png.Take(PngSignature.Length));
+
+        using var bitmap = SKBitmap.Decode(png);
+        Assert.Equal(GraphExportService.ExportWidth, bitmap.Width);
+        Assert.Equal(GraphExportService.ExportHeight, bitmap.Height);
+    }
+
     // 2b
     [Fact]
     public void AnEmpiricalCdfIsExportedThroughTheSamePathAsEveryOtherGraph()

@@ -37,4 +37,10 @@
     <ProjectReference Include="..\YAT.Application\YAT.Application.csproj" />
     <ProjectReference Include="..\YAT.Infrastructure\YAT.Infrastructure.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The same convention as YAT.Infrastructure: tests may reach internal seams (today the graph controller's
+         preparation hook, used to prove that a failing preparation cannot end the application). -->
+    <InternalsVisibleTo Include="YAT.App.Tests" />
+  </ItemGroup>
 </Project>

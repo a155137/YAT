@@ -208,6 +208,28 @@ public class BoxPlotSummaryTests
         Assert.Equal(fromSorted.Outliers, fromMeasured.Outliers);
     }
 
+    // Characterisation of the real-user crash data: the statistics themselves are right. R-7 interpolates Q3 between
+    // 0.133 and 0.157, every 0.157 is beyond the upper fence, and so the upper whisker - the largest observation inside
+    // the fence - is 0.133, below Q3. A whisker inside its own box is a correct result, not an inconsistent one.
+    [Fact]
+    public void AnUpperWhiskerCanEndInsideTheBoxWhenTheValueQ3IsInterpolatedTowardsIsAnOutlier()
+    {
+        var values = Enumerable.Range(0, 200).SelectMany(_ => (double[])[0.132, 0.157, 0.122, 0.133]).ToArray();
+
+        var summary = BoxPlotSummary.ComputeInPlaceSorting(values);
+
+        Assert.Equal(800, summary.Count);
+        Assert.Equal(0.1295, summary.FirstQuartile!.Value, Tolerance);
+        Assert.Equal(0.1325, summary.Median!.Value, Tolerance);
+        Assert.Equal(0.139, summary.ThirdQuartile!.Value, Tolerance);
+        Assert.Equal(0.0095, summary.InterquartileRange!.Value, Tolerance);
+        Assert.Equal(0.122, summary.LowerWhisker!.Value, Tolerance);
+        Assert.Equal(0.133, summary.UpperWhisker!.Value, Tolerance);
+        Assert.True(summary.UpperWhisker < summary.ThirdQuartile);
+        Assert.Equal(200, summary.Outliers.Count);
+        Assert.All(summary.Outliers, outlier => Assert.Equal(0.157, outlier));
+    }
+
     // 12
     [Fact]
     public void TwoObservationsStillProduceABox()

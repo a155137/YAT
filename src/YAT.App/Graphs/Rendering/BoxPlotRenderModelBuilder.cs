@@ -130,10 +130,20 @@ public sealed class BoxPlotRenderModelBuilder
                 summary.Count,
                 summary.Outliers.Count));
 
-            // The axis covers everything the box draws: its whiskers, its mean - which extreme outliers can pull past
-            // a whisker - and every outlier, drawn or not, so the scale does not change when the display is capped.
-            minimum = Math.Min(minimum, Math.Min(summary.LowerWhisker.Value, summary.Mean!.Value));
-            maximum = Math.Max(maximum, Math.Max(summary.UpperWhisker.Value, summary.Mean.Value));
+            // The axis describes the whole statistical model, not only what happens to be drawn: the quartiles and the
+            // median (an interpolated quartile can lie beyond its whisker), the whiskers, the mean - which extreme
+            // outliers can pull past a whisker - and every outlier, drawn or not, so the scale does not change when the
+            // display is capped.
+            foreach (var value in (double[])
+                     [
+                         summary.FirstQuartile.Value, summary.Median.Value, summary.ThirdQuartile.Value,
+                         summary.LowerWhisker.Value, summary.UpperWhisker.Value, summary.Mean!.Value
+                     ])
+            {
+                minimum = Math.Min(minimum, value);
+                maximum = Math.Max(maximum, value);
+            }
+
             foreach (var outlier in summary.Outliers)
             {
                 minimum = Math.Min(minimum, outlier);

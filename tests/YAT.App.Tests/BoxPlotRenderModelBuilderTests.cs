@@ -312,6 +312,74 @@ public class BoxPlotRenderModelBuilderTests
             () => new BoxPlotRenderModelBuilder().Build(data, Labels(data), cancellation.Token));
     }
 
+    // ---- Regression: a whisker inside its own box (real-user crash, repeated decimals) ----
+
+    // The column that crashed the application: four decimals, repeated. R-7 puts Q3 between 0.133 and 0.157, but every
+    // 0.157 is beyond the upper fence, so the upper whisker ends on 0.133 - below Q3, inside the box. That is a valid
+    // box, and it must be built.
+    [Fact]
+    public void RepeatedDecimalsWhoseUpperWhiskerFallsInsideTheBoxStillProduceABox()
+    {
+        var values = Enumerable.Range(0, 200).SelectMany(_ => (double[])[0.132, 0.157, 0.122, 0.133]).ToArray();
+        var data = Data(Variable("Reg2", values));
+
+        var model = Build(data)!;
+
+        var box = Assert.Single(model.Boxes);
+        Assert.Equal(800, box.ObservationCount);
+        Assert.Equal(0.133, box.UpperWhisker, 12);
+        Assert.Equal(0.139, box.ThirdQuartile, 12);
+        Assert.True(box.UpperWhisker < box.ThirdQuartile);
+        Assert.Equal(200, box.OutlierCount);
+    }
+
+    // The smallest dataset with the same shape: the four values once.
+    [Fact]
+    public void FourValuesWithOneBeyondTheUpperFenceStillProduceABox()
+    {
+        var data = Data(Variable("Reg2", [0.132, 0.157, 0.122, 0.133]));
+
+        var box = Assert.Single(Build(data)!.Boxes);
+
+        Assert.Equal(0.133, box.UpperWhisker, 12);
+        Assert.Equal(0.139, box.ThirdQuartile, 12);
+        Assert.Equal([0.157], box.Outliers.ToArray());
+    }
+
+    // The mirror image: the lower whisker above Q1 when the value Q1 is interpolated from is a low outlier.
+    [Fact]
+    public void ALowerWhiskerAboveTheFirstQuartileStillProducesABox()
+    {
+        var data = Data(Variable("Reg2", [-0.157, -0.132, -0.122, -0.133]));
+
+        var box = Assert.Single(Build(data)!.Boxes);
+
+        Assert.True(box.LowerWhisker > box.FirstQuartile);
+        Assert.Equal([-0.157], box.Outliers.ToArray());
+    }
+
+    // The Y axis describes the whole statistical model: interpolated quartiles that lie beyond their whiskers are inside
+    // it too, as are the outliers the display budget did not draw.
+    [Theory]
+    [InlineData(new[] { 0.132, 0.157, 0.122, 0.133 })]
+    [InlineData(new[] { -0.157, -0.132, -0.122, -0.133 })]
+    [InlineData(new[] { 0d, 1, 2, 3, 4, 10, 100, 100 })]
+    public void TheVerticalAxisContainsTheInterpolatedQuartilesAndEveryOutlier(double[] values)
+    {
+        var model = Build(Data(Variable("Reg2", values)), maximumPoints: 1)!;
+
+        var box = Assert.Single(model.Boxes);
+        var range = model.Frame.YAxis.Range;
+
+        foreach (var value in (double[])[box.FirstQuartile, box.Median, box.ThirdQuartile, box.LowerWhisker, box.UpperWhisker, box.Mean])
+        {
+            Assert.InRange(value, range.Minimum, range.Maximum);
+        }
+
+        Assert.InRange(values.Min(), range.Minimum, range.Maximum);
+        Assert.InRange(values.Max(), range.Minimum, range.Maximum);
+    }
+
     // 18
     [Fact]
     public void ALabelIsNeededForEveryVariable()

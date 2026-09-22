@@ -36,12 +36,21 @@ public sealed record BoxPlotBoxRenderModel
             }
         }
 
-        // The shape is ordered by construction: a whisker never reaches inside its own box, and the median never
-        // leaves it.
-        if (lowerWhisker > firstQuartile || firstQuartile > median || median > thirdQuartile || thirdQuartile > upperWhisker)
+        // What is guaranteed, and only that: the median lies between the quartiles, and the lower whisker is not above
+        // the upper one.
+        //
+        // The whiskers are NOT guaranteed to enclose the box. They are observations, while R-7 quartiles are
+        // interpolated between observations: when Q3 is interpolated towards a value beyond the upper fence, the
+        // largest observation inside the fence - the upper whisker - lies below Q3, inside the box (and likewise at
+        // Q1). That is a correct box, so it is accepted as it is; nothing here clamps or moves a value.
+        if (firstQuartile > median || median > thirdQuartile)
         {
-            throw new ArgumentException(
-                "A box reads lower whisker <= Q1 <= median <= Q3 <= upper whisker.", nameof(median));
+            throw new ArgumentException("A box reads Q1 <= median <= Q3.", nameof(median));
+        }
+
+        if (lowerWhisker > upperWhisker)
+        {
+            throw new ArgumentException("A box's lower whisker cannot be above its upper whisker.", nameof(lowerWhisker));
         }
 
         Label = label;
@@ -67,6 +76,7 @@ public sealed record BoxPlotBoxRenderModel
     // The colour the box is drawn in, through the theme's palette. Boxes of the same group share it across variables.
     public int SeriesIndex { get; }
 
+    // The smallest observation inside the lower fence. Usually below Q1, but it can be above it (see the constructor).
     public double LowerWhisker { get; }
 
     public double FirstQuartile { get; }
@@ -75,6 +85,7 @@ public sealed record BoxPlotBoxRenderModel
 
     public double ThirdQuartile { get; }
 
+    // The largest observation inside the upper fence. Usually above Q3, but it can be below it (see the constructor).
     public double UpperWhisker { get; }
 
     public double Mean { get; }
