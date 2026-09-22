@@ -260,6 +260,25 @@ public class GraphDataQueryServiceTests
         Assert.Equal(without.Variable, with.Variable);
     }
 
+    [Fact]
+    public async Task TheFittedLineOptionDoesNotChangeTheDataThatIsRead()
+    {
+        var fixture = new Fixture();
+        var variable = fixture.Numeric("Reg1", 0, 1, null, 3, 4);
+        var group = fixture.Text("Lot", 1, "A", "B", null, "A");
+        var configuration = fixture.Configuration(
+            GraphType.ProbabilityPlot, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
+
+        var on = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
+        var off = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(
+            configuration with { ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine: false) }));
+
+        Assert.Equal(on.Values.ToArray(), off.Values.ToArray());
+        Assert.Equal(StringGroups(on), StringGroups(off));
+        Assert.Equal(on.Variable, off.Variable);
+        Assert.Equal(on.GraphType, off.GraphType);
+    }
+
     // ---- Order, chunking and column state ----
 
     [Fact]

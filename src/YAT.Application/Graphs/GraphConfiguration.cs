@@ -18,6 +18,10 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // it. None unless the user entered one.
     public Specification Specification { get; init; } = Specification.None;
 
+    // What a probability plot shows of its own plot. Graph types that do not declare GraphCapability.FittedLine ignore
+    // it; the data query never reads it.
+    public ProbabilityPlotOptions ProbabilityPlotOptions { get; init; } = ProbabilityPlotOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

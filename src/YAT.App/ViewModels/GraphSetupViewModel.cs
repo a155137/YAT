@@ -109,6 +109,9 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         // Statistics are shown unless the user turns them off (only offered where the graph type has the panel).
         ShowStatistics = GraphPresentationOptions.Default.ShowStatistics;
 
+        // The fitted line is shown unless the user turns it off (only offered where the graph type draws one).
+        ShowFittedLine = ProbabilityPlotOptions.Default.ShowFittedLine;
+
         // A specification starts empty: nothing is drawn until the user enters a value.
         LowerLimitText = string.Empty;
         TargetText = string.Empty;
@@ -125,6 +128,13 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     // Show statistics: checked to begin with.
     [ObservableProperty]
     public partial bool ShowStatistics { get; set; }
+
+    // Whether the graph type draws a fitted line the user may hide; the setup shows the option only when it does.
+    public bool SupportsFittedLine => _definition.Supports(GraphCapability.FittedLine);
+
+    // Show fitted line: checked to begin with.
+    [ObservableProperty]
+    public partial bool ShowFittedLine { get; set; }
 
     // Whether the graph type draws a specification; the setup shows the LSL, Target and USL fields only when it does.
     public bool SupportsSpecificationLines => _definition.Supports(GraphCapability.SpecificationLines);
@@ -195,6 +205,9 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         ])
         {
             PresentationOptions = new GraphPresentationOptions(ShowStatistics),
+
+            // Carried whatever the graph type; only one that declares FittedLine reads it.
+            ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine),
             Specification = specification
         };
 

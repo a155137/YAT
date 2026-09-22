@@ -1,5 +1,9 @@
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Validation;
 using SkiaSharp;
+using YAT.App.Tests.TestDoubles;
 using YAT.Application.Graphs;
+using YAT.app.Graphs.Export;
 using YAT.app.Graphs.Rendering;
 using YAT.Domain.Enums;
 
@@ -215,5 +219,68 @@ public class ProbabilityPlotRendererTests
         Assert.Throws<ArgumentNullException>(() => renderer.RenderPlot(null!, transform, GraphThemes.Light));
         Assert.Throws<ArgumentNullException>(() => renderer.RenderPlot(canvas, null!, GraphThemes.Light));
         Assert.Throws<ArgumentNullException>(() => renderer.RenderPlot(canvas, transform, null!));
+    }
+
+    // ---- Show fitted line off, on screen and in export (#037) ----
+
+    private static (ProbabilityPlotRenderModel On, ProbabilityPlotRenderModel Off) OnAndOff()
+    {
+        var values = Enumerable.Range(0, 60).Select(index => Math.Exp(index / 15d)).ToArray();
+        var groups = Enumerable.Range(0, 60).Select(index => index % 3 == 0 ? "A" : "B").ToArray();
+        var data = new UnivariateGraphData(
+            GraphType.ProbabilityPlot, Guid.NewGuid(), Column("Reg1"), values, new StringGroupData(Column("SITE", WorksheetDataType.String), groups));
+        var builder = new ProbabilityPlotRenderModelBuilder();
+        return (builder.Build(data, Labels, Token)!, builder.Build(data, Labels, new ProbabilityPlotOptions(ShowFittedLine: false), Token)!);
+    }
+
+    // The off model over its own frame, with the on model's lines put back: what the plot would look like if the lines
+    // were still drawn.
+    private static ProbabilityPlotRenderModel WithLinesOf(ProbabilityPlotRenderModel off, ProbabilityPlotRenderModel on) =>
+        new(off.Frame,
+            [.. off.Series.Select((series, index) => new ProbabilityPlotSeriesRenderModel(
+                series.Label, series.SeriesIndex, series.Points, on.Series[index].FittedLine, series.ObservationCount))],
+            off.SourceObservationCount);
+
+    private static byte[] Png(ProbabilityPlotRenderModel model, GraphTheme theme) =>
+        new GraphExportService().RenderPng(new GraphExportSnapshot(model.Frame, new ProbabilityPlotRenderer(model), theme));
+
+    [Fact]
+    public void WithTheFittedLineOffNoLineIsDrawnOnScreenOrInThePng()
+    {
+        var (on, off) = OnAndOff();
+        Assert.All(on.Series, series => Assert.NotNull(series.FittedLine));
+        Assert.All(off.Series, series => Assert.Null(series.FittedLine));
+
+        // Same frame, same points: the only thing the lines could add is the lines.
+        using var offBitmap = Render(off, GraphThemes.Light);
+        using var linedBitmap = Render(WithLinesOf(off, on), GraphThemes.Light);
+        Assert.True(CountOtherThan(linedBitmap, GraphThemes.Light.Background) > CountOtherThan(offBitmap, GraphThemes.Light.Background));
+
+        var offPng = Png(off, GraphThemes.Light);
+        using var decoded = SKBitmap.Decode(offPng);
+        Assert.Equal(GraphExportService.ExportWidth, decoded.Width);
+        Assert.Equal(GraphExportService.ExportHeight, decoded.Height);
+        Assert.NotEqual(offPng, Png(WithLinesOf(off, on), GraphThemes.Light));
+    }
+
+    [Fact]
+    public void WithTheFittedLineOffTheSlideCarriesTheSamePngAndIsAValidPackage()
+    {
+        var (_, off) = OnAndOff();
+        var png = Png(off, GraphThemes.Dark);
+
+        using var directory = new TemporaryDirectory();
+        var path = directory.File("graph.pptx");
+        new PowerPointGraphExporter().Save(
+            path, new PowerPointSlideImage(png, GraphExportService.ExportWidth, GraphExportService.ExportHeight, "202020"));
+
+        using var document = PresentationDocument.Open(path, false);
+        Assert.Empty(new OpenXmlValidator().Validate(document, Token));
+
+        var image = Assert.Single(Assert.Single(document.PresentationPart!.SlideParts).ImageParts);
+        using var stream = image.GetStream();
+        using var bytes = new MemoryStream();
+        stream.CopyTo(bytes);
+        Assert.Equal(png, bytes.ToArray());
     }
 }

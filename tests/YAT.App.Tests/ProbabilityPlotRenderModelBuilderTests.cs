@@ -384,4 +384,187 @@ public class ProbabilityPlotRenderModelBuilderTests
         Assert.Throws<ArgumentNullException>(() => builder.Build(Data([1]), null!, Token));
         Assert.Throws<ArgumentOutOfRangeException>(() => new ProbabilityPlotRenderModelBuilder(0));
     }
+
+    // ---- Show fitted line (Task #037) ----
+
+    private static readonly ProbabilityPlotOptions Off = new(ShowFittedLine: false);
+
+    private static ProbabilityPlotRenderModel Build(
+        UnivariateGraphData data,
+        ProbabilityPlotOptions options,
+        int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints) =>
+        new ProbabilityPlotRenderModelBuilder(maximumRenderedPoints).Build(data, Labels, options, Token)
+        ?? throw new InvalidOperationException("The probability plot has no data.");
+
+    private static string Axis(GraphAxisModel axis) =>
+        FormattableString.Invariant($"{axis.Range.Minimum:R}..{axis.Range.Maximum:R} '{axis.Title}' [")
+        + string.Join(",", axis.Ticks.Select(tick => FormattableString.Invariant($"{tick.Value:R}={tick.Label}"))) + "]";
+
+    private static string Line(ProbabilityPlotFittedLine? line) =>
+        line is null
+            ? "none"
+            : FormattableString.Invariant($"{line.Mean:R}/{line.StandardDeviation:R}/{line.FromScore:R}..{line.ToScore:R}/{line.FromValue:R}..{line.ToValue:R}");
+
+    // Everything a model says, bit for bit: the frame (title, both axes with every tick, legend), and every series
+    // with its label, index, counts, points and fitted line. Without the lines and the horizontal axis when asked.
+    private static string Describe(ProbabilityPlotRenderModel model, bool withLinesAndXAxis = true)
+    {
+        var text = new System.Text.StringBuilder();
+        text.Append(model.Frame.Title).Append(" y=").Append(Axis(model.Frame.YAxis));
+        if (withLinesAndXAxis)
+        {
+            text.Append(" x=").Append(Axis(model.Frame.XAxis));
+        }
+
+        text.Append(" legend=").Append(model.Frame.Legend is { } legend
+            ? legend.Title + ":" + string.Join(",", legend.Entries.Select(entry => $"{entry.Label}#{entry.SeriesIndex}"))
+            : "none");
+        text.Append(FormattableString.Invariant($" n={model.SourceObservationCount} drawn={model.RenderedPointCount}"));
+
+        foreach (var series in model.Series)
+        {
+            text.Append(FormattableString.Invariant($" [{series.Label}#{series.SeriesIndex} n={series.ObservationCount} points="));
+            text.AppendJoin(",", series.Points.ToArray().Select(point => FormattableString.Invariant($"{point.Value:R}:{point.Score:R}")));
+            if (withLinesAndXAxis)
+            {
+                text.Append(" line=").Append(Line(series.FittedLine));
+            }
+
+            text.Append(']');
+        }
+
+        return text.ToString();
+    }
+
+    private static readonly double[] Skewed = [.. Enumerable.Range(1, 400).Select(index => Math.Exp(Math.Sin(index * 0.37) * 1.5))];
+
+    private static readonly string?[] SkewedGroups = [.. Enumerable.Range(1, 400).Select(index => index % 11 == 0 ? null : $"Lot {index % 3}")];
+
+    // A and B: the options-free call is the default options, bit for bit - the backward-compatible path.
+    [Theory]
+    [InlineData(false, DisplaySampling.DefaultMaximumRenderedPoints)]
+    [InlineData(true, DisplaySampling.DefaultMaximumRenderedPoints)]
+    [InlineData(true, 40)]
+    public void WithoutOptionsThePlotIsTheDefaultOptionsPlot(bool grouped, int maximumRenderedPoints)
+    {
+        var data = Data(Skewed, grouped ? Text(SkewedGroups) : null);
+
+        var withoutOptions = Build(data, maximumRenderedPoints);
+        var withDefault = Build(data, ProbabilityPlotOptions.Default, maximumRenderedPoints);
+        var explicitOn = Build(data, new ProbabilityPlotOptions(ShowFittedLine: true), maximumRenderedPoints);
+
+        Assert.Equal(Describe(withoutOptions), Describe(withDefault));
+        Assert.Equal(Describe(withoutOptions), Describe(explicitOn));
+        Assert.All(withDefault.Series, series => Assert.NotNull(series.FittedLine));
+    }
+
+    // C: on, the line is today's line - the series' own mean and standard deviation across the vertical axis.
+    [Fact]
+    public void OnTheFittedLineIsTheSeriesOwnMeanAndStandardDeviation()
+    {
+        double[] values = [3, 1, 4, 1, 5, 9, 2, 6];
+        var model = Build(Data(values), ProbabilityPlotOptions.Default);
+
+        var line = Assert.Single(model.Series).FittedLine!;
+        double[] sorted = [.. values.Order()];
+        Assert.Equal(Descriptives.Mean(sorted), line.Mean);
+        Assert.Equal(Descriptives.StandardDeviation(sorted), line.StandardDeviation);
+        Assert.Equal(model.Frame.YAxis.Range.Minimum, line.FromScore);
+        Assert.Equal(model.Frame.YAxis.Range.Maximum, line.ToScore);
+    }
+
+    // D and E: off, no series has a line, grouped or not.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OffNoSeriesHasALine(bool grouped)
+    {
+        var model = Build(Data(Skewed, grouped ? Text(SkewedGroups) : null), Off);
+
+        Assert.Equal(grouped ? 4 : 1, model.Series.Count);
+        Assert.All(model.Series, series => Assert.Null(series.FittedLine));
+    }
+
+    // F to K: whether a series can have a line is unchanged; off, none has one.
+    [Theory]
+    [InlineData(new[] { 42.0 }, false)]
+    [InlineData(new[] { 0.1, 0.1, 0.1, 0.1 }, false)]
+    [InlineData(new[] { 10.0, 20.0 }, true)]
+    [InlineData(new[] { 1.0, 2.0, 2.0, 7.0 }, true)]
+    public void ALineNeedsASpreadAndTheOption(double[] values, bool hasSpread)
+    {
+        var on = Assert.Single(Build(Data(values), ProbabilityPlotOptions.Default).Series);
+        var off = Assert.Single(Build(Data(values), Off).Series);
+
+        Assert.Equal(hasSpread, on.FittedLine is not null);
+        Assert.Null(off.FittedLine);
+    }
+
+    // On and off differ in the fitted lines and the horizontal axis, and in nothing else: labels, order, series
+    // indices, counts, points, scores, the vertical axis and the legend are the same.
+    [Theory]
+    [InlineData(false, DisplaySampling.DefaultMaximumRenderedPoints)]
+    [InlineData(true, DisplaySampling.DefaultMaximumRenderedPoints)]
+    [InlineData(true, 40)]
+    public void OffChangesOnlyTheLinesAndTheHorizontalAxis(bool grouped, int maximumRenderedPoints)
+    {
+        var data = Data(Skewed, grouped ? Text(SkewedGroups) : null);
+
+        var on = Build(data, ProbabilityPlotOptions.Default, maximumRenderedPoints);
+        var off = Build(data, Off, maximumRenderedPoints);
+
+        Assert.Equal(Describe(on, withLinesAndXAxis: false), Describe(off, withLinesAndXAxis: false));
+        Assert.Equal(on.Frame.YAxis.Range, off.Frame.YAxis.Range);
+        Assert.Equal(on.WasSampled, off.WasSampled);
+        Assert.Equal(on.RenderedPointCount, off.RenderedPointCount);
+    }
+
+    // Off, the horizontal axis is the one the points alone ask for - no line reaches into it.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OffTheHorizontalAxisIsChosenFromThePointsAlone(bool grouped)
+    {
+        var off = Build(Data(Skewed, grouped ? Text(SkewedGroups) : null), Off);
+
+        var expected = GraphAxisRanges.FromValues(Skewed.Min(), Skewed.Max());
+        Assert.Equal(expected, off.Frame.XAxis.Range);
+        Assert.Equal(GraphAxisTicks.Nice(expected).Select(tick => tick.Value), off.Frame.XAxis.Ticks.Select(tick => tick.Value));
+        Assert.Equal("Reg1", off.Frame.XAxis.Title);
+    }
+
+    // A small sample is where the line reaches furthest past the points: on, the axis shows the line's ends; off, it
+    // closes in on the points.
+    [Fact]
+    public void OffASmallSampleIsNotDrawnOnTheLinesWiderAxis()
+    {
+        double[] values = [10, 12, 14, 16, 18, 20];
+
+        var on = Build(Data(values), ProbabilityPlotOptions.Default);
+        var off = Build(Data(values), Off);
+        var line = Assert.Single(on.Series).FittedLine!;
+
+        Assert.True(line.FromValue < values.Min() && line.ToValue > values.Max());
+        Assert.Equal(GraphAxisRanges.FromValues(line.FromValue, line.ToValue), on.Frame.XAxis.Range);
+        Assert.Equal(GraphAxisRanges.FromValues(10, 20), off.Frame.XAxis.Range);
+        Assert.True(off.Frame.XAxis.Range.Span < on.Frame.XAxis.Range.Span / 2);
+    }
+
+    // Off, the points that are drawn are the same points, so sampling picked the same observations.
+    [Fact]
+    public void OffSamplesExactlyTheSamePoints()
+    {
+        var values = Enumerable.Range(0, 1_000).Select(index => Math.Sin(index / 50d) * 10).ToArray();
+
+        var on = Build(Data(values), ProbabilityPlotOptions.Default, maximumRenderedPoints: 100);
+        var off = Build(Data(values), Off, maximumRenderedPoints: 100);
+
+        Assert.True(off.WasSampled);
+        Assert.Equal(on.Series[0].Points.ToArray(), off.Series[0].Points.ToArray());
+        Assert.Equal(1_000, off.Series[0].ObservationCount);
+    }
+
+    [Fact]
+    public void TheBuilderNeedsOptions() =>
+        Assert.Throws<ArgumentNullException>(() => new ProbabilityPlotRenderModelBuilder().Build(Data([1]), Labels, null!, Token));
 }

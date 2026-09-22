@@ -219,6 +219,99 @@ public sealed class GraphRobustnessSpecificationTests
     }
 }
 
+// #037: the probability plot with its fitted line hidden, on the cases where a line is most likely to matter - ordinary
+// and grouped data, one and two observations, constant decimals, skew, tiny ranges, large offsets - alone, with a
+// specification, and without the statistics panel. Hiding the line changes the lines and the horizontal axis they
+// reach into, and nothing else.
+public sealed class GraphRobustnessFittedLineTests
+{
+    private static readonly ProbabilityPlotOptions Hidden = new(ShowFittedLine: false);
+
+    public static TheoryData<string> Cases =>
+    [
+        "quantized-readings", "bimodal", "uneven-groups", "missing-group-labels", "n-1", "n-2",
+        "constant-decimal-grouped", "highly-skewed", "tiny-range", "large-offset-tiny-variation"
+    ];
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void HidingTheFittedLineChangesOnlyTheLinesAndTheirAxis(string name)
+    {
+        var robustnessCase = RobustnessCorpus.Named(name);
+
+        // Both built, checked, rebuilt, sampled and drawn by the harness; hidden lines hold the invariants of hidden lines.
+        var shown = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.ProbabilityPlot, GraphThemes.Light);
+        var hidden = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.ProbabilityPlot, GraphThemes.Dark, probabilityPlotOptions: Hidden);
+
+        var context = robustnessCase.Describe(RobustnessGraphs.Name(RobustnessGraph.ProbabilityPlot));
+        Assert.All(((ProbabilityPlotRenderModel)hidden.Model!).Series, series => Assert.Null(series.FittedLine));
+        Assert.True(GraphRobustnessInvariants.WithoutFittedLines(shown) == GraphRobustnessInvariants.WithoutFittedLines(hidden),
+            $"{context}\n  hiding the fitted line changed more than the lines:\n    shown:  {GraphRobustnessInvariants.WithoutFittedLines(shown)}\n    hidden: {GraphRobustnessInvariants.WithoutFittedLines(hidden)}");
+
+        // The line only ever widens the horizontal axis; hiding it never needs more room.
+        var shownRange = shown.Frame!.XAxis.Range;
+        var hiddenRange = hidden.Frame!.XAxis.Range;
+        Assert.True(hiddenRange.Minimum >= shownRange.Minimum && hiddenRange.Maximum <= shownRange.Maximum, context);
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void HiddenLinesKeepTheSpecificationTheirOwn(string name)
+    {
+        var robustnessCase = RobustnessCorpus.Named(name);
+        var (_, specification) = RobustnessCorpus.Specifications(robustnessCase).Single(item => item.Name == "outside-both");
+
+        var shown = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.ProbabilityPlot, null, repeat: false, specification);
+        var hidden = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.ProbabilityPlot, GraphThemes.Light, repeat: true, specification, Hidden);
+
+        // The specification's lines are the same; each frame's axis is its own builder's axis reached out to them.
+        Assert.Equal(shown.Frame!.ReferenceLines, hidden.Frame!.ReferenceLines);
+        Assert.Equal(GraphRobustnessInvariants.WithoutFittedLines(shown), GraphRobustnessInvariants.WithoutFittedLines(hidden));
+        var builderRange = RobustnessGraphs.BuilderFrame(hidden.Model!).XAxis.Range;
+        Assert.Equal(
+            GraphAxisRanges.Including(builderRange, [.. hidden.Frame.ReferenceLines.Select(line => line.Value)]),
+            hidden.Frame.XAxis.Range);
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void HiddenLinesWithoutTheStatisticsPanelStillDraw(string name)
+    {
+        var robustnessCase = RobustnessCorpus.Named(name);
+        var (_, specification) = RobustnessCorpus.Specifications(robustnessCase).Single(item => item.Name == "at-min-and-max");
+        var built = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.ProbabilityPlot, null, repeat: false, probabilityPlotOptions: Hidden);
+
+        // The presentation the application applies with statistics off and a specification on, to the same builder
+        // frame: no panel, the specification's lines, and still no fitted line.
+        var configuration = new GraphConfiguration(GraphType.ProbabilityPlot, Guid.Empty, [])
+        {
+            PresentationOptions = new GraphPresentationOptions(ShowStatistics: false),
+            Specification = specification,
+            ProbabilityPlotOptions = Hidden
+        };
+        var frame = GraphPresentation.Apply(RobustnessGraphs.BuilderFrame(built.Model!), built.Data, configuration, TestContext.Current.CancellationToken);
+
+        Assert.Null(frame.StatisticsPanel);
+        Assert.Equal(GraphSpecificationLinesBuilder.Lines(specification), frame.ReferenceLines);
+        Assert.All(((ProbabilityPlotRenderModel)built.Model!).Series, series => Assert.Null(series.FittedLine));
+        RobustnessGraphs.Render(built with { Frame = frame }, GraphThemes.Light);
+        RobustnessGraphs.Render(built with { Frame = frame }, GraphThemes.Dark);
+    }
+
+    // The fitted-line invariant is not vacuous: a line where none should be, or none where one should be, is caught.
+    [Fact]
+    public void AFittedLineThatDisagreesWithTheOptionIsCaught()
+    {
+        var robustnessCase = RobustnessCorpus.Named("bimodal");
+        var shown = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.ProbabilityPlot, null, repeat: false);
+        var hidden = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.ProbabilityPlot, null, repeat: false, probabilityPlotOptions: Hidden);
+
+        // Each model checked as if it had been built with the other option.
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("lines shown but hidden", shown with { ProbabilityPlotOptions = Hidden }));
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("lines hidden but shown", hidden with { ProbabilityPlotOptions = ProbabilityPlotOptions.Default }));
+    }
+}
+
 // L1: deterministic generated cases, biased towards semiconductor-like data.
 public sealed class GraphRobustnessGeneratedTests
 {
@@ -238,9 +331,12 @@ public sealed class GraphRobustnessGeneratedTests
         // One case in ten also carries a generated specification (#036); the explicit sweep gives one to half of its cases.
         var specification = caseNumber % 10 == 0 ? RobustnessGenerator.SpecificationFor(robustnessCase, caseNumber) : null;
 
+        // One case in ten draws its probability plot without fitted lines (#037); the explicit sweep, one in three.
+        var probabilityPlotOptions = caseNumber % 10 == 5 ? new ProbabilityPlotOptions(ShowFittedLine: false) : null;
+
         foreach (var graph in RobustnessGraphs.For(robustnessCase))
         {
-            GraphRobustnessInvariants.Exercise(robustnessCase, graph, renderTheme: null, specification: specification);
+            GraphRobustnessInvariants.Exercise(robustnessCase, graph, renderTheme: null, specification: specification, probabilityPlotOptions: probabilityPlotOptions);
         }
     }
 

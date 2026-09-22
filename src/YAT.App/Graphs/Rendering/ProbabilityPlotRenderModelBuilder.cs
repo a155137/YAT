@@ -33,14 +33,27 @@ public sealed class ProbabilityPlotRenderModelBuilder
     }
 
     // The probability plot of these observations, or null when none of them can be plotted. The labels name the
-    // worksheet columns; they are given, not looked up.
+    // worksheet columns; they are given, not looked up. With the default options: every series that can have a fitted
+    // line has one.
     public ProbabilityPlotRenderModel? Build(
         UnivariateGraphData data,
         ProbabilityPlotLabels labels,
+        CancellationToken cancellationToken = default) =>
+        Build(data, labels, ProbabilityPlotOptions.Default, cancellationToken);
+
+    // The same, with the probability plot's own options. Without a fitted line, no line is worked out at all - no mean,
+    // no standard deviation, no line - and the horizontal axis is chosen from the points alone, because the only reason
+    // it reaches further is to show the ends of the lines. The points, their scores, the vertical axis and the sampling
+    // are the same either way.
+    public ProbabilityPlotRenderModel? Build(
+        UnivariateGraphData data,
+        ProbabilityPlotLabels labels,
+        ProbabilityPlotOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(labels);
+        ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();
 
         var partition = Split(data, cancellationToken);
@@ -49,7 +62,8 @@ public sealed class ProbabilityPlotRenderModelBuilder
             return null;
         }
 
-        // Each series on its own: sorted, ranked, scored, and summarised by its own mean and standard deviation.
+        // Each series on its own: sorted, ranked, scored, and - for its fitted line - summarised by its own mean and
+        // standard deviation.
         var prepared = new List<PreparedSeries>(partition.Series.Count);
         var minimumScore = double.PositiveInfinity;
         var maximumScore = double.NegativeInfinity;
@@ -58,7 +72,7 @@ public sealed class ProbabilityPlotRenderModelBuilder
 
         foreach (var buffer in partition.Series)
         {
-            var series = Prepare(buffer, cancellationToken);
+            var series = Prepare(buffer, options.ShowFittedLine, cancellationToken);
             prepared.Add(series);
 
             minimumScore = Math.Min(minimumScore, series.Points[0].Score);
@@ -69,19 +83,20 @@ public sealed class ProbabilityPlotRenderModelBuilder
 
         var vertical = ProbabilityAxis.Axis(minimumScore, maximumScore);
 
-        // The lines are drawn across the whole axis, so their ends have to be visible too.
+        // The lines are drawn across the whole axis, so their ends have to be visible too. Without fitted lines there are
+        // none, and nothing but the points decides the horizontal axis.
         var lines = new ProbabilityPlotFittedLine?[prepared.Count];
-        for (var index = 0; index < prepared.Count; index++)
+        for (var index = 0; options.ShowFittedLine && index < prepared.Count; index++)
         {
             var series = prepared[index];
-            if (!double.IsFinite(series.StandardDeviation) || series.StandardDeviation <= 0 || !double.IsFinite(series.Mean))
+            if (series.Mean is not { } mean || series.StandardDeviation is not { } standardDeviation
+                || !double.IsFinite(standardDeviation) || standardDeviation <= 0 || !double.IsFinite(mean))
             {
                 // A group with no spread has nothing a straight line could describe.
                 continue;
             }
 
-            var line = new ProbabilityPlotFittedLine(
-                series.Mean, series.StandardDeviation, vertical.Range.Minimum, vertical.Range.Maximum);
+            var line = new ProbabilityPlotFittedLine(mean, standardDeviation, vertical.Range.Minimum, vertical.Range.Maximum);
 
             lines[index] = line;
             minimumValue = Math.Min(minimumValue, line.FromValue);
@@ -124,17 +139,18 @@ public sealed class ProbabilityPlotRenderModelBuilder
         return new ProbabilityPlotRenderModel(frame, models, partition.ObservationCount);
     }
 
-    // One series: its own values in ascending order, each with the normal score of its own rank, and its own summary.
-    // Equal values stay separate observations, so each of them gets its own rank and its own point.
-    private static PreparedSeries Prepare(SeriesBuffer buffer, CancellationToken cancellationToken)
+    // One series: its own values in ascending order, each with the normal score of its own rank, and - when its fitted
+    // line is wanted - the mean and standard deviation the line is drawn from. Equal values stay separate observations,
+    // so each of them gets its own rank and its own point.
+    private static PreparedSeries Prepare(SeriesBuffer buffer, bool withSummary, CancellationToken cancellationToken)
     {
         var values = buffer.Values.ToArray();
         cancellationToken.ThrowIfCancellationRequested();
         Array.Sort(values);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var mean = Descriptives.Mean(values);
-        var standardDeviation = Descriptives.StandardDeviation(values);
+        double? mean = withSummary ? Descriptives.Mean(values) : null;
+        double? standardDeviation = withSummary ? Descriptives.StandardDeviation(values) : null;
         cancellationToken.ThrowIfCancellationRequested();
 
         var points = new ProbabilityPlotPoint[values.Length];
@@ -248,8 +264,9 @@ public sealed class ProbabilityPlotRenderModelBuilder
         return partition;
     }
 
-    // One series after its own statistics have been worked out.
-    private sealed record PreparedSeries(string Label, ProbabilityPlotPoint[] Points, double Mean, double StandardDeviation);
+    // One series after its own statistics have been worked out. Mean and StandardDeviation are null when no fitted line
+    // was asked for: nothing else uses them.
+    private sealed record PreparedSeries(string Label, ProbabilityPlotPoint[] Points, double? Mean, double? StandardDeviation);
 
     // The series found so far, in first-observed order.
     private sealed class Partition

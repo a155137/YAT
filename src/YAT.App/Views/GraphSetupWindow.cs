@@ -164,7 +164,7 @@ internal sealed class GraphSetupWindow : Window
         var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
         column.Children.Add(Roles(setup));
 
-        if (!setup.SupportsStatisticsPanel && !setup.SupportsSpecificationLines)
+        if (!setup.SupportsStatisticsPanel && !setup.SupportsFittedLine && !setup.SupportsSpecificationLines)
         {
             Grid.SetColumn(column, 2);
             return column;
@@ -175,14 +175,12 @@ internal sealed class GraphSetupWindow : Window
 
         if (setup.SupportsStatisticsPanel)
         {
-            var showStatistics = new CheckBox { Content = "Show statistics" };
-            showStatistics.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(GraphSetupViewModel.ShowStatistics))
-            {
-                Source = setup,
-                Mode = BindingMode.TwoWay
-            });
+            options.Children.Add(Option(setup, "Show statistics", nameof(GraphSetupViewModel.ShowStatistics)));
+        }
 
-            options.Children.Add(showStatistics);
+        if (setup.SupportsFittedLine)
+        {
+            options.Children.Add(Option(setup, "Show fitted line", nameof(GraphSetupViewModel.ShowFittedLine)));
         }
 
         if (setup.SupportsSpecificationLines)
@@ -194,6 +192,14 @@ internal sealed class GraphSetupWindow : Window
         column.Children.Add(options);
         Grid.SetColumn(column, 2);
         return column;
+    }
+
+    // One on/off option, named after the view model property it edits.
+    private static CheckBox Option(GraphSetupViewModel setup, string text, string property)
+    {
+        var option = new CheckBox { Content = text, Name = property };
+        option.Bind(ToggleButton.IsCheckedProperty, new Binding(property) { Source = setup, Mode = BindingMode.TwoWay });
+        return option;
     }
 
     // LSL, Target and USL on one line. Blank fields draw nothing, so there is no separate switch for the lines.

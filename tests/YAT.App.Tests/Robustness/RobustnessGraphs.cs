@@ -27,6 +27,9 @@ public enum RobustnessGraph
 internal sealed record BuiltGraph(RobustnessGraph Graph, GraphData Data, object? Model, GraphRenderModel? Frame, IGraphPlotRenderer? Plot)
 {
     public Specification Specification { get; init; } = Specification.None;
+
+    // The probability plot options it was built with (#037); every other graph type ignores them.
+    public ProbabilityPlotOptions ProbabilityPlotOptions { get; init; } = ProbabilityPlotOptions.Default;
 }
 
 // How the harness turns a robustness case into graphs: the graph data a case becomes (the way the data pipeline
@@ -152,9 +155,11 @@ internal static class RobustnessGraphs
         GraphData data,
         int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints,
         CancellationToken cancellationToken = default,
-        Specification? specification = null)
+        Specification? specification = null,
+        ProbabilityPlotOptions? probabilityPlotOptions = null)
     {
         specification ??= Specification.None;
+        probabilityPlotOptions ??= ProbabilityPlotOptions.Default;
         switch (graph)
         {
             case RobustnessGraph.Histogram:
@@ -181,8 +186,12 @@ internal static class RobustnessGraphs
             {
                 var univariate = (UnivariateGraphData)data;
                 var model = new ProbabilityPlotRenderModelBuilder(maximumRenderedPoints).Build(
-                    univariate, new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return Built(graph, data, model, model?.Frame, model is null ? null : new ProbabilityPlotRenderer(model), cancellationToken, specification);
+                    univariate,
+                    new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    probabilityPlotOptions,
+                    cancellationToken);
+                return Built(graph, data, model, model?.Frame, model is null ? null : new ProbabilityPlotRenderer(model), cancellationToken, specification)
+                    with { ProbabilityPlotOptions = probabilityPlotOptions };
             }
 
             case RobustnessGraph.EmpiricalCdf:

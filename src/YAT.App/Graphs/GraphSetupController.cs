@@ -29,7 +29,7 @@ public sealed class GraphSetupController
     private readonly ProbabilityPlotRenderModelBuilder _probabilityPlot;
     private readonly EmpiricalCdfRenderModelBuilder _empiricalCdf;
     private readonly BoxPlotRenderModelBuilder _boxPlot;
-    private readonly Func<GraphData, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?> _prepare;
+    private readonly Func<GraphData, GraphConfiguration, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?> _prepare;
 
     // prepare: replaces the graph types' own preparation. Only tests pass one, to prove that a preparation that fails
     // is contained; the application always uses Prepare.
@@ -41,7 +41,7 @@ public sealed class GraphSetupController
         ProbabilityPlotRenderModelBuilder probabilityPlot,
         EmpiricalCdfRenderModelBuilder empiricalCdf,
         BoxPlotRenderModelBuilder boxPlot,
-        Func<GraphData, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?>? prepare = null)
+        Func<GraphData, GraphConfiguration, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?>? prepare = null)
     {
         _dialogs = dialogs;
         _windows = windows;
@@ -145,7 +145,7 @@ public sealed class GraphSetupController
             // cancelled request never leaves a half-prepared graph behind.
             // What the graph shows besides its plot - the statistics panel, the specification lines - is part of that
             // preparation, applied in one place: the graph type says what it offers, the configuration what is wanted.
-            graph = await Task.Run(() => _prepare(data, cancellationToken) is { } built
+            graph = await Task.Run(() => _prepare(data, configuration, cancellationToken) is { } built
                 ? (GraphPresentation.Apply(built.Frame, data, configuration, cancellationToken), built.Plot)
                 : ((GraphRenderModel Frame, IGraphPlotRenderer Plot)?)null, cancellationToken);
         }
@@ -174,8 +174,12 @@ public sealed class GraphSetupController
     }
 
     // The graph type's own preparation, which is the only place that turns graph data into something drawable. Null
-    // means the configuration was valid but left nothing to draw.
-    private (GraphRenderModel Frame, IGraphPlotRenderer Plot)? Prepare(GraphData data, CancellationToken cancellationToken)
+    // means the configuration was valid but left nothing to draw. The configuration is there for the options a graph
+    // type has of its own; each builder is handed only its own.
+    private (GraphRenderModel Frame, IGraphPlotRenderer Plot)? Prepare(
+        GraphData data,
+        GraphConfiguration configuration,
+        CancellationToken cancellationToken)
     {
         switch (data)
         {
@@ -194,9 +198,11 @@ public sealed class GraphSetupController
                 return histogramModel is null ? null : (histogramModel.Frame, new HistogramRenderer(histogramModel));
 
             case UnivariateGraphData univariate when univariate.GraphType == GraphType.ProbabilityPlot:
+                // Only the probability plot has options of its own, and it is given those and nothing else.
                 var probabilityModel = _probabilityPlot.Build(
                     univariate,
                     new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    configuration.ProbabilityPlotOptions,
                     cancellationToken);
                 return probabilityModel is null ? null : (probabilityModel.Frame, new ProbabilityPlotRenderer(probabilityModel));
 

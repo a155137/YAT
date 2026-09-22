@@ -102,8 +102,22 @@ public class GraphTypeDefinitionsTests
 
         Assert.True(definition.Supports(GraphCapability.StatisticsPanel));
         Assert.True(definition.Supports(GraphCapability.SpecificationLines));
-        Assert.Equal([GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines], definition.Capabilities);
+        Assert.Equal(
+            graphType == GraphType.ProbabilityPlot
+                ? [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine]
+                : [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines],
+            definition.Capabilities);
     }
+
+    // Only the probability plot draws a fitted line the user can hide (Task #037).
+    [Theory]
+    [InlineData(GraphType.ProbabilityPlot, true)]
+    [InlineData(GraphType.Histogram, false)]
+    [InlineData(GraphType.EmpiricalCdf, false)]
+    [InlineData(GraphType.ScatterPlot, false)]
+    [InlineData(GraphType.BoxPlot, false)]
+    public void OnlyTheProbabilityPlotOffersTheFittedLine(GraphType graphType, bool supported) =>
+        Assert.Equal(supported, GraphTypeDefinitions.For(graphType).Supports(GraphCapability.FittedLine));
 
     [Theory]
     [InlineData(GraphType.ScatterPlot)]
@@ -125,5 +139,6 @@ public class GraphTypeDefinitionsTests
         Assert.Empty(definition.Capabilities);
         Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
         Assert.False(definition.Supports(GraphCapability.SpecificationLines));
+        Assert.False(definition.Supports(GraphCapability.FittedLine));
     }
 }

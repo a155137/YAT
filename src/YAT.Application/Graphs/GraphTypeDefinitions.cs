@@ -18,6 +18,10 @@ public static class GraphTypeDefinitions
     private static readonly IReadOnlyList<GraphCapability> DistributionCapabilities =
         [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines];
 
+    // A probability plot also draws the line its data would fall on if it were normal, and lets the user hide it.
+    private static readonly IReadOnlyList<GraphCapability> ProbabilityPlotCapabilities =
+        [.. DistributionCapabilities, GraphCapability.FittedLine];
+
     private static readonly IReadOnlyList<GraphTypeDefinition> Definitions =
     [
         new(GraphType.ScatterPlot, "Scatter Plot",
@@ -45,7 +49,7 @@ public static class GraphTypeDefinitions
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = DistributionCapabilities },
+        ]) { Capabilities = ProbabilityPlotCapabilities },
         new(GraphType.EmpiricalCdf, "Empirical CDF",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),

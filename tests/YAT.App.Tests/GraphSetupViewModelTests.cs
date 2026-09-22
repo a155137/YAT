@@ -384,6 +384,92 @@ public class GraphSetupViewModelTests
         Assert.True(Histogram().Confirm()!.Specification.IsEmpty);
     }
 
+    // ---- Show fitted line (#037) ----
+
+    [Fact]
+    public void AProbabilityPlotOffersTheFittedLineCheckedByDefault()
+    {
+        var setup = Setup(GraphType.ProbabilityPlot);
+
+        Assert.True(setup.SupportsFittedLine);
+        Assert.True(setup.ShowFittedLine);
+    }
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    [InlineData(GraphType.ScatterPlot)]
+    [InlineData(GraphType.BoxPlot)]
+    public void OtherGraphsDoNotOfferTheFittedLine(GraphType graphType) =>
+        Assert.False(Setup(graphType).SupportsFittedLine);
+
+    [Fact]
+    public void TheConfigurationCarriesWhetherTheFittedLineIsShown()
+    {
+        var setup = Setup(GraphType.ProbabilityPlot);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+
+        Assert.True(setup.Confirm()!.ProbabilityPlotOptions.ShowFittedLine);
+
+        setup.ShowFittedLine = false;
+        var off = setup.Confirm()!;
+        Assert.False(off.ProbabilityPlotOptions.ShowFittedLine);
+        Assert.Equal([new GraphColumnAssignment(GraphVariableRole.Variable, Reg1.Id)], off.Assignments);
+    }
+
+    [Theory]
+    [InlineData(true, true, "", "")]
+    [InlineData(false, false, "14.5", "15.5")]
+    [InlineData(true, false, "14.5", "15.5")]
+    public void StatisticsFittedLineAndSpecificationAreIndependent(bool statistics, bool fittedLine, string lower, string upper)
+    {
+        var setup = Setup(GraphType.ProbabilityPlot);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+        setup.ShowStatistics = statistics;
+        setup.ShowFittedLine = fittedLine;
+        setup.LowerLimitText = lower;
+        setup.UpperLimitText = upper;
+
+        var configuration = setup.Confirm()!;
+
+        Assert.Equal(statistics, configuration.PresentationOptions.ShowStatistics);
+        Assert.Equal(fittedLine, configuration.ProbabilityPlotOptions.ShowFittedLine);
+        Assert.Equal(lower.Length == 0 ? Specification.None : new Specification(14.5, null, 15.5), configuration.Specification);
+    }
+
+    [Fact]
+    public void TheFittedLineNeverStopsASetupFromBeingConfirmed()
+    {
+        var setup = Setup(GraphType.ProbabilityPlot);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+
+        setup.ShowFittedLine = false;
+        Assert.True(setup.CanConfirm);
+        setup.ShowFittedLine = true;
+        Assert.True(setup.CanConfirm);
+    }
+
+    [Fact]
+    public void ANewSetupStartsWithTheFittedLineWhateverTheLastOneHad()
+    {
+        var first = Setup(GraphType.ProbabilityPlot);
+        first.ShowFittedLine = false;
+
+        Assert.True(Setup(GraphType.ProbabilityPlot).ShowFittedLine);
+    }
+
+    [Fact]
+    public void ShowFittedLineIsObservable()
+    {
+        var setup = Setup(GraphType.ProbabilityPlot);
+        var changed = new List<string?>();
+        setup.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        setup.ShowFittedLine = false;
+
+        Assert.Contains(nameof(GraphSetupViewModel.ShowFittedLine), changed);
+    }
+
     [Fact]
     public void SpecificationFieldsAreObservable()
     {

@@ -10,7 +10,11 @@ public enum GraphCapability
 
     // The lines of the graph's specification (LSL, Target, USL), drawn across the plot at their values on the X axis,
     // which is the axis a graph with this capability reads its measurement on.
-    SpecificationLines
+    SpecificationLines,
+
+    // The line a normally distributed sample would fall on, drawn through a probability plot (see
+    // ProbabilityPlotOptions). It belongs to the plot itself, not to the frame around it.
+    FittedLine
 }
 
 // How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:

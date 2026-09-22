@@ -37,10 +37,11 @@ internal static class GraphRobustnessInvariants
         RobustnessGraph graph,
         GraphTheme? renderTheme,
         bool repeat = true,
-        Specification? specification = null)
+        Specification? specification = null,
+        ProbabilityPlotOptions? probabilityPlotOptions = null)
     {
         var data = RobustnessGraphs.DataFor(graph, robustnessCase);
-        return Exercise(robustnessCase.Describe(RobustnessGraphs.Name(graph)), graph, data, renderTheme, repeat, specification);
+        return Exercise(robustnessCase.Describe(RobustnessGraphs.Name(graph)), graph, data, renderTheme, repeat, specification, probabilityPlotOptions);
     }
 
     public static BuiltGraph Exercise(
@@ -49,27 +50,33 @@ internal static class GraphRobustnessInvariants
         GraphData data,
         GraphTheme? renderTheme,
         bool repeat = true,
-        Specification? specification = null)
+        Specification? specification = null,
+        ProbabilityPlotOptions? probabilityPlotOptions = null)
     {
         if (specification is { IsEmpty: false })
         {
             context += $" with specification {Describe(specification)}";
         }
 
-        var built = BuildOrFail(context, graph, data, specification: specification);
+        if (probabilityPlotOptions is { ShowFittedLine: false } && graph == RobustnessGraph.ProbabilityPlot)
+        {
+            context += " without fitted lines";
+        }
+
+        var built = BuildOrFail(context, graph, data, specification: specification, probabilityPlotOptions: probabilityPlotOptions);
         Verify(context, built);
 
         if (repeat && built.Model is not null)
         {
             // Implementation invariant: the same data builds the same graph, points and all.
-            var again = BuildOrFail(context, graph, data, specification: specification);
+            var again = BuildOrFail(context, graph, data, specification: specification, probabilityPlotOptions: probabilityPlotOptions);
             That(Fingerprint(again, statisticsOnly: false) == Fingerprint(built, statisticsOnly: false), context,
                 "building the same data twice must give the same model");
 
             if (graph != RobustnessGraph.Histogram)
             {
                 // Sampling must not change statistics (the histogram never samples).
-                var sampled = BuildOrFail(context, graph, data, SamplingBudget(graph, data), specification);
+                var sampled = BuildOrFail(context, graph, data, SamplingBudget(graph, data), specification, probabilityPlotOptions);
                 Verify(context + " (sampled)", sampled);
                 var expected = Fingerprint(built, statisticsOnly: true);
                 var actual = Fingerprint(sampled, statisticsOnly: true);
@@ -97,11 +104,12 @@ internal static class GraphRobustnessInvariants
         RobustnessGraph graph,
         GraphData data,
         int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints,
-        Specification? specification = null)
+        Specification? specification = null,
+        ProbabilityPlotOptions? probabilityPlotOptions = null)
     {
         try
         {
-            return RobustnessGraphs.Build(graph, data, maximumRenderedPoints, TestContext.Current.CancellationToken, specification);
+            return RobustnessGraphs.Build(graph, data, maximumRenderedPoints, TestContext.Current.CancellationToken, specification, probabilityPlotOptions);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -137,7 +145,7 @@ internal static class GraphRobustnessInvariants
                 BoxPlot(context, (MultiVariableGraphData)built.Data, boxPlot);
                 break;
             case ProbabilityPlotRenderModel probability:
-                ProbabilityPlot(context, (UnivariateGraphData)built.Data, probability);
+                ProbabilityPlot(context, (UnivariateGraphData)built.Data, probability, built.ProbabilityPlotOptions);
                 break;
             case EmpiricalCdfRenderModel empirical:
                 EmpiricalCdf(context, (UnivariateGraphData)built.Data, empirical);
@@ -469,7 +477,7 @@ internal static class GraphRobustnessInvariants
 
     // ---- Probability Plot ----
 
-    private static void ProbabilityPlot(string context, UnivariateGraphData data, ProbabilityPlotRenderModel model)
+    private static void ProbabilityPlot(string context, UnivariateGraphData data, ProbabilityPlotRenderModel model, ProbabilityPlotOptions options)
     {
         var expected = ExpectedSeries(data.Group, data.Values.Span);
         That(model.SourceObservationCount == data.Count, context, $"probability plot used {model.SourceObservationCount} of {data.Count} observations");
@@ -503,13 +511,52 @@ internal static class GraphRobustnessInvariants
                 That(Within(model.Frame.YAxis.Range, points[point].Score), seriesContext, $"score {points[point].Score:R} lies outside the Y axis");
             }
 
-            // IMPLEMENTATION-SPECIFIC, not a lasting robustness contract: today a fitted line is drawn exactly when the
-            // series has a spread to fit. Future graph options may let the user hide the line; this check then changes
-            // with the option, and nothing else in the harness depends on the line being there.
+            // IMPLEMENTATION-SPECIFIC, not a lasting robustness contract: a fitted line is drawn exactly when the fitted
+            // line is shown (ProbabilityPlotOptions, Task #037) and the series has a spread to fit. Nothing else in the
+            // harness depends on the line being there.
             var hasSpread = observations.Length >= 2 && observations[0] != observations[^1];
-            That((series.FittedLine is not null) == hasSpread, seriesContext,
-                $"fitted line is {(series.FittedLine is null ? "missing" : "present")} for a series {(hasSpread ? "with" : "without")} spread");
+            var expectsLine = options.ShowFittedLine && hasSpread;
+            That((series.FittedLine is not null) == expectsLine, seriesContext,
+                $"fitted line is {(series.FittedLine is null ? "missing" : "present")} for a series {(hasSpread ? "with" : "without")} spread " +
+                $"with the fitted line {(options.ShowFittedLine ? "shown" : "hidden")}");
         }
+
+        // Implementation (Task #037): without fitted lines, nothing but the points decides the horizontal axis - the
+        // builder's axis is exactly the one the observations ask for. (The frame the application shows may still be
+        // reached out by a specification afterwards; that is checked with the specification lines.)
+        if (!options.ShowFittedLine)
+        {
+            var all = expected.SelectMany(series => series.Values).ToArray();
+            var fromPoints = GraphAxisRanges.FromValues(all.Min(), all.Max());
+            That(model.Frame.XAxis.Range == fromPoints, context,
+                $"without fitted lines the X axis {model.Frame.XAxis.Range.Minimum:R}..{model.Frame.XAxis.Range.Maximum:R} is not the points' own {fromPoints.Minimum:R}..{fromPoints.Maximum:R}");
+        }
+    }
+
+    // What a probability plot says apart from its fitted lines and the horizontal axis they reach into (#037): the
+    // title, the vertical axis, the legend, the statistics panel, the reference lines, and every series with its label,
+    // index, counts and points. Showing or hiding the fitted line must leave all of it exactly as it is.
+    public static string WithoutFittedLines(BuiltGraph built)
+    {
+        var model = (ProbabilityPlotRenderModel)built.Model!;
+        var frame = built.Frame!;
+        var text = new StringBuilder(frame.Title);
+        Axis(text, "y", frame.YAxis);
+        text.Append(" legend=").Append(frame.Legend is { } legend
+            ? string.Join(",", legend.Entries.Select(entry => $"{entry.Label}#{entry.SeriesIndex}"))
+            : "none");
+        text.Append(" statistics=").Append(frame.StatisticsPanel is { } panel
+            ? string.Join(";", panel.Rows.Select(row => Invariant($"{row.Label}#{row.SeriesIndex} n={row.Count} mean={row.Mean:R} sd={row.StandardDeviation:R} {row.MeanText}/{row.StandardDeviationText}/{row.CountText}")))
+            : "none");
+        text.Append(" lines=").AppendJoin(",", frame.ReferenceLines.Select(line => Invariant($"{line.Axis}:{line.Value:R}:{line.Kind}:{line.Label}")));
+        text.Append(Invariant($" n={model.SourceObservationCount} drawn={model.RenderedPointCount}"));
+        foreach (var series in model.Series)
+        {
+            text.Append(Invariant($" [{series.Label}#{series.SeriesIndex} n={series.ObservationCount} points="));
+            text.AppendJoin(",", series.Points.ToArray().Select(point => Invariant($"{point.Value:R}:{point.Score:R}"))).Append(']');
+        }
+
+        return text.ToString();
     }
 
     // ---- Empirical CDF ----

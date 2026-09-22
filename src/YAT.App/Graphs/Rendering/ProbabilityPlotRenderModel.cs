@@ -48,7 +48,8 @@ public sealed record ProbabilityPlotFittedLine
 }
 
 // One group of a probability plot: its observations in ascending order, each with the score of its rank, and the line
-// its own mean and standard deviation describe. A group with no spread has points but no line.
+// its own mean and standard deviation describe. FittedLine is null when there is no fitted line to draw for the
+// series: it has no spread to fit, or the plot was prepared without fitted lines (ProbabilityPlotOptions).
 public sealed record ProbabilityPlotSeriesRenderModel
 {
     public ProbabilityPlotSeriesRenderModel(

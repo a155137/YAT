@@ -34,12 +34,15 @@ public sealed class GraphRobustnessTortureTests
             observations += robustnessCase.ObservationCount;
 
             // Every case is built and checked; one in ten is also built again, sampled and drawn. Every other case is
-            // prepared with a generated specification (#036).
+            // prepared with a generated specification (#036), and every third draws its probability plot without fitted
+            // lines (#037).
             var thorough = index % 10 == 0;
             var specification = index % 2 == 1 ? RobustnessGenerator.SpecificationFor(robustnessCase, SweepFirstCase + index) : null;
+            var probabilityPlotOptions = index % 3 == 2 ? new ProbabilityPlotOptions(ShowFittedLine: false) : null;
             foreach (var graph in RobustnessGraphs.For(robustnessCase))
             {
-                GraphRobustnessInvariants.Exercise(robustnessCase, graph, thorough || specification is not null ? GraphThemes.Light : null, repeat: thorough, specification);
+                GraphRobustnessInvariants.Exercise(
+                    robustnessCase, graph, thorough || specification is not null ? GraphThemes.Light : null, repeat: thorough, specification, probabilityPlotOptions);
             }
         }
 

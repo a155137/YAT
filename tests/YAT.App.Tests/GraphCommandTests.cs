@@ -749,7 +749,7 @@ public class GraphCommandTests
     // preparation replaced through the controller's test seam.
     private static (MainWindowShellViewModel Shell, GraphSetupController Graphs) ShellWithPreparation(
         Runtime runtime,
-        Func<GraphData, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?> prepare)
+        Func<GraphData, GraphConfiguration, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?> prepare)
     {
         var graphs = new GraphSetupController(
             runtime.GraphDialogs,
@@ -772,7 +772,7 @@ public class GraphCommandTests
         await runtime.PasteAsync("Reg1\n1\n2\n3\n");
         runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
 
-        var (shell, graphs) = ShellWithPreparation(runtime, (_, _) => throw new InvalidOperationException("A defect in a builder."));
+        var (shell, graphs) = ShellWithPreparation(runtime, (_, _, _) => throw new InvalidOperationException("A defect in a builder."));
 
         // The command completes: nothing escapes to the dispatcher that would end the process.
         await shell.HistogramCommand.ExecuteAsync(null);
@@ -791,7 +791,7 @@ public class GraphCommandTests
         await runtime.PasteAsync("Reg1\n1\n2\n3\n");
         runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
 
-        var (shell, _) = ShellWithPreparation(runtime, (_, _) => throw new OperationCanceledException());
+        var (shell, _) = ShellWithPreparation(runtime, (_, _, _) => throw new OperationCanceledException());
 
         await shell.HistogramCommand.ExecuteAsync(null);
 
@@ -1087,6 +1087,151 @@ public class GraphCommandTests
 
         Assert.Equal(2, runtime.GraphWindows.Shown.Count);
         Assert.All(runtime.GraphWindows.Shown, shown => Assert.Empty(shown.Frame.ReferenceLines));
+    }
+
+    // ---- Show fitted line (#037) ----
+
+    private const string SmallGroupedSample = "Reg1\tLot\n10\tA\n12\tB\n14\tA\n16\tB\n18\tA\n20\tB\n7\tC\n7\tC\n";
+
+    [Fact]
+    public async Task AProbabilityPlotShowsItsFittedLinesByDefault()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync(SmallGroupedSample);
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            Assert.True(setup.SupportsFittedLine);
+            Assert.True(setup.ShowFittedLine);
+            return ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
+        };
+
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        Assert.True(runtime.Graphs.LastConfiguration!.ProbabilityPlotOptions.ShowFittedLine);
+        var (_, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var model = Assert.IsType<ProbabilityPlotRenderer>(plot).Model;
+
+        // A and B have a spread and a line; C is constant and has none, whatever the option.
+        Assert.Equal(["A", "B", "C"], model.Series.Select(series => series.Label));
+        Assert.Equal([true, true, false], model.Series.Select(series => series.FittedLine is not null));
+    }
+
+    [Fact]
+    public async Task TurningTheFittedLineOffDrawsThePointsWithoutAnyLine()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync(SmallGroupedSample);
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.ShowFittedLine = false;
+            return ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
+        };
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        Assert.False(runtime.Graphs.LastConfiguration!.ProbabilityPlotOptions.ShowFittedLine);
+        Assert.Equal(2, runtime.GraphWindows.Shown.Count);
+        var (onFrame, onPlot) = runtime.GraphWindows.Shown[0];
+        var (offFrame, offPlot) = runtime.GraphWindows.Shown[1];
+        var on = Assert.IsType<ProbabilityPlotRenderer>(onPlot).Model;
+        var off = Assert.IsType<ProbabilityPlotRenderer>(offPlot).Model;
+
+        Assert.All(off.Series, series => Assert.Null(series.FittedLine));
+        Assert.Equal(on.Series.Select(series => (series.Label, series.SeriesIndex)), off.Series.Select(series => (series.Label, series.SeriesIndex)));
+        for (var index = 0; index < on.Series.Count; index++)
+        {
+            Assert.Equal(on.Series[index].Points.ToArray(), off.Series[index].Points.ToArray());
+        }
+
+        // The points alone decide the horizontal axis; the vertical axis and the panel are the same.
+        Assert.Equal(GraphAxisRanges.FromValues(7, 20), offFrame.XAxis.Range);
+        Assert.True(offFrame.XAxis.Range.Span < onFrame.XAxis.Range.Span);
+        Assert.Equal(onFrame.YAxis.Range, offFrame.YAxis.Range);
+        Assert.Equal(onFrame.StatisticsPanel!.Rows, offFrame.StatisticsPanel!.Rows);
+    }
+
+    [Fact]
+    public async Task WithoutStatisticsOrFittedLineTheSpecificationIsStillDrawn()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n14.9\n15.0\n15.1\n15.2\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.ShowStatistics = false;
+            setup.ShowFittedLine = false;
+            setup.LowerLimitText = "14";
+            setup.UpperLimitText = "16";
+            return ConfirmWith(setup, ("Graph variables", "Reg1"));
+        };
+
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var model = Assert.IsType<ProbabilityPlotRenderer>(plot).Model;
+        Assert.Null(frame.StatisticsPanel);
+        Assert.Null(Assert.Single(model.Series).FittedLine);
+        Assert.Equal(["LSL 14", "USL 16"], frame.ReferenceLines.Select(line => line.Label));
+
+        // The builder's axis is the points' own; the specification then reaches it out to its limits.
+        Assert.Equal(GraphAxisRanges.FromValues(14.9, 15.2), model.Frame.XAxis.Range);
+        Assert.Equal(GraphAxisRanges.Including(model.Frame.XAxis.Range, [14, 16]), frame.XAxis.Range);
+    }
+
+    [Fact]
+    public async Task ThePreparationIsGivenTheConfirmedConfiguration()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.ShowFittedLine = false;
+            return ConfirmWith(setup, ("Graph variables", "Reg1"));
+        };
+
+        GraphConfiguration? received = null;
+        var (shell, graphs) = ShellWithPreparation(runtime, (_, configuration, _) =>
+        {
+            received = configuration;
+            return null;
+        });
+
+        await shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        Assert.Same(graphs.LastConfiguration, received);
+        Assert.False(received!.ProbabilityPlotOptions.ShowFittedLine);
+    }
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public async Task OtherGraphsIgnoreTheFittedLineOption(GraphType graphType)
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n12\n14\n16\n18\n20\n");
+
+        foreach (var show in new[] { true, false })
+        {
+            runtime.GraphDialogs.Answer = setup =>
+            {
+                Assert.False(setup.SupportsFittedLine);
+                setup.ShowFittedLine = show;
+                return ConfirmWith(setup, ("Graph variables", "Reg1"));
+            };
+            await Command(runtime, graphType).ExecuteAsync(null);
+        }
+
+        var (first, _) = runtime.GraphWindows.Shown[0];
+        var (second, _) = runtime.GraphWindows.Shown[1];
+        Assert.Equal(first.XAxis.Range, second.XAxis.Range);
+        Assert.Equal(first.YAxis.Range, second.YAxis.Range);
+        Assert.Equal(first.StatisticsPanel!.Rows, second.StatisticsPanel!.Rows);
     }
 
     // Confirms a box plot setup by ticking the named graph variables, and optionally a grouping column.
