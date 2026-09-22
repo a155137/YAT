@@ -18,7 +18,7 @@ public class GraphExportControllerTests
     {
         public Runtime()
         {
-            Controller = new GraphExportController(Dialogs, new GraphExportService(), PowerPoint);
+            Controller = new GraphExportController(Dialogs, new GraphExportService(), PowerPoint, Clipboard);
         }
 
         public TemporaryDirectory Directory { get; } = new();
@@ -26,6 +26,8 @@ public class GraphExportControllerTests
         public FakeGraphExportDialogs Dialogs { get; } = new();
 
         public FakePowerPointGraphExporter PowerPoint { get; } = new();
+
+        public FakeGraphImageClipboard Clipboard { get; } = new();
 
         public GraphExportController Controller { get; }
 
@@ -190,12 +192,185 @@ public class GraphExportControllerTests
         Assert.Null(runtime.Controller.LastExportedPath);
     }
 
+    // ---- Copy Image (#038) ----
+
+    // A probability plot prepared the way the graph preparation prepares one, with its presentation applied.
+    private static GraphExportSnapshot ProbabilitySnapshot(
+        bool statistics = true,
+        bool fittedLine = true,
+        YAT.Application.Specifications.Specification? specification = null,
+        GraphTheme? theme = null)
+    {
+        var data = new UnivariateGraphData(
+            GraphType.ProbabilityPlot,
+            Guid.NewGuid(),
+            new GraphColumnInfo(Guid.NewGuid(), "Reg1", WorksheetDataType.Numeric),
+            Enumerable.Range(0, 60).Select(index => 15 + (Math.Sin(index * 0.7) * 0.2)).ToArray(),
+            new StringGroupData(new GraphColumnInfo(Guid.NewGuid(), "Lot", WorksheetDataType.String), Enumerable.Range(0, 60).Select(index => (string?)$"Lot {index % 2}").ToArray()));
+        var configuration = new GraphConfiguration(GraphType.ProbabilityPlot, Guid.NewGuid(), [])
+        {
+            PresentationOptions = new GraphPresentationOptions(statistics),
+            ProbabilityPlotOptions = new ProbabilityPlotOptions(fittedLine),
+            Specification = specification ?? YAT.Application.Specifications.Specification.None
+        };
+        var model = new ProbabilityPlotRenderModelBuilder().Build(data, new ProbabilityPlotLabels("Reg1", "Lot"), configuration.ProbabilityPlotOptions, Token)!;
+        var frame = GraphPresentation.Apply(model.Frame, data, configuration, Token);
+        return new GraphExportSnapshot(frame, new ProbabilityPlotRenderer(model), theme ?? GraphThemes.Light);
+    }
+
+    [Fact]
+    public async Task CopyImagePutsExactlyThePngAnExportWritesOnTheClipboard()
+    {
+        using var runtime = new Runtime();
+        var snapshot = Snapshot();
+        var path = runtime.Directory.File("graph.png");
+        runtime.Dialogs.PngPath = path;
+
+        await runtime.Controller.CopyImageAsync(snapshot, Token);
+        await runtime.Controller.ExportPngAsync(snapshot, Token);
+
+        var copied = Assert.Single(runtime.Clipboard.Copied);
+        Assert.NotEmpty(copied);
+        Assert.Equal(PngSignature, copied.Take(PngSignature.Length));
+        Assert.Equal(File.ReadAllBytes(path), copied);
+        Assert.Equal(new GraphExportService().RenderPng(snapshot), copied);
+    }
+
+    [Fact]
+    public async Task TheCopiedImageHasTheExportSize()
+    {
+        using var runtime = new Runtime();
+
+        await runtime.Controller.CopyImageAsync(Snapshot(), Token);
+
+        using var bitmap = SkiaSharp.SKBitmap.Decode(Assert.Single(runtime.Clipboard.Copied));
+        Assert.Equal(GraphExportService.ExportWidth, bitmap.Width);
+        Assert.Equal(GraphExportService.ExportHeight, bitmap.Height);
+    }
+
+    [Fact]
+    public async Task CopyImageIsSilentAndAsksNothing()
+    {
+        using var runtime = new Runtime();
+
+        await runtime.Controller.CopyImageAsync(Snapshot(), Token);
+
+        Assert.Empty(runtime.Dialogs.Errors);
+        Assert.Empty(runtime.Dialogs.SuggestedNames);
+        Assert.Null(runtime.Controller.LastExportedPath);
+        Assert.Empty(runtime.PowerPoint.Saved);
+    }
+
+    // Statistics, fitted line, specification and theme are all whatever the graph shows: the copied image is the
+    // graph's own export image in every combination, and the combinations are different images.
+    [Fact]
+    public async Task TheCopiedImageFollowsTheGraphsOwnState()
+    {
+        using var runtime = new Runtime();
+        var specification = new YAT.Application.Specifications.Specification(14.5, 15, 15.5);
+        GraphExportSnapshot[] snapshots =
+        [
+            ProbabilitySnapshot(),
+            ProbabilitySnapshot(statistics: false),
+            ProbabilitySnapshot(fittedLine: false),
+            ProbabilitySnapshot(specification: specification),
+            ProbabilitySnapshot(statistics: false, fittedLine: false, specification: specification),
+            ProbabilitySnapshot(theme: GraphThemes.Dark)
+        ];
+
+        foreach (var snapshot in snapshots)
+        {
+            await runtime.Controller.CopyImageAsync(snapshot, Token);
+        }
+
+        Assert.Equal(snapshots.Length, runtime.Clipboard.Copied.Count);
+        for (var index = 0; index < snapshots.Length; index++)
+        {
+            Assert.Equal(new GraphExportService().RenderPng(snapshots[index]), runtime.Clipboard.Copied[index]);
+        }
+
+        Assert.Equal(snapshots.Length, runtime.Clipboard.Copied.Select(Convert.ToBase64String).Distinct().Count());
+        Assert.Null(snapshots[1].Frame.StatisticsPanel);
+        Assert.All(((ProbabilityPlotRenderer)snapshots[2].Plot!).Model.Series, series => Assert.Null(series.FittedLine));
+        Assert.Equal(3, snapshots[3].Frame.ReferenceLines.Count);
+    }
+
+    [Fact]
+    public async Task CopyingLeavesTheGraphAsItWas()
+    {
+        using var runtime = new Runtime();
+        var snapshot = ProbabilitySnapshot(specification: new YAT.Application.Specifications.Specification(14, 15, 16));
+        var before = new GraphExportService().RenderPng(snapshot);
+        var frame = snapshot.Frame;
+        var lines = frame.ReferenceLines;
+        var panel = frame.StatisticsPanel;
+        var axis = frame.XAxis;
+
+        await runtime.Controller.CopyImageAsync(snapshot, Token);
+        await runtime.Controller.CopyImageAsync(snapshot, Token);
+
+        Assert.Same(frame, snapshot.Frame);
+        Assert.Same(lines, frame.ReferenceLines);
+        Assert.Same(panel, frame.StatisticsPanel);
+        Assert.Same(axis, frame.XAxis);
+        Assert.Equal(before, new GraphExportService().RenderPng(snapshot));
+        Assert.Equal(runtime.Clipboard.Copied[0], runtime.Clipboard.Copied[1]);
+    }
+
+    [Theory]
+    [InlineData(typeof(InvalidOperationException))]
+    [InlineData(typeof(System.Runtime.InteropServices.COMException))]
+    [InlineData(typeof(UnauthorizedAccessException))]
+    public async Task AClipboardThatFailsIsReportedOnceAndNothingThrows(Type failure)
+    {
+        using var runtime = new Runtime();
+        runtime.Clipboard.FailWith = (Exception)Activator.CreateInstance(failure, "The clipboard is busy.")!;
+
+        await runtime.Controller.CopyImageAsync(Snapshot(), Token);
+
+        Assert.Equal([GraphExportController.CopyFailureMessage], runtime.Dialogs.Errors);
+        Assert.Equal("The graph could not be copied to the clipboard.", GraphExportController.CopyFailureMessage);
+        Assert.Empty(runtime.Clipboard.Copied);
+    }
+
+    [Fact]
+    public async Task ACancelledCopyIsSilent()
+    {
+        using var runtime = new Runtime();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await runtime.Controller.CopyImageAsync(Snapshot(), cancellation.Token);
+
+        Assert.Empty(runtime.Dialogs.Errors);
+        Assert.Empty(runtime.Clipboard.Copied);
+    }
+
+    [Fact]
+    public async Task CopyImageDoesNotChangeWhatAnExportWrites()
+    {
+        using var runtime = new Runtime();
+        var snapshot = Snapshot();
+        var first = runtime.Directory.File("first.png");
+        var second = runtime.Directory.File("second.png");
+
+        runtime.Dialogs.PngPath = first;
+        await runtime.Controller.ExportPngAsync(snapshot, Token);
+        await runtime.Controller.CopyImageAsync(snapshot, Token);
+        runtime.Dialogs.PngPath = second;
+        await runtime.Controller.ExportPngAsync(snapshot, Token);
+
+        Assert.Equal(File.ReadAllBytes(first), File.ReadAllBytes(second));
+    }
+
     // 11
     [Fact]
-    public void AnExportControllerNeedsItsDialogsServiceAndExporter()
+    public void AnExportControllerNeedsItsDialogsServiceExporterAndClipboard()
     {
-        Assert.Throws<ArgumentNullException>(() => new GraphExportController(null!, new GraphExportService(), new FakePowerPointGraphExporter()));
-        Assert.Throws<ArgumentNullException>(() => new GraphExportController(new FakeGraphExportDialogs(), null!, new FakePowerPointGraphExporter()));
-        Assert.Throws<ArgumentNullException>(() => new GraphExportController(new FakeGraphExportDialogs(), new GraphExportService(), null!));
+        var clipboard = new FakeGraphImageClipboard();
+        Assert.Throws<ArgumentNullException>(() => new GraphExportController(null!, new GraphExportService(), new FakePowerPointGraphExporter(), clipboard));
+        Assert.Throws<ArgumentNullException>(() => new GraphExportController(new FakeGraphExportDialogs(), null!, new FakePowerPointGraphExporter(), clipboard));
+        Assert.Throws<ArgumentNullException>(() => new GraphExportController(new FakeGraphExportDialogs(), new GraphExportService(), null!, clipboard));
+        Assert.Throws<ArgumentNullException>(() => new GraphExportController(new FakeGraphExportDialogs(), new GraphExportService(), new FakePowerPointGraphExporter(), null!));
     }
 }

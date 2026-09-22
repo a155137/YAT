@@ -14,6 +14,7 @@ public class GraphExportDependencyTests
         typeof(GraphExportSnapshot),
         typeof(GraphExportController),
         typeof(IGraphExportDialogs),
+        typeof(IGraphImageClipboard),
         typeof(IPowerPointGraphExporter),
         typeof(PowerPointGraphExporter),
         typeof(PowerPointSlideImage),
@@ -93,5 +94,16 @@ public class GraphExportDependencyTests
 
         Assert.Equal(["String", "PowerPointSlideImage"], save.GetParameters().Select(parameter => parameter.ParameterType.Name));
         Assert.Equal(typeof(byte[]), typeof(PowerPointSlideImage).GetProperty(nameof(PowerPointSlideImage.Png))!.PropertyType);
+    }
+
+    // 4
+    [Fact]
+    public void TheClipboardIsGivenAnImageRatherThanAGraph()
+    {
+        // Copy Image must not render a graph of its own either: the clipboard receives the bytes the PNG export produces.
+        var copy = Assert.Single(typeof(IGraphImageClipboard).GetMethods());
+
+        Assert.Equal([typeof(byte[])], copy.GetParameters().Select(parameter => parameter.ParameterType));
+        Assert.Equal(typeof(Task), copy.ReturnType);
     }
 }

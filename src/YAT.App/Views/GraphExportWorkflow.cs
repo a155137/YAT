@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using YAT.app.Clipboard;
 using YAT.app.Graphs.Export;
 
 namespace YAT.app.Views;
@@ -31,6 +32,7 @@ public sealed class AvaloniaGraphExportWorkflowFactory : IGraphExportWorkflowFac
     public GraphExportController Create(Window owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        return new GraphExportController(new AvaloniaGraphExportDialogs(owner), _service, _powerPoint);
+        return new GraphExportController(
+            new AvaloniaGraphExportDialogs(owner), _service, _powerPoint, new AvaloniaGraphImageClipboard(owner));
     }
 }

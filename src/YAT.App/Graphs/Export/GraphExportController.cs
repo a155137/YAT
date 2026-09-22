@@ -2,11 +2,13 @@ using SkiaSharp;
 
 namespace YAT.app.Graphs.Export;
 
-// The File menu of a graph window: ask where to save, render the graph off screen, write the file.
+// The File menu of a graph window: ask where to save, render the graph off screen, write the file - or, for Copy Image,
+// put the same rendered image on the clipboard.
 //
 // The snapshot it is given was taken on the UI thread; everything after that runs on a background thread and touches
 // nothing but the snapshot, so exporting neither blocks the window nor notices it changing. A PowerPoint export embeds
-// the PNG this controller just rendered - the graph is drawn once, for both.
+// the PNG this controller just rendered - the graph is drawn once, for both. Copy Image puts that same PNG on the clipboard, so a
+// pasted graph and an exported one are one picture.
 public sealed class GraphExportController
 {
     public const string PngExtension = "png";
@@ -15,18 +17,27 @@ public sealed class GraphExportController
 
     private const string FailureMessage = "Unable to export the graph.";
 
+    public const string CopyFailureMessage = "The graph could not be copied to the clipboard.";
+
     private readonly IGraphExportDialogs _dialogs;
     private readonly GraphExportService _service;
     private readonly IPowerPointGraphExporter _powerPoint;
+    private readonly IGraphImageClipboard _clipboard;
 
-    public GraphExportController(IGraphExportDialogs dialogs, GraphExportService service, IPowerPointGraphExporter powerPoint)
+    public GraphExportController(
+        IGraphExportDialogs dialogs,
+        GraphExportService service,
+        IPowerPointGraphExporter powerPoint,
+        IGraphImageClipboard clipboard)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(powerPoint);
+        ArgumentNullException.ThrowIfNull(clipboard);
         _dialogs = dialogs;
         _service = service;
         _powerPoint = powerPoint;
+        _clipboard = clipboard;
     }
 
     // The last file an export wrote, kept for tests and debugging until graphs become documents.
@@ -68,6 +79,27 @@ public sealed class GraphExportController
                     Hex(snapshot.Theme.Background)));
             },
             cancellationToken);
+    }
+
+    // Copy Image: the PNG a PNG export would write, rendered off the UI thread from the snapshot, then handed to the
+    // clipboard on the thread that asked (the clipboard belongs to the UI thread). Success is silent; a failure is told
+    // in one short message and the window stays as it was. Nothing about the graph changes: the snapshot is only read.
+    public async Task CopyImageAsync(GraphExportSnapshot snapshot, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        try
+        {
+            var png = await Task.Run(() => _service.RenderPng(snapshot), cancellationToken);
+            await _clipboard.CopyPngAsync(png);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception)
+        {
+            await _dialogs.ShowErrorAsync(CopyFailureMessage);
+        }
     }
 
     // The graph background as the six hexadecimal digits a presentation writes colours in.
