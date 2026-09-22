@@ -222,4 +222,78 @@ public class HistogramRendererTests
         Assert.Throws<ArgumentNullException>(() => renderer.RenderPlot(canvas, null!, GraphThemes.Light));
         Assert.Throws<ArgumentNullException>(() => renderer.RenderPlot(canvas, transform, null!));
     }
+
+    // ---- Y scales and bins, on screen and in export (#039) ----
+
+    private static HistogramRenderModel Model(double[] values, HistogramOptions options, string?[]? groups = null) =>
+        new HistogramRenderModelBuilder().Build(
+            new UnivariateGraphData(
+                GraphType.Histogram,
+                Guid.NewGuid(),
+                Column("Reg1"),
+                values,
+                groups is null ? null : new StringGroupData(Column("SITE", WorksheetDataType.String), groups)),
+            Labels,
+            options,
+            Token)!;
+
+    private static readonly double[] Spread = [1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 5, 5, 6];
+
+    // The tallest bar reaches up to where its height sits on the Y axis, whatever the scale.
+    [Theory]
+    [InlineData(HistogramYScale.Frequency)]
+    [InlineData(HistogramYScale.Percent)]
+    [InlineData(HistogramYScale.Density)]
+    public void BarsAreDrawnToTheirHeightOnTheChosenScale(HistogramYScale scale)
+    {
+        var model = Model(Spread, new HistogramOptions(scale));
+        using var bitmap = Render(model, GraphThemes.Light);
+
+        var layout = SkiaGraphRenderer.Layout(model.Frame, new SKRect(0, 0, 640, 480), GraphThemes.Light);
+        var transform = new GraphCoordinateTransform(model.Frame.XAxis.Range, model.Frame.YAxis.Range, layout.PlotArea);
+        var bar = PixelsOf(bitmap, GraphThemes.Light.SeriesColor(0));
+
+        Assert.NotEmpty(bar);
+        Assert.Equal(transform.ToScreenY(model.MaximumHeight), bar.Min(point => point.Y), 1.0);
+    }
+
+    [Fact]
+    public void FrequencyBarsDrawnFromHeightsAreTheBarsDrawnFromCounts()
+    {
+        var model = Model(Spread, HistogramOptions.Default);
+
+        // The same bins and counts, the heights left to the counts-only constructor.
+        var fromCounts = new HistogramRenderModel(
+            model.Frame, model.Bins, [.. model.Series.Select(series => new HistogramSeriesRenderModel(series.Label, series.SeriesIndex, series.Counts))],
+            model.SourceObservationCount);
+
+        using var drawn = Render(model, GraphThemes.Light);
+        using var legacy = Render(fromCounts, GraphThemes.Light);
+
+        Assert.Equal(legacy.Bytes, drawn.Bytes);
+    }
+
+    [Fact]
+    public void ThePngCarriesTheChosenScaleAndBins()
+    {
+        var service = new YAT.app.Graphs.Export.GraphExportService();
+        byte[] Png(HistogramOptions options)
+        {
+            var model = Model(Spread, options);
+            return service.RenderPng(new YAT.app.Graphs.Export.GraphExportSnapshot(model.Frame, new HistogramRenderer(model), GraphThemes.Light));
+        }
+
+        var frequency = Png(HistogramOptions.Default);
+        var percent = Png(new HistogramOptions(HistogramYScale.Percent));
+        var density = Png(new HistogramOptions(HistogramYScale.Density));
+        var fixedBins = Png(new HistogramOptions(BinningMode: HistogramBinningMode.WidthAndStart, BinWidth: 0.5, BinStart: 0));
+
+        Assert.Equal(4, new[] { frequency, percent, density, fixedBins }.Select(Convert.ToBase64String).Distinct().Count());
+        using var decoded = SKBitmap.Decode(density);
+        Assert.Equal(YAT.app.Graphs.Export.GraphExportService.ExportWidth, decoded.Width);
+        Assert.Equal(YAT.app.Graphs.Export.GraphExportService.ExportHeight, decoded.Height);
+
+        // The export draws the snapshot it is given: the same model always gives the same image.
+        Assert.Equal(density, Png(new HistogramOptions(HistogramYScale.Density)));
+    }
 }

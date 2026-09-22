@@ -279,6 +279,26 @@ public class GraphDataQueryServiceTests
         Assert.Equal(on.GraphType, off.GraphType);
     }
 
+    [Fact]
+    public async Task HistogramOptionsDoNotChangeTheDataThatIsRead()
+    {
+        var fixture = new Fixture();
+        var variable = fixture.Numeric("Reg1", 0, 1, null, 3, 4);
+        var group = fixture.Text("Lot", 1, "A", "B", null, "A");
+        var configuration = fixture.Configuration(
+            GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
+
+        var automatic = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
+        var fixedBins = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration with
+        {
+            HistogramOptions = new HistogramOptions(HistogramYScale.Density, HistogramBinningMode.WidthAndStart, BinWidth: 0.5, BinStart: 100)
+        }));
+
+        Assert.Equal(automatic.Values.ToArray(), fixedBins.Values.ToArray());
+        Assert.Equal(StringGroups(automatic), StringGroups(fixedBins));
+        Assert.Equal(automatic.Variable, fixedBins.Variable);
+    }
+
     // ---- Order, chunking and column state ----
 
     [Fact]

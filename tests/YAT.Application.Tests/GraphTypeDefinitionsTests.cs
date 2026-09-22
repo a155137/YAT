@@ -103,9 +103,12 @@ public class GraphTypeDefinitionsTests
         Assert.True(definition.Supports(GraphCapability.StatisticsPanel));
         Assert.True(definition.Supports(GraphCapability.SpecificationLines));
         Assert.Equal(
-            graphType == GraphType.ProbabilityPlot
-                ? [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine]
-                : [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines],
+            graphType switch
+            {
+                GraphType.ProbabilityPlot => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine],
+                GraphType.Histogram => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.HistogramControls],
+                _ => (GraphCapability[])[GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines]
+            },
             definition.Capabilities);
     }
 
@@ -118,6 +121,16 @@ public class GraphTypeDefinitionsTests
     [InlineData(GraphType.BoxPlot, false)]
     public void OnlyTheProbabilityPlotOffersTheFittedLine(GraphType graphType, bool supported) =>
         Assert.Equal(supported, GraphTypeDefinitions.For(graphType).Supports(GraphCapability.FittedLine));
+
+    // Only the histogram has its own Y scale and bins (Task #039).
+    [Theory]
+    [InlineData(GraphType.Histogram, true)]
+    [InlineData(GraphType.ProbabilityPlot, false)]
+    [InlineData(GraphType.EmpiricalCdf, false)]
+    [InlineData(GraphType.ScatterPlot, false)]
+    [InlineData(GraphType.BoxPlot, false)]
+    public void OnlyTheHistogramOffersHistogramControls(GraphType graphType, bool supported) =>
+        Assert.Equal(supported, GraphTypeDefinitions.For(graphType).Supports(GraphCapability.HistogramControls));
 
     [Theory]
     [InlineData(GraphType.ScatterPlot)]

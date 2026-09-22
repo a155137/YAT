@@ -35,7 +35,19 @@ public enum GraphValidationReason
     SpecificationLimitsOutOfOrder,
 
     // The target lies below the lower specification limit or above the upper one.
-    SpecificationTargetOutsideLimits
+    SpecificationTargetOutsideLimits,
+
+    // The histogram's Y scale or binning mode is not a defined choice.
+    HistogramOptionsInvalid,
+
+    // Count binning without a whole number of bins in the allowed range.
+    HistogramBinCountInvalid,
+
+    // Width-and-start binning without a positive, finite bin width.
+    HistogramBinWidthInvalid,
+
+    // Width-and-start binning without a finite bin start.
+    HistogramBinStartInvalid
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
@@ -127,6 +139,18 @@ public sealed class GraphConfigurationValidator
         if (definition.Supports(GraphCapability.SpecificationLines))
         {
             errors.AddRange(SpecificationErrors(configuration.Specification));
+        }
+
+        // Likewise the histogram's own options, only where they are read.
+        if (definition.Supports(GraphCapability.HistogramControls))
+        {
+            errors.AddRange(HistogramOptionsRules.Check(configuration.HistogramOptions).Select(problem => new GraphValidationError(problem switch
+            {
+                HistogramOptionsProblem.BinCountInvalid => GraphValidationReason.HistogramBinCountInvalid,
+                HistogramOptionsProblem.BinWidthInvalid => GraphValidationReason.HistogramBinWidthInvalid,
+                HistogramOptionsProblem.BinStartInvalid => GraphValidationReason.HistogramBinStartInvalid,
+                _ => GraphValidationReason.HistogramOptionsInvalid
+            })));
         }
 
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);

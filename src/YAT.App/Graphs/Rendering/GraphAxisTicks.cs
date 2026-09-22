@@ -5,6 +5,10 @@ namespace YAT.app.Graphs.Rendering;
 // A whole-number axis and the ticks that belong to it: what GraphAxisTicks.NiceCounts works out for a frequency axis.
 public sealed record GraphCountAxis(GraphAxisRange Range, IReadOnlyList<GraphAxisTick> Ticks);
 
+// An axis from zero and the ticks that belong to it: what GraphAxisTicks.NiceFromZero works out for a measure that is not
+// a whole number.
+public sealed record GraphZeroBasedAxis(GraphAxisRange Range, IReadOnlyList<GraphAxisTick> Ticks);
+
 // Axis tick policy: turns a range into the major ticks a graph shows.
 //
 // Nice produces the engineering scale a reader expects - steps of 1, 2 or 5 times a power of ten, so an axis reads
@@ -97,6 +101,47 @@ public static class GraphAxisTicks
         }
 
         return new GraphCountAxis(new GraphAxisRange(0, maximum), ticks);
+    }
+
+    // The axis a non-negative measure is read on when it is not a whole number (a histogram's percent or density): it
+    // starts at zero, its ticks are the 1-2-5 multiples of one step, and its top is the first multiple at or above the
+    // largest value, so the tallest bar is never cut off. Labelled the way Nice labels an axis.
+    //
+    //     largest value 23.4  ->  0, 5, 10, 15, 20, 25
+    public static GraphZeroBasedAxis NiceFromZero(double maximum, int intervals = DefaultIntervals)
+    {
+        if (!double.IsFinite(maximum) || maximum < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximum), maximum, "The largest value must be a finite, non-negative number.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(intervals, 2);
+
+        // Nothing to reach: a unit axis, like a frequency axis with nothing counted.
+        var reach = maximum > 0 ? maximum : 1;
+        var step = NiceStep(reach / intervals);
+        var steps = Math.Ceiling(reach / step);
+        if (!double.IsFinite(step) || step <= 0 || !double.IsFinite(steps) || steps < 1 || steps > MaximumTicks)
+        {
+            var fallback = new GraphAxisRange(0, reach);
+            return new GraphZeroBasedAxis(fallback, Evenly(fallback, 2));
+        }
+
+        // Every tick is a multiple of the step counted from zero, and the top is the last of them.
+        var values = new List<double>((int)steps + 2);
+        for (var index = 0; index <= (int)steps; index++)
+        {
+            values.Add(index * step);
+        }
+
+        // The division can round down to a whole number of steps whose multiple falls a bit short of the largest
+        // value; one more step keeps the top at or above it.
+        if (values[^1] < reach)
+        {
+            values.Add(values.Count * step);
+        }
+
+        return new GraphZeroBasedAxis(new GraphAxisRange(0, values[^1]), Label(values, step));
     }
 
     // count ticks over the whole range, the first at Minimum and the last at Maximum.

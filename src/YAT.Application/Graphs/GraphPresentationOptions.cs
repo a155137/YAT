@@ -14,7 +14,10 @@ public enum GraphCapability
 
     // The line a normally distributed sample would fall on, drawn through a probability plot (see
     // ProbabilityPlotOptions). It belongs to the plot itself, not to the frame around it.
-    FittedLine
+    FittedLine,
+
+    // The histogram's own Y scale and bins (see HistogramOptions).
+    HistogramControls
 }
 
 // How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:

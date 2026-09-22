@@ -312,6 +312,134 @@ public sealed class GraphRobustnessFittedLineTests
     }
 }
 
+// #039: every named univariate case through the histogram with every named Y scale and binning, built, checked,
+// rebuilt and drawn. The bins, heights and fixed grid hold their invariants; the statistics panel and the
+// specification lines are exactly what they are with the default options.
+public sealed class GraphRobustnessHistogramTests
+{
+    public static TheoryData<string> UnivariateCases => GraphRobustnessNamedTests.UnivariateCases;
+
+    private static readonly HashSet<string> Drawn = ["percent", "count-200-density", "fixed-start-far", "fixed-maximum-on-edge"];
+
+    [Theory]
+    [MemberData(nameof(UnivariateCases))]
+    public void EveryHistogramOptionHoldsItsInvariants(string name)
+    {
+        var robustnessCase = RobustnessCorpus.Named(name);
+        var (_, specification) = RobustnessCorpus.Specifications(robustnessCase).FirstOrDefault(item => item.Name == "outside-both");
+        var data = RobustnessGraphs.DataFor(RobustnessGraph.Histogram, robustnessCase);
+        var context = robustnessCase.Describe(RobustnessGraphs.Name(RobustnessGraph.Histogram));
+        var plain = GraphRobustnessInvariants.Exercise(context, RobustnessGraph.Histogram, data, null, repeat: false, specification);
+
+        foreach (var (optionsName, options) in RobustnessCorpus.HistogramOptionsFor(robustnessCase))
+        {
+            Assert.True(HistogramOptionsRules.IsValid(options), $"{optionsName} is not valid.");
+            var built = GraphRobustnessInvariants.Exercise(
+                $"{context} [{optionsName}]",
+                RobustnessGraph.Histogram,
+                data,
+                Drawn.Contains(optionsName) ? GraphThemes.Light : null,
+                repeat: true,
+                specification,
+                histogramOptions: options);
+
+            if (built.Model is null)
+            {
+                continue;
+            }
+
+            // Neither the scale nor the bins reach the statistics or the specification's lines.
+            Assert.Equal(plain.Frame!.StatisticsPanel?.Rows, built.Frame!.StatisticsPanel?.Rows);
+            Assert.Equal(plain.Frame.ReferenceLines, built.Frame.ReferenceLines);
+        }
+    }
+
+    // The same width and start over two different datasets: one grid, wherever the two overlap, to the last bit.
+    [Theory]
+    [InlineData("bimodal", "highly-skewed", 0.37, 0.5)]
+    [InlineData("quantized-readings", "large-offset-tiny-variation", 0.0017, 1.2)]
+    [InlineData("uneven-groups", "missing-group-labels", 3.3, -7)]
+    public void TwoDatasetsWithTheSameWidthAndStartShareOneGrid(string first, string second, double width, double start)
+    {
+        var options = new HistogramOptions(BinningMode: HistogramBinningMode.WidthAndStart, BinWidth: width, BinStart: start);
+        double[] Edges(string name)
+        {
+            var robustnessCase = RobustnessCorpus.Named(name);
+            var data = RobustnessGraphs.DataFor(RobustnessGraph.Histogram, robustnessCase);
+            var values = ((UnivariateGraphData)data).Values.ToArray();
+            if ((values.Max() - values.Min()) / width >= HistogramOptions.MaximumBinCount)
+            {
+                return [];
+            }
+
+            var model = (HistogramRenderModel)GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.Histogram, null, repeat: false, histogramOptions: options).Model!;
+            return [model.Bins[0].LowerEdge, .. model.Bins.Select(bin => bin.UpperEdge)];
+        }
+
+        var a = Edges(first);
+        var b = Edges(second);
+
+        // Every edge either grid has is start + k x width for its own k: two grids agree on every k they share.
+        foreach (var edge in a.Concat(b))
+        {
+            var k = Math.Round((edge - start) / width);
+            Assert.Equal(start + (k * width), edge);
+        }
+    }
+
+    // What the user is told instead of a histogram, through the harness's production build.
+    [Theory]
+    [InlineData("bimodal", 1e-6, 0, "The selected bin width requires more than 200 bins. Choose a larger bin width.")]
+    [InlineData("extreme-positive-tail", 1, 0, "The selected bin width requires more than 200 bins. Choose a larger bin width.")]
+    [InlineData("large-offset-tiny-variation", 1e-15, 0, "The selected bin width requires more than 200 bins. Choose a larger bin width.")]
+    [InlineData("constant", 1e-15, 0, "The selected bin width is too small for this data range. Choose a larger bin width.")]
+    [InlineData("n-1", 1e-20, 1e10, "The selected bin width is too small for this data range. Choose a larger bin width.")]
+    public void AGridThatDoesNotSuitTheDataIsRefusedWithItsReason(string name, double width, double start, string message)
+    {
+        var data = RobustnessGraphs.DataFor(RobustnessGraph.Histogram, RobustnessCorpus.Named(name));
+        var options = new HistogramOptions(BinningMode: HistogramBinningMode.WidthAndStart, BinWidth: width, BinStart: start);
+
+        var failure = Assert.Throws<YAT.app.Graphs.GraphPreparationException>(
+            () => RobustnessGraphs.Build(RobustnessGraph.Histogram, data, cancellationToken: TestContext.Current.CancellationToken, histogramOptions: options));
+
+        Assert.Equal(message, failure.Message);
+    }
+
+    // The histogram invariants are not vacuous: heights, counts and a fixed grid that disagree with their options are
+    // caught.
+    [Fact]
+    public void AHistogramThatDisagreesWithItsOptionsIsCaught()
+    {
+        var robustnessCase = RobustnessCorpus.Named("uneven-groups");
+        var percent = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.Histogram, null, repeat: false,
+            histogramOptions: new HistogramOptions(HistogramYScale.Percent));
+        var fixedGrid = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.Histogram, null, repeat: false,
+            histogramOptions: new HistogramOptions(BinningMode: HistogramBinningMode.WidthAndStart, BinWidth: 50, BinStart: 3));
+
+        // A percent histogram checked as density, as frequency, and as a fixed grid of another width.
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("percent as density", percent with { HistogramOptions = new HistogramOptions(HistogramYScale.Density) }));
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("percent as frequency", percent with { HistogramOptions = HistogramOptions.Default }));
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("grid of another width", fixedGrid with
+        {
+            HistogramOptions = new HistogramOptions(BinningMode: HistogramBinningMode.WidthAndStart, BinWidth: 51, BinStart: 3)
+        }));
+
+        // Counts moved between bins no longer match an independent recount.
+        var model = (HistogramRenderModel)percent.Model!;
+        var series = model.Series[0];
+        var moved = series.Counts.ToArray();
+        var from = Array.FindIndex(moved, count => count > 0);
+        var to = from == 0 ? 1 : 0;
+        moved[from]--;
+        moved[to]++;
+        var tampered = new HistogramRenderModel(
+            model.Frame, model.Bins,
+            [new HistogramSeriesRenderModel(series.Label, series.SeriesIndex, moved, [.. moved.Select(count => 100d * count / series.ObservationCount)]), .. model.Series.Skip(1)],
+            model.SourceObservationCount, model.YScale);
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("moved counts", percent with { Model = tampered, Plot = new HistogramRenderer(tampered) }));
+    }
+}
+
 // L1: deterministic generated cases, biased towards semiconductor-like data.
 public sealed class GraphRobustnessGeneratedTests
 {
@@ -334,9 +462,13 @@ public sealed class GraphRobustnessGeneratedTests
         // One case in ten draws its probability plot without fitted lines (#037); the explicit sweep, one in three.
         var probabilityPlotOptions = caseNumber % 10 == 5 ? new ProbabilityPlotOptions(ShowFittedLine: false) : null;
 
+        // And one in ten draws its histogram with generated options (#039); the explicit sweep, one in four.
+        var histogramOptions = caseNumber % 10 == 7 ? RobustnessGenerator.HistogramOptionsFor(robustnessCase, caseNumber) : null;
+
         foreach (var graph in RobustnessGraphs.For(robustnessCase))
         {
-            GraphRobustnessInvariants.Exercise(robustnessCase, graph, renderTheme: null, specification: specification, probabilityPlotOptions: probabilityPlotOptions);
+            GraphRobustnessInvariants.Exercise(
+                robustnessCase, graph, renderTheme: null, specification: specification, probabilityPlotOptions: probabilityPlotOptions, histogramOptions: histogramOptions);
         }
     }
 

@@ -32,6 +32,11 @@ public static class GraphValidationMessages
             GraphValidationReason.SpecificationValueNotNumeric => $"{FieldName(error.Field)} must be a number.",
             GraphValidationReason.SpecificationLimitsOutOfOrder => "LSL must be below USL.",
             GraphValidationReason.SpecificationTargetOutsideLimits => "Target must lie within the specification limits (LSL to USL).",
+            GraphValidationReason.HistogramBinCountInvalid =>
+                $"Number of bins must be a whole number from {HistogramOptions.MinimumBinCount} to {HistogramOptions.MaximumBinCount}.",
+            GraphValidationReason.HistogramBinWidthInvalid => "Bin width must be a positive number.",
+            GraphValidationReason.HistogramBinStartInvalid => "Bin start must be a number.",
+            GraphValidationReason.HistogramOptionsInvalid => "Please choose a Y scale and a way to choose the bins.",
             _ => "This graph cannot be created with the current settings."
         };
     }

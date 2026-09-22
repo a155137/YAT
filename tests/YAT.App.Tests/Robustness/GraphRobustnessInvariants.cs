@@ -38,10 +38,11 @@ internal static class GraphRobustnessInvariants
         GraphTheme? renderTheme,
         bool repeat = true,
         Specification? specification = null,
-        ProbabilityPlotOptions? probabilityPlotOptions = null)
+        ProbabilityPlotOptions? probabilityPlotOptions = null,
+        HistogramOptions? histogramOptions = null)
     {
         var data = RobustnessGraphs.DataFor(graph, robustnessCase);
-        return Exercise(robustnessCase.Describe(RobustnessGraphs.Name(graph)), graph, data, renderTheme, repeat, specification, probabilityPlotOptions);
+        return Exercise(robustnessCase.Describe(RobustnessGraphs.Name(graph)), graph, data, renderTheme, repeat, specification, probabilityPlotOptions, histogramOptions);
     }
 
     public static BuiltGraph Exercise(
@@ -51,7 +52,8 @@ internal static class GraphRobustnessInvariants
         GraphTheme? renderTheme,
         bool repeat = true,
         Specification? specification = null,
-        ProbabilityPlotOptions? probabilityPlotOptions = null)
+        ProbabilityPlotOptions? probabilityPlotOptions = null,
+        HistogramOptions? histogramOptions = null)
     {
         if (specification is { IsEmpty: false })
         {
@@ -63,20 +65,25 @@ internal static class GraphRobustnessInvariants
             context += " without fitted lines";
         }
 
-        var built = BuildOrFail(context, graph, data, specification: specification, probabilityPlotOptions: probabilityPlotOptions);
+        if (histogramOptions is not null && histogramOptions != HistogramOptions.Default && graph == RobustnessGraph.Histogram)
+        {
+            context += $" with histogram options {histogramOptions}";
+        }
+
+        var built = BuildOrFail(context, graph, data, specification: specification, probabilityPlotOptions: probabilityPlotOptions, histogramOptions: histogramOptions);
         Verify(context, built);
 
         if (repeat && built.Model is not null)
         {
             // Implementation invariant: the same data builds the same graph, points and all.
-            var again = BuildOrFail(context, graph, data, specification: specification, probabilityPlotOptions: probabilityPlotOptions);
+            var again = BuildOrFail(context, graph, data, specification: specification, probabilityPlotOptions: probabilityPlotOptions, histogramOptions: histogramOptions);
             That(Fingerprint(again, statisticsOnly: false) == Fingerprint(built, statisticsOnly: false), context,
                 "building the same data twice must give the same model");
 
             if (graph != RobustnessGraph.Histogram)
             {
                 // Sampling must not change statistics (the histogram never samples).
-                var sampled = BuildOrFail(context, graph, data, SamplingBudget(graph, data), specification, probabilityPlotOptions);
+                var sampled = BuildOrFail(context, graph, data, SamplingBudget(graph, data), specification, probabilityPlotOptions, histogramOptions);
                 Verify(context + " (sampled)", sampled);
                 var expected = Fingerprint(built, statisticsOnly: true);
                 var actual = Fingerprint(sampled, statisticsOnly: true);
@@ -105,11 +112,12 @@ internal static class GraphRobustnessInvariants
         GraphData data,
         int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints,
         Specification? specification = null,
-        ProbabilityPlotOptions? probabilityPlotOptions = null)
+        ProbabilityPlotOptions? probabilityPlotOptions = null,
+        HistogramOptions? histogramOptions = null)
     {
         try
         {
-            return RobustnessGraphs.Build(graph, data, maximumRenderedPoints, TestContext.Current.CancellationToken, specification, probabilityPlotOptions);
+            return RobustnessGraphs.Build(graph, data, maximumRenderedPoints, TestContext.Current.CancellationToken, specification, probabilityPlotOptions, histogramOptions);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -139,7 +147,7 @@ internal static class GraphRobustnessInvariants
         switch (built.Model)
         {
             case HistogramRenderModel histogram:
-                Histogram(context, (UnivariateGraphData)built.Data, histogram);
+                Histogram(context, (UnivariateGraphData)built.Data, histogram, built.HistogramOptions);
                 break;
             case BoxPlotRenderModel boxPlot:
                 BoxPlot(context, (MultiVariableGraphData)built.Data, boxPlot);
@@ -325,15 +333,16 @@ internal static class GraphRobustnessInvariants
 
     // ---- Histogram ----
 
-    private static void Histogram(string context, UnivariateGraphData data, HistogramRenderModel model)
+    private static void Histogram(string context, UnivariateGraphData data, HistogramRenderModel model, HistogramOptions options)
     {
         var expected = ExpectedSeries(data.Group, data.Values.Span);
+        var fixedGrid = options.BinningMode == HistogramBinningMode.WidthAndStart;
         That(model.SourceObservationCount == data.Count, context, $"histogram counted {model.SourceObservationCount} of {data.Count} observations");
         That(model.Series.Select(series => series.Label).SequenceEqual(expected.Select(series => series.Label)), context,
             "histogram series must be the groups in first-observed order");
 
-        // Implementation invariants: HistogramBinCount keeps the bin count within its limits, and the bins are
-        // equal-width intervals built from one list of edges.
+        // Implementation invariants: the bin count stays within the limits HistogramBinCount keeps to - automatic,
+        // counted and fixed bins alike (#039) - and the bins are equal-width intervals built from one list of edges.
         That(model.Bins.Count is >= HistogramBinCount.MinimumBinCount and <= HistogramBinCount.MaximumBinCount, context,
             $"histogram has {model.Bins.Count} bins");
         for (var index = 1; index < model.Bins.Count; index++)
@@ -345,13 +354,16 @@ internal static class GraphRobustnessInvariants
         var last = model.Bins[^1].UpperEdge;
         foreach (var value in data.Values.Span)
         {
-            That(value >= first && value <= last, context, $"observation {value:R} lies outside the bins {first:R}..{last:R}");
+            // A fixed grid always reaches past its largest value (#039); bins over the data's range end on it.
+            That(value >= first && (fixedGrid ? value < last : value <= last), context,
+                $"observation {value:R} lies outside the bins {first:R}..{last:R}");
         }
 
         That(Within(model.Frame.XAxis.Range, first) && Within(model.Frame.XAxis.Range, last), context, "the X axis must cover the bins");
 
         // Implementation invariant: the histogram never samples, so every observation is counted exactly once.
         var maximum = 0;
+        var tallest = 0d;
         for (var index = 0; index < model.Series.Count; index++)
         {
             var series = model.Series[index];
@@ -360,10 +372,89 @@ internal static class GraphRobustnessInvariants
             That(series.ObservationCount == expected[index].Values.Length, context,
                 $"series '{series.Label}' has {series.ObservationCount} observations, the data {expected[index].Values.Length}");
             maximum = Math.Max(maximum, series.Counts.Count == 0 ? 0 : series.Counts.Max());
+            tallest = Math.Max(tallest, series.Heights.Count == 0 ? 0 : series.Heights.Max());
+
+            // Implementation invariant: counted again here, independently, every value lands in the bin its edges put
+            // it in - [lower, upper), the last bin also holding its upper edge except on a fixed grid (#039).
+            var recount = new int[model.Bins.Count];
+            foreach (var value in expected[index].Values)
+            {
+                var bin = model.Bins.Count - 1;
+                for (var candidate = 0; candidate < model.Bins.Count; candidate++)
+                {
+                    if (value < model.Bins[candidate].UpperEdge)
+                    {
+                        bin = candidate;
+                        break;
+                    }
+                }
+
+                recount[bin]++;
+            }
+
+            That(recount.SequenceEqual(series.Counts), context,
+                $"series '{series.Label}' counts {string.Join(",", series.Counts)} are not the recount {string.Join(",", recount)}");
+
+            HistogramHeights(context, model, series, options.YScale);
         }
 
         That(model.MaximumCount == maximum, context, $"maximum count {model.MaximumCount} is not the largest bin count {maximum}");
-        That(Within(model.Frame.YAxis.Range, 0) && Within(model.Frame.YAxis.Range, maximum), context, "the Y axis must cover 0..maximum count");
+        That(model.MaximumHeight == tallest, context, $"maximum height {model.MaximumHeight:R} is not the tallest bar {tallest:R}");
+        That(model.YScale == options.YScale, context, $"the histogram is on the {model.YScale} scale, not {options.YScale}");
+
+        // Implementation invariant: the Y axis starts at zero and reaches the tallest bar on its scale (the tallest count
+        // on the frequency scale).
+        That(Within(model.Frame.YAxis.Range, 0) && Within(model.Frame.YAxis.Range, model.MaximumHeight), context,
+            $"the Y axis must cover 0..{model.MaximumHeight:R}");
+
+        if (fixedGrid)
+        {
+            FixedHistogramGrid(context, model, options);
+        }
+    }
+
+    // Mathematical invariants of the Y scales (#039): heights are finite and non-negative; frequency is the count;
+    // percent is each series' own share, adding up to 100; density has unit area per series, over each bin's width.
+    private static void HistogramHeights(string context, HistogramRenderModel model, HistogramSeriesRenderModel series, HistogramYScale scale)
+    {
+        var where = $"series '{series.Label}' on the {scale} scale";
+        That(series.Heights.Count == series.Counts.Count, context, $"{where} has {series.Heights.Count} heights for {series.Counts.Count} bins");
+        That(series.Heights.All(height => double.IsFinite(height) && height >= 0), context, $"{where} has a height that is not finite and non-negative");
+
+        switch (scale)
+        {
+            case HistogramYScale.Frequency:
+                That(series.Heights.Select((height, index) => height == series.Counts[index]).All(same => same), context,
+                    $"{where}: a height is not its count");
+                break;
+
+            case HistogramYScale.Percent:
+                That(Math.Abs(series.Heights.Sum() - 100) <= 1e-9 * 100, context, $"{where}: percents add up to {series.Heights.Sum():R}, not 100");
+                break;
+
+            case HistogramYScale.Density:
+                var area = series.Heights.Select((height, index) => height * model.Bins[index].Width).Sum();
+                That(Math.Abs(area - 1) <= 1e-9, context, $"{where}: the bars' area is {area:R}, not 1");
+                break;
+        }
+    }
+
+    // Implementation invariants of a fixed width-and-start grid (#039): every edge is exactly start + k x width for
+    // consecutive whole numbers k (computed, never accumulated, so exact equality is the contract), the width is the
+    // user's, and the first and last bins hold data - the grid reaches only as far as the data needs.
+    private static void FixedHistogramGrid(string context, HistogramRenderModel model, HistogramOptions options)
+    {
+        var width = options.BinWidth!.Value;
+        var start = options.BinStart!.Value;
+        var k = Math.Round((model.Bins[0].LowerEdge - start) / width);
+        for (var index = 0; index < model.Bins.Count; index++)
+        {
+            That(model.Bins[index].LowerEdge == start + ((k + index) * width) && model.Bins[index].UpperEdge == start + ((k + index + 1) * width), context,
+                $"bin {index} {model.Bins[index].LowerEdge:R}..{model.Bins[index].UpperEdge:R} is not start + k x width for k = {k + index:R}");
+        }
+
+        That(model.Series.Sum(series => series.Counts[0]) > 0 && model.Series.Sum(series => series.Counts[^1]) > 0, context,
+            "a fixed grid must begin and end with bins that hold data");
     }
 
     // ---- Box Plot ----
@@ -736,11 +827,12 @@ internal static class GraphRobustnessInvariants
         switch (built.Model)
         {
             case HistogramRenderModel histogram:
-                text.Append(Invariant($" n={histogram.SourceObservationCount} max={histogram.MaximumCount} bins="));
+                text.Append(Invariant($" n={histogram.SourceObservationCount} max={histogram.MaximumCount} scale={histogram.YScale} tallest={histogram.MaximumHeight:R} bins="));
                 text.AppendJoin(",", histogram.Bins.Select(bin => Invariant($"{bin.LowerEdge:R}..{bin.UpperEdge:R}")));
                 foreach (var series in histogram.Series)
                 {
-                    text.Append(Invariant($" [{series.Label}#{series.SeriesIndex} n={series.ObservationCount} counts={string.Join(",", series.Counts)}]"));
+                    text.Append(Invariant($" [{series.Label}#{series.SeriesIndex} n={series.ObservationCount} counts={string.Join(",", series.Counts)} heights="));
+                    text.AppendJoin(",", series.Heights.Select(height => height.ToString("R", CultureInfo.InvariantCulture))).Append(']');
                 }
 
                 break;

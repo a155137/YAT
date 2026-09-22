@@ -164,7 +164,8 @@ internal sealed class GraphSetupWindow : Window
         var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
         column.Children.Add(Roles(setup));
 
-        if (!setup.SupportsStatisticsPanel && !setup.SupportsFittedLine && !setup.SupportsSpecificationLines)
+        if (!setup.SupportsStatisticsPanel && !setup.SupportsFittedLine && !setup.SupportsSpecificationLines
+            && !setup.SupportsHistogramControls)
         {
             Grid.SetColumn(column, 2);
             return column;
@@ -172,6 +173,11 @@ internal sealed class GraphSetupWindow : Window
 
         var options = new StackPanel { Spacing = 4 };
         options.Children.Add(new TextBlock { Text = "Options", FontWeight = FontWeight.SemiBold });
+
+        if (setup.SupportsHistogramControls)
+        {
+            options.Children.Add(HistogramControls(setup));
+        }
 
         if (setup.SupportsStatisticsPanel)
         {
@@ -202,17 +208,69 @@ internal sealed class GraphSetupWindow : Window
         return option;
     }
 
+    // The histogram's own choices: what its bars measure, and how its bins are chosen. The number fields belong to one
+    // binning mode each and are only editable while that mode is chosen; they stay in place so the dialog does not
+    // change size as the mode changes.
+    private static Control HistogramControls(GraphSetupViewModel setup)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto") };
+
+        AddLabelled(grid, 0, "Y scale", Choice(setup, setup.YScaleChoices, nameof(GraphSetupViewModel.SelectedYScale)));
+        AddLabelled(grid, 1, "Bins", Choice(setup, setup.BinningChoices, nameof(GraphSetupViewModel.SelectedBinning)));
+
+        var fields = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 2) };
+        AddField(fields, setup, "Number", nameof(GraphSetupViewModel.BinCountText),
+            placeholder: "30", enabledProperty: nameof(GraphSetupViewModel.IsBinCountEnabled));
+        AddField(fields, setup, "Width", nameof(GraphSetupViewModel.BinWidthText), leftMargin: 10,
+            placeholder: "100", enabledProperty: nameof(GraphSetupViewModel.IsBinWidthAndStartEnabled));
+        AddField(fields, setup, "Start", nameof(GraphSetupViewModel.BinStartText), leftMargin: 10,
+            placeholder: "14000", enabledProperty: nameof(GraphSetupViewModel.IsBinWidthAndStartEnabled));
+        Grid.SetRow(fields, 2);
+        Grid.SetColumn(fields, 1);
+        grid.Children.Add(fields);
+
+        return grid;
+    }
+
+    private static void AddLabelled(Grid grid, int row, string label, Control control)
+    {
+        var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 3, 12, 3) };
+        Grid.SetRow(text, row);
+        grid.Children.Add(text);
+
+        control.Margin = new Thickness(0, 3);
+        Grid.SetRow(control, row);
+        Grid.SetColumn(control, 1);
+        grid.Children.Add(control);
+    }
+
+    // A list of choices bound to one view model property, named after it.
+    private static ComboBox Choice<T>(GraphSetupViewModel setup, IReadOnlyList<SetupChoice<T>> choices, string property)
+    {
+        var selector = new ComboBox { ItemsSource = choices, MinWidth = 180, Name = property };
+        selector.Bind(SelectingItemsControl.SelectedItemProperty, new Binding(property) { Source = setup, Mode = BindingMode.TwoWay });
+        return selector;
+    }
+
     // LSL, Target and USL on one line. Blank fields draw nothing, so there is no separate switch for the lines.
     private static Control Specification(GraphSetupViewModel setup)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        AddSpecificationField(row, setup, "LSL", nameof(GraphSetupViewModel.LowerLimitText));
-        AddSpecificationField(row, setup, "Target", nameof(GraphSetupViewModel.TargetText), leftMargin: 10);
-        AddSpecificationField(row, setup, "USL", nameof(GraphSetupViewModel.UpperLimitText), leftMargin: 10);
+        AddField(row, setup, "LSL", nameof(GraphSetupViewModel.LowerLimitText));
+        AddField(row, setup, "Target", nameof(GraphSetupViewModel.TargetText), leftMargin: 10);
+        AddField(row, setup, "USL", nameof(GraphSetupViewModel.UpperLimitText), leftMargin: 10);
         return row;
     }
 
-    private static void AddSpecificationField(StackPanel row, GraphSetupViewModel setup, string label, string property, double leftMargin = 0)
+    // One labelled number field. enabledProperty: a view model flag the field is editable under, if it is not always.
+    private static void AddField(
+        StackPanel row,
+        GraphSetupViewModel setup,
+        string label,
+        string property,
+        double leftMargin = 0,
+        string placeholder = "—",
+        string? enabledProperty = null)
     {
         row.Children.Add(new TextBlock
         {
@@ -227,12 +285,17 @@ internal sealed class GraphSetupWindow : Window
             MinHeight = 0,
             Padding = new Thickness(6, 2),
             HorizontalContentAlignment = HorizontalAlignment.Right,
-            PlaceholderText = "—"
+            PlaceholderText = placeholder
         };
 
         // Named after its field, so the dialog can be driven and inspected by the field it edits.
         editor.Name = property;
         editor.Bind(TextBox.TextProperty, new Binding(property) { Source = setup, Mode = BindingMode.TwoWay });
+        if (enabledProperty is not null)
+        {
+            editor.Bind(IsEnabledProperty, new Binding(enabledProperty) { Source = setup });
+        }
+
         row.Children.Add(editor);
     }
 

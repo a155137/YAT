@@ -1,3 +1,4 @@
+using YAT.Application.Graphs;
 using YAT.Application.Specifications;
 
 namespace YAT.App.Tests.Robustness;
@@ -119,6 +120,38 @@ internal static class RobustnessCorpus
             ("tiny-magnitude", new Specification(-1e-300, 0, 1e-300)),
             ("large-magnitude", new Specification(-1e300, 0, 1e300)),
             ("unreachable", new Specification(null, null, double.MaxValue))
+        ];
+    }
+
+    // The named histogram options a univariate case is checked with (#039): every Y scale over automatic bins, counted
+    // bins at the limits, and fixed grids placed relative to the case's own data - a start inside the data, a start on
+    // the smallest value, a start far away, and a width that puts the largest value exactly on an edge. Every one is
+    // valid and needs at most the bin limit for its case. None when the case has no values.
+    public static IReadOnlyList<(string Name, HistogramOptions Options)> HistogramOptionsFor(RobustnessCase robustnessCase)
+    {
+        var values = robustnessCase.Values.OfType<double>().ToArray();
+        if (values.Length == 0)
+        {
+            return [];
+        }
+
+        var minimum = values.Min();
+        var maximum = values.Max();
+        var span = maximum - minimum;
+        var width = span > 0 ? span / 37 : Math.Max(Math.Abs(minimum) * 1e-3, 1e-3);
+        var tenth = span > 0 ? span / 10 : width;
+
+        return
+        [
+            ("percent", new HistogramOptions(HistogramYScale.Percent)),
+            ("density", new HistogramOptions(HistogramYScale.Density)),
+            ("count-1-percent", new HistogramOptions(HistogramYScale.Percent, HistogramBinningMode.Count, BinCount: 1)),
+            ("count-7", new HistogramOptions(BinningMode: HistogramBinningMode.Count, BinCount: 7)),
+            ("count-200-density", new HistogramOptions(HistogramYScale.Density, HistogramBinningMode.Count, BinCount: 200)),
+            ("fixed-inside", new HistogramOptions(HistogramYScale.Density, HistogramBinningMode.WidthAndStart, BinWidth: width, BinStart: minimum + (span * 0.3))),
+            ("fixed-start-on-minimum", new HistogramOptions(HistogramYScale.Percent, HistogramBinningMode.WidthAndStart, BinWidth: width, BinStart: minimum)),
+            ("fixed-start-far", new HistogramOptions(BinningMode: HistogramBinningMode.WidthAndStart, BinWidth: width, BinStart: minimum - (1e4 * width))),
+            ("fixed-maximum-on-edge", new HistogramOptions(HistogramYScale.Density, HistogramBinningMode.WidthAndStart, BinWidth: tenth, BinStart: maximum - (5 * tenth)))
         ];
     }
 

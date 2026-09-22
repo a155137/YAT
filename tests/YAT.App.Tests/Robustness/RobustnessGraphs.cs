@@ -30,6 +30,9 @@ internal sealed record BuiltGraph(RobustnessGraph Graph, GraphData Data, object?
 
     // The probability plot options it was built with (#037); every other graph type ignores them.
     public ProbabilityPlotOptions ProbabilityPlotOptions { get; init; } = ProbabilityPlotOptions.Default;
+
+    // The histogram options it was built with (#039); every other graph type ignores them.
+    public HistogramOptions HistogramOptions { get; init; } = HistogramOptions.Default;
 }
 
 // How the harness turns a robustness case into graphs: the graph data a case becomes (the way the data pipeline
@@ -156,18 +159,24 @@ internal static class RobustnessGraphs
         int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints,
         CancellationToken cancellationToken = default,
         Specification? specification = null,
-        ProbabilityPlotOptions? probabilityPlotOptions = null)
+        ProbabilityPlotOptions? probabilityPlotOptions = null,
+        HistogramOptions? histogramOptions = null)
     {
         specification ??= Specification.None;
         probabilityPlotOptions ??= ProbabilityPlotOptions.Default;
+        histogramOptions ??= HistogramOptions.Default;
         switch (graph)
         {
             case RobustnessGraph.Histogram:
             {
                 var univariate = (UnivariateGraphData)data;
                 var model = new HistogramRenderModelBuilder().Build(
-                    univariate, new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return Built(graph, data, model, model?.Frame, model is null ? null : new HistogramRenderer(model), cancellationToken, specification);
+                    univariate,
+                    new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    histogramOptions,
+                    cancellationToken);
+                return Built(graph, data, model, model?.Frame, model is null ? null : new HistogramRenderer(model), cancellationToken, specification)
+                    with { HistogramOptions = histogramOptions };
             }
 
             case RobustnessGraph.BoxPlot:

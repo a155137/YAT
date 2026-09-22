@@ -1,7 +1,11 @@
+using YAT.Application.Graphs;
+
 namespace YAT.app.Graphs.Rendering;
 
-// One bin of a histogram: the half-open interval [LowerEdge, UpperEdge) it counts, except for the last bin of a
-// histogram, which also counts its upper edge so that the largest observation is always somewhere.
+// One bin of a histogram: the half-open interval [LowerEdge, UpperEdge) it counts. On bins drawn over the data's own
+// range (automatic or counted bins) the last bin also counts its upper edge, which is the largest observation. On a
+// fixed width-and-start grid every bin is half-open, the last one included: the grid always reaches past the largest
+// observation instead, so a value's bin never depends on which other values it is drawn with.
 public sealed record HistogramBin
 {
     public HistogramBin(double lowerEdge, double upperEdge)
@@ -27,23 +31,43 @@ public sealed record HistogramBin
     public double Width => UpperEdge - LowerEdge;
 }
 
-// How often one group of observations falls into each bin. Counts has one entry per bin of the histogram, in bin
-// order; the series index selects the colour from the theme palette.
+// How often one group of observations falls into each bin, and how tall its bars are drawn. Counts has one entry per
+// bin of the histogram, in bin order, and is what the histogram is: the observations in each bin. Heights are those
+// counts on the histogram's Y scale (the counts themselves, a percent, or a density) - what the bars are drawn to; they
+// never replace the counts. The series index selects the colour from the theme palette.
 public sealed record HistogramSeriesRenderModel
 {
+    // A series drawn on the frequency scale: every bar as tall as its count.
     public HistogramSeriesRenderModel(string label, int seriesIndex, IReadOnlyList<int> counts)
+        : this(label, seriesIndex, counts, counts is null ? null! : [.. counts.Select(count => (double)count)])
+    {
+    }
+
+    public HistogramSeriesRenderModel(string label, int seriesIndex, IReadOnlyList<int> counts, IReadOnlyList<double> heights)
     {
         ArgumentNullException.ThrowIfNull(label);
         ArgumentOutOfRangeException.ThrowIfNegative(seriesIndex);
         ArgumentNullException.ThrowIfNull(counts);
+        ArgumentNullException.ThrowIfNull(heights);
         if (counts.Any(count => count < 0))
         {
             throw new ArgumentException("A bin count cannot be negative.", nameof(counts));
         }
 
+        if (heights.Count != counts.Count)
+        {
+            throw new ArgumentException("A histogram series needs one bar height per bin count.", nameof(heights));
+        }
+
+        if (heights.Any(height => !double.IsFinite(height) || height < 0))
+        {
+            throw new ArgumentException("A bar height must be a finite, non-negative number.", nameof(heights));
+        }
+
         Label = label;
         SeriesIndex = seriesIndex;
         Counts = [.. counts];
+        Heights = [.. heights];
         ObservationCount = Counts.Sum();
     }
 
@@ -53,6 +77,9 @@ public sealed record HistogramSeriesRenderModel
 
     // One count per bin, in bin order.
     public IReadOnlyList<int> Counts { get; }
+
+    // One bar height per bin, in bin order, on the histogram's Y scale.
+    public IReadOnlyList<double> Heights { get; }
 
     // Every observation of this series; the sum of its counts.
     public int ObservationCount { get; }
@@ -69,7 +96,8 @@ public sealed record HistogramRenderModel
         GraphRenderModel frame,
         IReadOnlyList<HistogramBin> bins,
         IReadOnlyList<HistogramSeriesRenderModel> series,
-        int sourceObservationCount)
+        int sourceObservationCount,
+        HistogramYScale yScale = HistogramYScale.Frequency)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(bins);
@@ -104,7 +132,15 @@ public sealed record HistogramRenderModel
         Series = [.. series];
         SourceObservationCount = sourceObservationCount;
         MaximumCount = series.Count == 0 ? 0 : series.Max(item => item.Counts.Count == 0 ? 0 : item.Counts.Max());
+        MaximumHeight = series.Count == 0 ? 0 : series.Max(item => item.Heights.Count == 0 ? 0 : item.Heights.Max());
+        YScale = yScale;
     }
+
+    // What the bar heights measure.
+    public HistogramYScale YScale { get; }
+
+    // The tallest bar on that scale: what the Y axis has to reach. On the frequency scale, MaximumCount.
+    public double MaximumHeight { get; }
 
     public GraphRenderModel Frame { get; }
 

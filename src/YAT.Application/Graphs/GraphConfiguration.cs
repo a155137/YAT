@@ -22,6 +22,10 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // it; the data query never reads it.
     public ProbabilityPlotOptions ProbabilityPlotOptions { get; init; } = ProbabilityPlotOptions.Default;
 
+    // What a histogram shows of its own plot: its Y scale and its bins. Graph types that do not declare
+    // GraphCapability.HistogramControls ignore it; the data query never reads it.
+    public HistogramOptions HistogramOptions { get; init; } = HistogramOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

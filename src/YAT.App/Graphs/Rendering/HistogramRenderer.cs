@@ -48,7 +48,7 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
         using var fill = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
         using var outline = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
 
-        // Every bar stands on the zero of the frequency axis, which is the bottom of the plot area.
+        // Every bar stands on the zero of the Y axis, which is the bottom of the plot area.
         var baseline = (float)transform.ToScreenY(0);
         if (!float.IsFinite(baseline))
         {
@@ -89,8 +89,10 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
     {
         for (var index = 0; index < _model.Bins.Count; index++)
         {
-            var count = series.Counts[index];
-            if (count <= 0)
+            // The bar is drawn to its height on the histogram's Y scale; on the frequency scale that is its count. A bin
+            // with nothing in it has no bar on any scale.
+            var height = series.Heights[index];
+            if (series.Counts[index] <= 0 || !(height > 0))
             {
                 continue;
             }
@@ -98,7 +100,7 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
             var bin = _model.Bins[index];
             var left = (float)transform.ToScreenX(bin.LowerEdge);
             var right = (float)transform.ToScreenX(bin.UpperEdge);
-            var top = (float)transform.ToScreenY(count);
+            var top = (float)transform.ToScreenY(height);
             if (!float.IsFinite(left) || !float.IsFinite(right) || !float.IsFinite(top))
             {
                 continue;

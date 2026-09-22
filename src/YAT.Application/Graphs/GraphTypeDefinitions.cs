@@ -22,6 +22,10 @@ public static class GraphTypeDefinitions
     private static readonly IReadOnlyList<GraphCapability> ProbabilityPlotCapabilities =
         [.. DistributionCapabilities, GraphCapability.FittedLine];
 
+    // A histogram also lets the user choose what its bars measure and how its bins are drawn.
+    private static readonly IReadOnlyList<GraphCapability> HistogramCapabilities =
+        [.. DistributionCapabilities, GraphCapability.HistogramControls];
+
     private static readonly IReadOnlyList<GraphTypeDefinition> Definitions =
     [
         new(GraphType.ScatterPlot, "Scatter Plot",
@@ -36,7 +40,7 @@ public static class GraphTypeDefinitions
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = DistributionCapabilities },
+        ]) { Capabilities = HistogramCapabilities },
         // The only graph so far that draws several measured variables at once: its variable role takes as many columns
         // as the user selects, and the generic setup and validation follow that flag rather than the graph type.
         new(GraphType.BoxPlot, "Box Plot",

@@ -1234,6 +1234,117 @@ public class GraphCommandTests
         Assert.Equal(first.StatisticsPanel!.Rows, second.StatisticsPanel!.Rows);
     }
 
+    // ---- Histogram controls (#039) ----
+
+    [Fact]
+    public async Task AHistogramIsDrawnOnTheChosenScaleAndBins()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tLot\n14050\tA\n14100\tA\n14150\tB\n14199\tB\n14250\tA\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            Assert.True(setup.SupportsHistogramControls);
+            setup.SelectedYScale = setup.YScaleChoices.Single(choice => choice.Value == HistogramYScale.Percent);
+            setup.SelectedBinning = setup.BinningChoices.Single(choice => choice.Value == HistogramBinningMode.WidthAndStart);
+            setup.BinWidthText = "100";
+            setup.BinStartText = "14000";
+            return ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
+        };
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var model = Assert.IsType<HistogramRenderer>(plot).Model;
+        Assert.Equal(HistogramYScale.Percent, model.YScale);
+        Assert.Equal("Percent", frame.YAxis.Title);
+        Assert.Equal([14000d, 14100d, 14200d, 14300d], [model.Bins[0].LowerEdge, .. model.Bins.Select(bin => bin.UpperEdge)]);
+
+        // A: 14050, 14100, 14250 - a third in each bin. B: 14150, 14199 - both in the middle bin.
+        Assert.Equal([1, 1, 1], model.Series[0].Counts);
+        Assert.Equal([0, 2, 0], model.Series[1].Counts);
+        Assert.Equal([0d, 100d, 0d], model.Series[1].Heights);
+
+        // The statistics are the raw observations', whatever the scale.
+        Assert.Equal(3, frame.StatisticsPanel!.Rows[0].Count);
+        Assert.Equal((14050 + 14100 + 14250) / 3d, frame.StatisticsPanel.Rows[0].Mean, 1e-9);
+    }
+
+    [Fact]
+    public async Task AWidthNeedingTooManyBinsIsExplainedAndOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.SelectedBinning = setup.BinningChoices.Single(choice => choice.Value == HistogramBinningMode.WidthAndStart);
+            setup.BinWidthText = "0.001";
+            setup.BinStartText = "0";
+            return ConfirmWith(setup, ("Graph variables", "Reg1"));
+        };
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["The selected bin width requires more than 200 bins. Choose a larger bin width."], runtime.GraphDialogs.Errors);
+    }
+
+    [Fact]
+    public async Task AWidthTooSmallForTheValuesIsExplainedAndOpensNoWindow()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n15000\n15000\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.SelectedBinning = setup.BinningChoices.Single(choice => choice.Value == HistogramBinningMode.WidthAndStart);
+            setup.BinWidthText = "1e-13";
+            setup.BinStartText = "0";
+            return ConfirmWith(setup, ("Graph variables", "Reg1"));
+        };
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["The selected bin width is too small for this data range. Choose a larger bin width."], runtime.GraphDialogs.Errors);
+    }
+
+    [Fact]
+    public async Task AnExpectedPreparationRefusalShowsItsOwnMessage()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n");
+        runtime.GraphDialogs.Answer = ConfirmWithFirstColumns;
+
+        var (shell, graphs) = ShellWithPreparation(runtime, (_, _, _) => throw new GraphPreparationException("A message for the user."));
+
+        await shell.HistogramCommand.ExecuteAsync(null);
+
+        Assert.NotNull(graphs.LastConfiguration);
+        Assert.Empty(runtime.GraphWindows.Shown);
+        Assert.Equal(["A message for the user."], runtime.GraphDialogs.Errors);
+    }
+
+    [Fact]
+    public async Task OtherGraphsIgnoreHistogramOptions()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n4\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            Assert.False(setup.SupportsHistogramControls);
+            return ConfirmWith(setup, ("Graph variables", "Reg1"));
+        };
+
+        await runtime.Shell.EmpiricalCdfCommand.ExecuteAsync(null);
+
+        Assert.Same(HistogramOptions.Default, runtime.Graphs.LastConfiguration!.HistogramOptions);
+        Assert.Single(runtime.GraphWindows.Shown);
+    }
+
     // Confirms a box plot setup by ticking the named graph variables, and optionally a grouping column.
     private static GraphConfiguration? ConfirmWithVariables(GraphSetupViewModel setup, params string[] variables) =>
         ConfirmWithVariables(setup, variables, null);

@@ -153,6 +153,13 @@ public sealed class GraphSetupController
         {
             return;
         }
+        catch (GraphPreparationException exception)
+        {
+            // An expected refusal the user can act on (a histogram bin width that does not suit the data): its message
+            // is written for the user. No window opens, and nothing went wrong that needs tracing.
+            await _dialogs.ShowErrorAsync(exception.Message);
+            return;
+        }
         catch (Exception exception)
         {
             // Preparation is computation over data that was read successfully, so a failure here is a defect in one
@@ -194,11 +201,12 @@ public sealed class GraphSetupController
                 var histogramModel = _histogram.Build(
                     univariate,
                     new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    configuration.HistogramOptions,
                     cancellationToken);
                 return histogramModel is null ? null : (histogramModel.Frame, new HistogramRenderer(histogramModel));
 
             case UnivariateGraphData univariate when univariate.GraphType == GraphType.ProbabilityPlot:
-                // Only the probability plot has options of its own, and it is given those and nothing else.
+                // The graph types with options of their own are given those and nothing else.
                 var probabilityModel = _probabilityPlot.Build(
                     univariate,
                     new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),

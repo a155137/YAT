@@ -1,4 +1,5 @@
 using System.Globalization;
+using YAT.Application.Graphs;
 using YAT.Application.Specifications;
 
 namespace YAT.App.Tests.Robustness;
@@ -105,6 +106,35 @@ internal static class RobustnessGenerator
         }
 
         return new Specification(lower, target, upper);
+    }
+
+    // Random histogram options for a generated case (#039), fully determined by (seed, caseNumber): any Y scale, and
+    // automatic, counted (1..200) or fixed bins. A fixed width is chosen from the case's own range so the grid needs
+    // at most 100 bins wherever its random start lies - within ten spans of the data either side.
+    public static HistogramOptions HistogramOptionsFor(RobustnessCase robustnessCase, int caseNumber, ulong seed = PrimarySeed)
+    {
+        var values = robustnessCase.Values.OfType<double>().ToArray();
+        var random = new RobustnessRandom(RobustnessRandom.Mix(seed ^ 0x4157064157064157UL, caseNumber));
+        var scale = (HistogramYScale)random.Next(3);
+        if (values.Length == 0)
+        {
+            return new HistogramOptions(scale);
+        }
+
+        switch (random.Next(3))
+        {
+            case 0:
+                return new HistogramOptions(scale);
+            case 1:
+                return new HistogramOptions(scale, HistogramBinningMode.Count, BinCount: 1 + random.Next(HistogramOptions.MaximumBinCount));
+            default:
+                var minimum = values.Min();
+                var maximum = values.Max();
+                var span = maximum > minimum ? maximum - minimum : Math.Max(Math.Abs(minimum) * 1e-3, 1e-3);
+                var width = span / (1 + random.Next(98));
+                var start = minimum + (span * ((random.NextDouble() * 20) - 10));
+                return new HistogramOptions(scale, HistogramBinningMode.WidthAndStart, BinWidth: width, BinStart: start);
+        }
     }
 
     // The case with this number, of at most maximumRows rows.

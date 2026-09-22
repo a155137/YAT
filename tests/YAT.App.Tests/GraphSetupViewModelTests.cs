@@ -384,6 +384,197 @@ public class GraphSetupViewModelTests
         Assert.True(Histogram().Confirm()!.Specification.IsEmpty);
     }
 
+    // ---- Histogram controls (#039) ----
+
+    private static GraphSetupViewModel HistogramSetup()
+    {
+        var setup = Setup(GraphType.Histogram);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+        return setup;
+    }
+
+    private static void Choose(GraphSetupViewModel setup, HistogramBinningMode mode) =>
+        setup.SelectedBinning = setup.BinningChoices.Single(choice => choice.Value == mode);
+
+    [Fact]
+    public void AHistogramOffersItsControlsStartingFromFrequencyAndAutomaticBins()
+    {
+        var setup = Setup(GraphType.Histogram);
+
+        Assert.True(setup.SupportsHistogramControls);
+        Assert.Equal(["Frequency", "Percent", "Density"], setup.YScaleChoices.Select(choice => choice.Name));
+        Assert.Equal(["Auto", "Number of bins", "Bin width and start"], setup.BinningChoices.Select(choice => choice.Name));
+        Assert.Equal(HistogramYScale.Frequency, setup.SelectedYScale.Value);
+        Assert.Equal(HistogramBinningMode.Auto, setup.SelectedBinning.Value);
+        Assert.Equal(string.Empty, setup.BinCountText);
+        Assert.False(setup.IsBinCountEnabled);
+        Assert.False(setup.IsBinWidthAndStartEnabled);
+    }
+
+    [Theory]
+    [InlineData(GraphType.ScatterPlot)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    [InlineData(GraphType.BoxPlot)]
+    public void OtherGraphsHaveNoHistogramControls(GraphType graphType) =>
+        Assert.False(Setup(graphType).SupportsHistogramControls);
+
+    [Fact]
+    public void ByDefaultTheHistogramIsConfiguredWithTheDefaultOptions() =>
+        Assert.Equal(HistogramOptions.Default, HistogramSetup().Confirm()!.HistogramOptions);
+
+    [Fact]
+    public void TheChosenScaleAndBinsReachTheConfiguration()
+    {
+        var setup = HistogramSetup();
+        setup.SelectedYScale = setup.YScaleChoices.Single(choice => choice.Value == HistogramYScale.Density);
+        Choose(setup, HistogramBinningMode.WidthAndStart);
+        setup.BinWidthText = " 1e2 ";
+        setup.BinStartText = "14000";
+
+        Assert.Equal(
+            new HistogramOptions(HistogramYScale.Density, HistogramBinningMode.WidthAndStart, BinWidth: 100, BinStart: 14000),
+            setup.Confirm()!.HistogramOptions);
+    }
+
+    [Fact]
+    public void OnlyTheChosenModesFieldsAreEnabledAndRead()
+    {
+        var setup = HistogramSetup();
+        setup.BinCountText = "abc";
+        setup.BinWidthText = "-5";
+        setup.BinStartText = "x";
+
+        // Auto: nothing typed matters.
+        Assert.True(setup.CanConfirm);
+        Assert.Equal(HistogramOptions.Default, setup.Confirm()!.HistogramOptions);
+
+        Choose(setup, HistogramBinningMode.Count);
+        Assert.True(setup.IsBinCountEnabled);
+        Assert.False(setup.IsBinWidthAndStartEnabled);
+        Assert.False(setup.CanConfirm);
+
+        setup.BinCountText = "30";
+        Assert.True(setup.CanConfirm);
+        Assert.Equal(new HistogramOptions(BinningMode: HistogramBinningMode.Count, BinCount: 30), setup.Confirm()!.HistogramOptions);
+
+        Choose(setup, HistogramBinningMode.WidthAndStart);
+        Assert.False(setup.IsBinCountEnabled);
+        Assert.True(setup.IsBinWidthAndStartEnabled);
+        Assert.False(setup.CanConfirm);
+    }
+
+    [Theory]
+    [InlineData("", "Number of bins must be a whole number from 1 to 200.")]
+    [InlineData("0", "Number of bins must be a whole number from 1 to 200.")]
+    [InlineData("201", "Number of bins must be a whole number from 1 to 200.")]
+    [InlineData("12.5", "Number of bins must be a whole number from 1 to 200.")]
+    [InlineData("abc", "Number of bins must be a whole number from 1 to 200.")]
+    public void AnInvalidNumberOfBinsSaysWhy(string text, string message)
+    {
+        var setup = HistogramSetup();
+        Choose(setup, HistogramBinningMode.Count);
+        setup.BinCountText = text;
+
+        Assert.False(setup.CanConfirm);
+        Assert.Null(setup.Confirm());
+        Assert.Equal(message, setup.ValidationMessage);
+    }
+
+    [Theory]
+    [InlineData(" 1 ", 1)]
+    [InlineData("200", 200)]
+    public void ANumberOfBinsFromOneToTwoHundredIsAccepted(string text, int count)
+    {
+        var setup = HistogramSetup();
+        Choose(setup, HistogramBinningMode.Count);
+        setup.BinCountText = text;
+
+        Assert.Equal(count, setup.Confirm()!.HistogramOptions.BinCount);
+    }
+
+    [Theory]
+    [InlineData("", "0", "Bin width must be a positive number.")]
+    [InlineData("0", "0", "Bin width must be a positive number.")]
+    [InlineData("-1", "0", "Bin width must be a positive number.")]
+    [InlineData("NaN", "0", "Bin width must be a positive number.")]
+    [InlineData("Infinity", "0", "Bin width must be a positive number.")]
+    [InlineData("1,000", "0", "Bin width must be a positive number.")]
+    [InlineData("100", "", "Bin start must be a number.")]
+    [InlineData("100", "abc", "Bin start must be a number.")]
+    [InlineData("100", "-Infinity", "Bin start must be a number.")]
+    public void AnInvalidWidthOrStartSaysWhy(string width, string start, string message)
+    {
+        var setup = HistogramSetup();
+        Choose(setup, HistogramBinningMode.WidthAndStart);
+        setup.BinWidthText = width;
+        setup.BinStartText = start;
+
+        Assert.False(setup.CanConfirm);
+        Assert.Null(setup.Confirm());
+        Assert.Equal(message, setup.ValidationMessage);
+    }
+
+    [Fact]
+    public void HistogramControlsAreIndependentOfStatisticsAndSpecification()
+    {
+        var setup = HistogramSetup();
+        setup.SelectedYScale = setup.YScaleChoices.Single(choice => choice.Value == HistogramYScale.Percent);
+        setup.ShowStatistics = false;
+        setup.LowerLimitText = "14.5";
+
+        var configuration = setup.Confirm()!;
+
+        Assert.Equal(HistogramYScale.Percent, configuration.HistogramOptions.YScale);
+        Assert.False(configuration.PresentationOptions.ShowStatistics);
+        Assert.Equal(new Specification(14.5, null, null), configuration.Specification);
+    }
+
+    [Fact]
+    public void AnotherGraphTypeIsConfiguredWithTheDefaultHistogramOptions()
+    {
+        var setup = Setup(GraphType.EmpiricalCdf);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+        Choose(setup, HistogramBinningMode.Count);
+        setup.BinCountText = "abc";
+
+        Assert.True(setup.CanConfirm);
+        Assert.Same(HistogramOptions.Default, setup.Confirm()!.HistogramOptions);
+    }
+
+    [Fact]
+    public void ANewSetupStartsWithTheDefaultHistogramOptionsWhateverTheLastOneHad()
+    {
+        var first = HistogramSetup();
+        Choose(first, HistogramBinningMode.Count);
+        first.BinCountText = "10";
+        first.Confirm();
+
+        Assert.Equal(HistogramOptions.Default, HistogramSetup().Confirm()!.HistogramOptions);
+    }
+
+    [Fact]
+    public void HistogramChoicesAreObservable()
+    {
+        var setup = Setup(GraphType.Histogram);
+        var changed = new List<string?>();
+        setup.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        setup.SelectedYScale = setup.YScaleChoices[1];
+        Choose(setup, HistogramBinningMode.Count);
+        setup.BinCountText = "5";
+        setup.BinWidthText = "1";
+        setup.BinStartText = "0";
+
+        Assert.Contains(nameof(GraphSetupViewModel.SelectedYScale), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.SelectedBinning), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.IsBinCountEnabled), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.IsBinWidthAndStartEnabled), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.BinCountText), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.BinWidthText), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.BinStartText), changed);
+    }
+
     // ---- Show fitted line (#037) ----
 
     [Fact]

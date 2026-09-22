@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using YAT.Application.Analyses;
 using YAT.Application.Graphs;
@@ -6,6 +7,12 @@ using YAT.Application.Specifications;
 using YAT.Domain.Entities;
 
 namespace YAT.app.ViewModels;
+
+// One entry of an option list in the setup: the value it stands for and the text the list shows.
+public sealed record SetupChoice<T>(T Value, string Name)
+{
+    public override string ToString() => Name;
+}
 
 // One choice in a role's list: a worksheet column, or "(None)" for an optional role.
 public sealed record GraphColumnOption(Guid? WorksheetColumnId, string Name, string DataTypeName)
@@ -117,8 +124,56 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         TargetText = string.Empty;
         UpperLimitText = string.Empty;
 
+        // A histogram starts as it always was: frequency over automatic bins, with nothing typed for the other modes.
+        SelectedYScale = YScaleChoices[0];
+        SelectedBinning = BinningChoices[0];
+        BinCountText = string.Empty;
+        BinWidthText = string.Empty;
+        BinStartText = string.Empty;
+
         OnSelectionChanged();
     }
+
+    // What the histogram's bars can measure, in the order the setup offers them; the first is the default.
+    public IReadOnlyList<SetupChoice<HistogramYScale>> YScaleChoices { get; } =
+    [
+        new(HistogramYScale.Frequency, "Frequency"),
+        new(HistogramYScale.Percent, "Percent"),
+        new(HistogramYScale.Density, "Density")
+    ];
+
+    // How the histogram's bins can be chosen; the first is the default.
+    public IReadOnlyList<SetupChoice<HistogramBinningMode>> BinningChoices { get; } =
+    [
+        new(HistogramBinningMode.Auto, "Auto"),
+        new(HistogramBinningMode.Count, "Number of bins"),
+        new(HistogramBinningMode.WidthAndStart, "Bin width and start")
+    ];
+
+    // Whether the graph type has the histogram's Y scale and bins; the setup shows them only when it does.
+    public bool SupportsHistogramControls => _definition.Supports(GraphCapability.HistogramControls);
+
+    [ObservableProperty]
+    public partial SetupChoice<HistogramYScale> SelectedYScale { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBinCountEnabled), nameof(IsBinWidthAndStartEnabled))]
+    public partial SetupChoice<HistogramBinningMode> SelectedBinning { get; set; }
+
+    // The number of bins, and the bin width and start, as typed. Only the fields of the chosen mode are read: text in
+    // the others never stops the setup from being confirmed.
+    [ObservableProperty]
+    public partial string BinCountText { get; set; }
+
+    [ObservableProperty]
+    public partial string BinWidthText { get; set; }
+
+    [ObservableProperty]
+    public partial string BinStartText { get; set; }
+
+    public bool IsBinCountEnabled => SelectedBinning?.Value == HistogramBinningMode.Count;
+
+    public bool IsBinWidthAndStartEnabled => SelectedBinning?.Value == HistogramBinningMode.WidthAndStart;
 
     public string Title => _definition.DisplayName;
 
@@ -208,6 +263,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
             // Carried whatever the graph type; only one that declares FittedLine reads it.
             ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine),
+            HistogramOptions = SupportsHistogramControls ? HistogramOptionsFromFields() : HistogramOptions.Default,
             Specification = specification
         };
 
@@ -235,8 +291,44 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         return null;
     }
 
+    // The histogram options the fields describe. Only the chosen mode's fields are read; text that is not a usable
+    // number is left out, and the validator then says which value is missing - one message per field, whether it was
+    // blank or not a number. Numbers are read as everywhere in YAT: invariant culture, whole numbers for a count.
+    private HistogramOptions HistogramOptionsFromFields()
+    {
+        var mode = SelectedBinning.Value;
+        return new HistogramOptions(
+            SelectedYScale.Value,
+            mode,
+            BinCount: mode == HistogramBinningMode.Count ? ParseCount(BinCountText) : null,
+            BinWidth: mode == HistogramBinningMode.WidthAndStart ? ParseNumber(BinWidthText) : null,
+            BinStart: mode == HistogramBinningMode.WidthAndStart ? ParseNumber(BinStartText) : null);
+    }
+
+    private static int? ParseCount(string? text) =>
+        int.TryParse(text?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) ? count : null;
+
+    private static double? ParseNumber(string? text) =>
+        SpecificationLimitParser.TryParse(text, out var value) ? value : null;
+
+    partial void OnSelectedYScaleChanged(SetupChoice<HistogramYScale> value) => OnSelectionChanged();
+
+    partial void OnSelectedBinningChanged(SetupChoice<HistogramBinningMode> value) => OnSelectionChanged();
+
+    partial void OnBinCountTextChanged(string value) => OnSelectionChanged();
+
+    partial void OnBinWidthTextChanged(string value) => OnSelectionChanged();
+
+    partial void OnBinStartTextChanged(string value) => OnSelectionChanged();
+
     private void OnSelectionChanged()
     {
+        // The constructor sets the histogram choices after other properties whose change handlers land here.
+        if (SelectedYScale is null || SelectedBinning is null)
+        {
+            return;
+        }
+
         CanConfirm = Build().Result.IsValid;
         ValidationMessage = null;
     }

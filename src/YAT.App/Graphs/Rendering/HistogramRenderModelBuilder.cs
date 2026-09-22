@@ -19,18 +19,49 @@ public sealed class HistogramRenderModelBuilder
 
     public const string FrequencyAxisTitle = "Frequency";
 
+    public const string PercentAxisTitle = "Percent";
+
+    public const string DensityAxisTitle = "Density";
+
+    // What the user is told when a width-and-start grid cannot be drawn for this data. Neither is a defect: the width
+    // simply does not suit the data, and the user can choose another.
+    public const string TooManyBinsMessage = "The selected bin width requires more than 200 bins. Choose a larger bin width.";
+
+    public const string WidthTooSmallMessage = "The selected bin width is too small for this data range. Choose a larger bin width.";
+
     // Group values of a numeric group column, and nothing else, are formatted with this.
     private const string GroupValueFormat = "0.####";
 
     // Cancellation is checked every this many observations (a power of two, so the test is a mask).
     private const int CancellationCheckMask = 0xFFFF;
 
+    // Floating point can put floor((value - start) / width) one bin off the value's true bin; a few steps correct that.
+    // Needing more means the width is below what the values can resolve.
+    private const int GridCorrectionSteps = 4;
+
     // The histogram of these observations, or null when none of them can be counted. The labels name the worksheet
-    // columns; they are given, not looked up.
-    public HistogramRenderModel? Build(UnivariateGraphData data, HistogramPlotLabels labels, CancellationToken cancellationToken = default)
+    // columns; they are given, not looked up. With the default options: frequency over automatic bins.
+    public HistogramRenderModel? Build(UnivariateGraphData data, HistogramPlotLabels labels, CancellationToken cancellationToken = default) =>
+        Build(data, labels, HistogramOptions.Default, cancellationToken);
+
+    // The same, with the histogram's own options: how its bins are chosen and what its bars measure. Neither changes
+    // which observations are counted or how the groups are formed. A width-and-start grid that does not suit the data
+    // (too many bins, or a width the values cannot resolve) is refused with a GraphPreparationException the user is
+    // shown.
+    public HistogramRenderModel? Build(
+        UnivariateGraphData data,
+        HistogramPlotLabels labels,
+        HistogramOptions options,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(labels);
+        ArgumentNullException.ThrowIfNull(options);
+        if (!HistogramOptionsRules.IsValid(options))
+        {
+            throw new ArgumentException("The histogram options are not valid; validate the configuration first.", nameof(options));
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         var partition = Split(data, cancellationToken);
@@ -41,33 +72,81 @@ public sealed class HistogramRenderModelBuilder
 
         // One set of bins, worked out from every observation: comparing groups is only meaningful when they are counted
         // into the same intervals.
-        var grid = Bins(partition, cancellationToken);
+        var grid = Bins(partition, options, cancellationToken);
 
         var series = new List<HistogramSeriesRenderModel>(partition.Series.Count);
         var legendEntries = new List<GraphLegendEntry>(partition.Series.Count);
         var maximumCount = 0;
+        var maximumHeight = 0d;
         for (var index = 0; index < partition.Series.Count; index++)
         {
             var buffer = partition.Series[index];
             var counts = Count(buffer, grid, cancellationToken);
+            var heights = Heights(counts, buffer.Count, grid.Bins, options);
             maximumCount = Math.Max(maximumCount, counts.Length == 0 ? 0 : counts.Max());
+            maximumHeight = Math.Max(maximumHeight, heights.Length == 0 ? 0 : heights.Max());
 
-            series.Add(new HistogramSeriesRenderModel(buffer.Label, index, counts));
+            series.Add(new HistogramSeriesRenderModel(buffer.Label, index, counts, heights));
             legendEntries.Add(new GraphLegendEntry(buffer.Label, index));
         }
 
         // The X axis is the bins themselves, not the data with room around it: a histogram's bars fill their axis.
         var x = new GraphAxisRange(grid.Edges[0], grid.Edges[^1]);
-        var y = GraphAxisTicks.NiceCounts(maximumCount);
+
+        // Counts are read on the whole-number axis they always were; a percent or a density on a continuous one.
+        var y = options.YScale switch
+        {
+            HistogramYScale.Frequency => AxisOf(GraphAxisTicks.NiceCounts(maximumCount)),
+            _ => AxisOf(GraphAxisTicks.NiceFromZero(maximumHeight))
+        };
 
         var frame = new GraphRenderModel(
             $"Histogram of {labels.Variable}",
             new GraphAxisModel(x, GraphAxisTicks.Nice(x), labels.Variable),
-            new GraphAxisModel(y.Range, y.Ticks, FrequencyAxisTitle),
+            new GraphAxisModel(y.Range, y.Ticks, AxisTitle(options.YScale)),
             // A histogram without a group column is one unnamed series, and one series needs no legend.
             data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));
 
-        return new HistogramRenderModel(frame, grid.Bins, series, partition.ObservationCount);
+        return new HistogramRenderModel(frame, grid.Bins, series, partition.ObservationCount, options.YScale);
+    }
+
+    public static string AxisTitle(HistogramYScale scale) => scale switch
+    {
+        HistogramYScale.Percent => PercentAxisTitle,
+        HistogramYScale.Density => DensityAxisTitle,
+        _ => FrequencyAxisTitle
+    };
+
+    private static (GraphAxisRange Range, IReadOnlyList<GraphAxisTick> Ticks) AxisOf(GraphCountAxis axis) => (axis.Range, axis.Ticks);
+
+    private static (GraphAxisRange Range, IReadOnlyList<GraphAxisTick> Ticks) AxisOf(GraphZeroBasedAxis axis) => (axis.Range, axis.Ticks);
+
+    // The bar heights of one series on the chosen scale. Frequency is the counts themselves. Percent and density are
+    // shares of the series' own observations, so every group is scaled by its own size: each group's percents add up to
+    // 100, and each group's density bars have unit area, measured with each bin's own width.
+    private static double[] Heights(int[] counts, int observations, IReadOnlyList<HistogramBin> bins, HistogramOptions options)
+    {
+        var heights = new double[counts.Length];
+        for (var index = 0; index < counts.Length; index++)
+        {
+            heights[index] = options.YScale switch
+            {
+                HistogramYScale.Percent => 100d * counts[index] / observations,
+                HistogramYScale.Density => counts[index] / (observations * bins[index].Width),
+                _ => counts[index]
+            };
+
+            // A bin narrower than a density can be written over (widths near the smallest doubles) has no drawable bar.
+            // A width the user chose is theirs to change; bins the data chose that narrow are a defect, not a choice.
+            if (!double.IsFinite(heights[index]))
+            {
+                throw options.BinningMode == HistogramBinningMode.WidthAndStart
+                    ? new GraphPreparationException(WidthTooSmallMessage)
+                    : new InvalidOperationException($"Bin {index} is too narrow for a density ({bins[index].Width:R}).");
+            }
+        }
+
+        return heights;
     }
 
     // One pass over the observations: every countable one joins its group's series, in worksheet row order, and the
@@ -143,18 +222,32 @@ public sealed class HistogramRenderModelBuilder
         return partition;
     }
 
-    // The bins of the whole histogram: how many the statistics ask for, and the equal-width intervals they become.
-    private static BinGrid Bins(Partition partition, CancellationToken cancellationToken)
+    // The bins of the whole histogram. Automatic and counted bins divide the data's own range - the statistics choose
+    // how many, or the user does; a width-and-start grid is fixed by the options and only reaches as far as the data.
+    private static BinGrid Bins(Partition partition, HistogramOptions options, CancellationToken cancellationToken)
     {
+        if (options.BinningMode == HistogramBinningMode.WidthAndStart)
+        {
+            return FixedGrid(partition.Minimum, partition.Maximum, options.BinWidth!.Value, options.BinStart!.Value);
+        }
+
         var minimum = partition.Minimum;
         var maximum = partition.Maximum;
 
         if (minimum == maximum)
         {
             // Every observation is the same value: one bin over the window a constant axis is given (Task #026/#027),
-            // so the renderer never sees an interval of no width.
+            // so the renderer never sees an interval of no width. A requested number of bins does not change that:
+            // dividing a window the data never spans would only add empty bins.
             var constant = GraphAxisRanges.FromValues(minimum, maximum);
             return Grid(constant.Minimum, constant.Maximum, 1);
+        }
+
+        // The user's number of bins replaces the statistics' choice, and nothing else: the same range, the same edges,
+        // the same counting.
+        if (options.BinningMode == HistogramBinningMode.Count)
+        {
+            return Grid(minimum, maximum, options.BinCount!.Value);
         }
 
         var range = maximum - minimum;
@@ -211,6 +304,87 @@ public sealed class HistogramRenderModelBuilder
         }
 
         return new BinGrid(bins, edges, start, width);
+    }
+
+    // The bins of a fixed grid: edges at start + k x width for whole numbers k, from the bin holding the smallest value
+    // to the bin holding the largest - never all the way to start when start is far from the data. Every edge is
+    // computed from start and k, never by adding widths, so the same k gives the very same edge for any data; and every
+    // bin is [left, right), so a value on an edge belongs to the bin that begins there, the largest value included.
+    //
+    // The grid is not bent to fit the data: when the width needs more bins than a histogram draws, or is too small for
+    // the values to tell its edges apart, the histogram is refused and the user told why.
+    private static BinGrid FixedGrid(double minimum, double maximum, double width, double start)
+    {
+        double Edge(double k) => start + (k * width);
+
+        // A data range of this many widths needs at least this many bins, wherever the grid starts: said first, because
+        // it is the reason, even when the width is also too small for the values' precision.
+        if (!((maximum - minimum) / width < HistogramOptions.MaximumBinCount))
+        {
+            throw new GraphPreparationException(TooManyBinsMessage);
+        }
+
+        var first = Math.Floor((minimum - start) / width);
+        var last = Math.Floor((maximum - start) / width);
+
+        // Past 2^53 a double no longer tells k from k + 1, and no edge could be told from the next.
+        const double LargestExactInteger = 9007199254740992d;
+        if (!double.IsFinite(first) || !double.IsFinite(last) || Math.Abs(first) > LargestExactInteger || Math.Abs(last) > LargestExactInteger)
+        {
+            throw new GraphPreparationException(WidthTooSmallMessage);
+        }
+
+        // The division can land a value one bin off its own edges; the edges decide, as they do for every bin.
+        first = Settle(first, minimum, Edge);
+        last = Settle(last, maximum, Edge);
+
+        // Counted before anything is allocated: a width that is small for the data asks for many bins.
+        var count = last - first + 1;
+        if (count > HistogramOptions.MaximumBinCount)
+        {
+            throw new GraphPreparationException(TooManyBinsMessage);
+        }
+
+        var edges = new double[(int)count + 1];
+        for (var index = 0; index < edges.Length; index++)
+        {
+            edges[index] = Edge(first + index);
+            if (!double.IsFinite(edges[index]) || (index > 0 && !(edges[index] > edges[index - 1])))
+            {
+                throw new GraphPreparationException(WidthTooSmallMessage);
+            }
+        }
+
+        var bins = new HistogramBin[(int)count];
+        for (var index = 0; index < bins.Length; index++)
+        {
+            bins[index] = new HistogramBin(edges[index], edges[index + 1]);
+        }
+
+        return new BinGrid(bins, edges, edges[0], width);
+    }
+
+    // The k whose bin [edge(k), edge(k + 1)) holds value, starting from an estimate at most a few bins off. An estimate
+    // that will not settle means the edges around value are not distinct numbers.
+    private static double Settle(double k, double value, Func<double, double> edge)
+    {
+        for (var step = 0; step < GridCorrectionSteps; step++)
+        {
+            if (edge(k) > value)
+            {
+                k--;
+            }
+            else if (edge(k + 1) <= value)
+            {
+                k++;
+            }
+            else
+            {
+                return k;
+            }
+        }
+
+        throw new GraphPreparationException(WidthTooSmallMessage);
     }
 
     private static int[] Count(SeriesBuffer series, BinGrid grid, CancellationToken cancellationToken)
