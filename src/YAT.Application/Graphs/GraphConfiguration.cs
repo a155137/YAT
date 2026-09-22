@@ -1,3 +1,5 @@
+using YAT.Application.Specifications;
+
 namespace YAT.Application.Graphs;
 
 // One worksheet column used in one role of a graph. The column is referenced by its stable Id: a column's name and
@@ -10,6 +12,11 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
 {
     // How the graph is presented. Configurations that do not say keep the defaults.
     public GraphPresentationOptions PresentationOptions { get; init; } = GraphPresentationOptions.Default;
+
+    // The specification the measured variable is held to. It is data about the measurement rather than a presentation
+    // option: graph types that declare SpecificationLines draw it, the others ignore it, and the data query never reads
+    // it. None unless the user entered one.
+    public Specification Specification { get; init; } = Specification.None;
 
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.

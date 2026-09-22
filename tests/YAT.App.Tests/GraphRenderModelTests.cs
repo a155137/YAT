@@ -133,4 +133,49 @@ public class GraphRenderModelTests
         Assert.Throws<ArgumentNullException>(() => new GraphRenderModel("Sample Graph", null!, Axis(0, 1)));
         Assert.Throws<ArgumentNullException>(() => new GraphRenderModel("Sample Graph", Axis(0, 1), null!));
     }
+
+    // ---- Reference lines (#036) ----
+
+    [Fact]
+    public void AModelHasNoReferenceLinesUntilItIsGivenSome()
+    {
+        var model = new GraphRenderModel("Sample Graph", Axis(0, 1), Axis(0, 1));
+        var line = new GraphReferenceLine(GraphReferenceAxis.X, 0.5, "LSL 0.5", GraphReferenceLineKind.SpecificationLimit);
+
+        Assert.Empty(model.ReferenceLines);
+        Assert.Equal([line], model.WithReferenceLines([line]).ReferenceLines);
+        Assert.Empty(model.ReferenceLines);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void AReferenceLineNeedsAFiniteValue(double value) =>
+        Assert.Throws<ArgumentException>(() => new GraphReferenceLine(GraphReferenceAxis.X, value, "LSL", GraphReferenceLineKind.SpecificationLimit));
+
+    [Fact]
+    public void AReferenceLineNeedsALabelAndAModelNoNullLines()
+    {
+        Assert.Throws<ArgumentNullException>(() => new GraphReferenceLine(GraphReferenceAxis.X, 1, null!, GraphReferenceLineKind.Target));
+        Assert.Throws<ArgumentException>(() => new GraphRenderModel("Sample Graph", Axis(0, 1), Axis(0, 1)).WithReferenceLines([null!]));
+    }
+
+    [Fact]
+    public void ReplacingTheXAxisKeepsEverythingElse()
+    {
+        var legend = new GraphLegendModel([new GraphLegendEntry("A", 0)], "Lot");
+        var line = new GraphReferenceLine(GraphReferenceAxis.X, 0.5, "Target 0.5", GraphReferenceLineKind.Target);
+        var model = new GraphRenderModel("Sample Graph", Axis(0, 1, "X"), Axis(0, 10, "Y"), legend).WithReferenceLines([line]);
+        var wider = Axis(-1, 2, "X");
+
+        var replaced = model.WithXAxis(wider);
+
+        Assert.Same(wider, replaced.XAxis);
+        Assert.Same(model.YAxis, replaced.YAxis);
+        Assert.Same(model.Legend, replaced.Legend);
+        Assert.Equal(model.Title, replaced.Title);
+        Assert.Equal(model.ReferenceLines, replaced.ReferenceLines);
+        Assert.NotSame(wider, model.XAxis);
+        Assert.Throws<ArgumentNullException>(() => model.WithXAxis(null!));
+    }
 }

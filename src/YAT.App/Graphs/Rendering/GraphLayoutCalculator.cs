@@ -51,8 +51,11 @@ public static class GraphLayoutCalculator
         var bottomBand = metrics.TickLength + metrics.Gap + metrics.TickLabelHeight
             + (HasText(model.XAxis.Title) ? metrics.AxisTitleHeight + metrics.Gap : 0f);
 
-        // The top Y tick label is centred on the top edge of the plot area, so half of it sits above the plot.
-        var topBand = titleHeight + (titleHeight > 0 ? metrics.Gap : 0f) + (metrics.TickLabelHeight / 2f);
+        // The top Y tick label is centred on the top edge of the plot area, so half of it sits above the plot. The
+        // reference line labels sit above the plot too, but only across its width, beside that half label rather than
+        // over it: the band takes whichever of the two is taller.
+        var labelBand = metrics.ReferenceLabelHeight;
+        var topBand = titleHeight + (titleHeight > 0 ? metrics.Gap : 0f) + Math.Max(metrics.TickLabelHeight / 2f, labelBand);
         var rightBand = metrics.XTickLabelOverflow + (columnWidth > 0 ? columnWidth + metrics.Gap : 0f);
 
         var plotArea = new SKRect(
@@ -72,6 +75,10 @@ public static class GraphLayoutCalculator
 
         var (legendArea, panelArea) = RightColumn(content, plotArea, metrics, legendWidth, panelWidth, columnWidth);
 
+        var labelArea = labelBand > 0
+            ? new SKRect(plotArea.Left, plotArea.Top - labelBand, plotArea.Right, plotArea.Top)
+            : SKRect.Empty;
+
         return new GraphLayout(
             canvas,
             titleArea,
@@ -79,7 +86,8 @@ public static class GraphLayoutCalculator
             new SKRect(plotArea.Left, plotArea.Bottom, plotArea.Right, content.Bottom),
             new SKRect(content.Left, plotArea.Top, plotArea.Left, plotArea.Bottom),
             legendArea,
-            panelArea);
+            panelArea,
+            labelArea);
     }
 
     // The column right of the plot, as tall as the plot: the legend on top, the statistics panel below it.

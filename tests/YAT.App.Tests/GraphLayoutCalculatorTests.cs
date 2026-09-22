@@ -203,4 +203,55 @@ public class GraphLayoutCalculatorTests
         Assert.Equal(origin.PlotArea.Left + 200, offset.PlotArea.Left, 1e-3f);
         Assert.Equal(origin.PlotArea.Top + 100, offset.PlotArea.Top, 1e-3f);
     }
+
+    // ---- Reference line label band (#036) ----
+
+    [Fact]
+    public void AZeroLabelBandLeavesTheLayoutAsItWas()
+    {
+        var model = Model(legend: Legend());
+
+        Assert.Equal(
+            GraphLayoutCalculator.Calculate(Canvas, model, Metrics),
+            GraphLayoutCalculator.Calculate(Canvas, model, Metrics with { ReferenceLabelHeight = 0 }));
+        Assert.True(GraphLayoutCalculator.Calculate(Canvas, model, Metrics).ReferenceLabelArea.IsEmpty);
+    }
+
+    [Fact]
+    public void ALabelBandSitsDirectlyAboveThePlotAcrossItsWidth()
+    {
+        var model = Model();
+        var plain = GraphLayoutCalculator.Calculate(Canvas, model, Metrics);
+        var banded = GraphLayoutCalculator.Calculate(Canvas, model, Metrics with { ReferenceLabelHeight = 40 });
+        var band = banded.ReferenceLabelArea;
+
+        Assert.Equal(40, band.Height, 1e-3f);
+        Assert.Equal(banded.PlotArea.Top, band.Bottom);
+        Assert.Equal(banded.PlotArea.Left, band.Left);
+        Assert.Equal(banded.PlotArea.Right, band.Right);
+        Assert.True(band.Top >= banded.TitleArea.Bottom);
+
+        // It replaces the half tick label of headroom the plot kept anyway, so the plot loses only the difference.
+        Assert.Equal(plain.PlotArea.Top + 40 - (Metrics.TickLabelHeight / 2f), banded.PlotArea.Top, 1e-3f);
+        Assert.Equal(plain.PlotArea.Left, banded.PlotArea.Left);
+        Assert.Equal(plain.PlotArea.Right, banded.PlotArea.Right);
+        Assert.Equal(plain.PlotArea.Bottom, banded.PlotArea.Bottom);
+    }
+
+    [Fact]
+    public void ALabelBandLowerThanHalfATickLabelDoesNotMoveThePlot()
+    {
+        var model = Model();
+        var plain = GraphLayoutCalculator.Calculate(Canvas, model, Metrics);
+        var banded = GraphLayoutCalculator.Calculate(Canvas, model, Metrics with { ReferenceLabelHeight = Metrics.TickLabelHeight / 4f });
+
+        Assert.Equal(plain.PlotArea, banded.PlotArea);
+        Assert.False(banded.ReferenceLabelArea.IsEmpty);
+    }
+
+    [Theory]
+    [InlineData(-1f)]
+    [InlineData(float.NaN)]
+    public void ANegativeOrNonFiniteLabelBandIsRejected(float height) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => GraphLayoutCalculator.Calculate(Canvas, Model(), Metrics with { ReferenceLabelHeight = height }));
 }

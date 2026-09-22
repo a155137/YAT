@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using YAT.Application.Analyses;
 using YAT.Application.Graphs;
+using YAT.Application.Specifications;
 using YAT.Domain.Entities;
 
 namespace YAT.app.ViewModels;
@@ -107,6 +109,11 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         // Statistics are shown unless the user turns them off (only offered where the graph type has the panel).
         ShowStatistics = GraphPresentationOptions.Default.ShowStatistics;
 
+        // A specification starts empty: nothing is drawn until the user enters a value.
+        LowerLimitText = string.Empty;
+        TargetText = string.Empty;
+        UpperLimitText = string.Empty;
+
         OnSelectionChanged();
     }
 
@@ -119,6 +126,19 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool ShowStatistics { get; set; }
 
+    // Whether the graph type draws a specification; the setup shows the LSL, Target and USL fields only when it does.
+    public bool SupportsSpecificationLines => _definition.Supports(GraphCapability.SpecificationLines);
+
+    // The specification as typed. Blank means "no value"; anything else must be a number (see SpecificationLimitParser).
+    [ObservableProperty]
+    public partial string LowerLimitText { get; set; }
+
+    [ObservableProperty]
+    public partial string TargetText { get; set; }
+
+    [ObservableProperty]
+    public partial string UpperLimitText { get; set; }
+
     public GraphType GraphType => _definition.GraphType;
 
     public Guid WorksheetId { get; }
@@ -130,7 +150,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     public IReadOnlyList<GraphRoleViewModel> Roles { get; }
 
-    // False while a required role is unassigned or an assignment is not valid.
+    // False while a required role is unassigned, an assignment is not valid or the specification is not.
     [ObservableProperty]
     public partial bool CanConfirm { get; private set; }
 
@@ -141,28 +161,70 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     // The configuration of the current assignments, or null when they are not valid (ValidationMessage says why).
     public GraphConfiguration? Confirm()
     {
-        var configuration = BuildConfiguration();
-        var result = Validator.Validate(configuration, _columns);
+        var (configuration, result) = Build();
         ValidationMessage = GraphValidationMessages.For(result, _definition);
         CanConfirm = result.IsValid;
         return result.IsValid ? configuration : null;
     }
 
-    // One assignment per column a role is given: a role that takes several columns contributes one assignment each,
-    // in worksheet order.
-    private GraphConfiguration BuildConfiguration() =>
-        new(_definition.GraphType, WorksheetId,
+    partial void OnLowerLimitTextChanged(string value) => OnSelectionChanged();
+
+    partial void OnTargetTextChanged(string value) => OnSelectionChanged();
+
+    partial void OnUpperLimitTextChanged(string value) => OnSelectionChanged();
+
+    // The configuration the dialog describes, and everything that is wrong with it, in the order the dialog reads:
+    // the column assignments first, then specification text that is not a number, then specification values that do
+    // not fit together. A value that is not a number is left out of the specification, so it is reported once, as
+    // text, and not again by the rules.
+    private (GraphConfiguration Configuration, GraphValidationResult Result) Build()
+    {
+        var parseErrors = new List<GraphValidationError>();
+        var specification = SupportsSpecificationLines
+            ? new Specification(
+                Parse(parseErrors, LowerLimitText, SpecificationField.LowerLimit),
+                Parse(parseErrors, TargetText, SpecificationField.Target),
+                Parse(parseErrors, UpperLimitText, SpecificationField.UpperLimit))
+            : Specification.None;
+
+        // One assignment per column a role is given: a role that takes several columns contributes one assignment
+        // each, in worksheet order.
+        var configuration = new GraphConfiguration(_definition.GraphType, WorksheetId,
         [
             .. Roles.SelectMany(role => role.SelectedColumnIds.Select(columnId => new GraphColumnAssignment(role.Role, columnId)))
         ])
         {
-            PresentationOptions = new GraphPresentationOptions(ShowStatistics)
+            PresentationOptions = new GraphPresentationOptions(ShowStatistics),
+            Specification = specification
         };
+
+        var validation = Validator.Validate(configuration, _columns).Errors;
+        IReadOnlyList<GraphValidationError> errors =
+        [
+            .. validation.Where(error => error.Field is null),
+            .. parseErrors,
+            .. validation.Where(error => error.Field is not null)
+        ];
+
+        return (configuration, errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors));
+    }
+
+    // The value typed into one specification field, or null when it is blank - or when it is not a number, which is
+    // then reported for that field. The parser is the one capability limits are read with.
+    private static double? Parse(List<GraphValidationError> errors, string? text, SpecificationField field)
+    {
+        if (SpecificationLimitParser.TryParse(text, out var value))
+        {
+            return value;
+        }
+
+        errors.Add(new GraphValidationError(GraphValidationReason.SpecificationValueNotNumeric, Field: field));
+        return null;
+    }
 
     private void OnSelectionChanged()
     {
-        var result = Validator.Validate(BuildConfiguration(), _columns);
-        CanConfirm = result.IsValid;
+        CanConfirm = Build().Result.IsValid;
         ValidationMessage = null;
     }
 

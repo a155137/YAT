@@ -36,6 +36,10 @@ public sealed record GraphLayoutMetrics
     // Width the statistics panel needs for its widest content (already capped at its maximum width).
     public float StatisticsPanelWidth { get; init; }
 
+    // Height of the band above the plot that holds the labels of vertical reference lines. 0 when there are none, which
+    // leaves the layout exactly as it is without them.
+    public float ReferenceLabelHeight { get; init; }
+
     // Rejects sizes that would produce meaningless rectangles. Zero is valid and means "this element is not shown".
     internal void EnsureValid()
     {
@@ -50,6 +54,7 @@ public sealed record GraphLayoutMetrics
         Require(LegendWidth, nameof(LegendWidth));
         Require(LegendHeight, nameof(LegendHeight));
         Require(StatisticsPanelWidth, nameof(StatisticsPanelWidth));
+        Require(ReferenceLabelHeight, nameof(ReferenceLabelHeight));
     }
 
     private static void Require(float value, string name)
@@ -76,7 +81,8 @@ public sealed record GraphLayout
         SKRect xAxisArea,
         SKRect yAxisArea,
         SKRect legendArea,
-        SKRect statisticsPanelArea = default)
+        SKRect statisticsPanelArea = default,
+        SKRect referenceLabelArea = default)
     {
         Canvas = canvas;
         TitleArea = titleArea;
@@ -85,6 +91,7 @@ public sealed record GraphLayout
         YAxisArea = yAxisArea;
         LegendArea = legendArea;
         StatisticsPanelArea = statisticsPanelArea;
+        ReferenceLabelArea = referenceLabelArea;
     }
 
     public SKRect Canvas { get; }
@@ -106,6 +113,10 @@ public sealed record GraphLayout
 
     // Right of the plot area, below the legend when there is one. Empty when the model has no statistics panel.
     public SKRect StatisticsPanelArea { get; }
+
+    // Directly above the plot area and as wide as it: the labels of vertical reference lines, each over its line. Empty
+    // when the model has none.
+    public SKRect ReferenceLabelArea { get; }
 
     public bool HasPlotArea => PlotArea.Width > 0 && PlotArea.Height > 0;
 }

@@ -48,6 +48,62 @@ public static class GraphAxisRanges
             ?? Constant(minimum);
     }
 
+    // The range a graph is drawn over when these values have to be seen on it too (a specification's lines): range
+    // itself when every value already lies strictly inside it, otherwise range reached out to the values.
+    //
+    // Only a side a value reaches or passes is moved, and it is moved past that value by the usual padding - a fraction
+    // of the new span - so a line is never drawn on the axis itself. The other side keeps the boundary the graph chose
+    // for its data. Because every value then lies strictly inside, asking again with the result changes nothing.
+    //
+    // When the reached-out range cannot be represented (values near the limits of double), or the padding is too small
+    // to move the edge off the value at all, range is returned unchanged: the graph keeps its own axis, and a value
+    // outside it is simply not seen.
+    public static GraphAxisRange Including(GraphAxisRange range, IReadOnlyList<double> values)
+    {
+        if (!range.IsValid)
+        {
+            throw new ArgumentException("The axis range must be finite and non-empty.", nameof(range));
+        }
+
+        ArgumentNullException.ThrowIfNull(values);
+        if (values.Any(value => !double.IsFinite(value)))
+        {
+            throw new ArgumentException("Every value must be finite.", nameof(values));
+        }
+
+        if (values.Count == 0)
+        {
+            return range;
+        }
+
+        var lowest = values.Min();
+        var highest = values.Max();
+        var extendsDown = lowest <= range.Minimum;
+        var extendsUp = highest >= range.Maximum;
+        if (!extendsDown && !extendsUp)
+        {
+            return range;
+        }
+
+        var span = (extendsUp ? highest : range.Maximum) - (extendsDown ? lowest : range.Minimum);
+        var padding = span * PaddingFraction;
+        if (!double.IsFinite(padding) || padding <= 0)
+        {
+            return range;
+        }
+
+        var minimum = extendsDown ? lowest - padding : range.Minimum;
+        var maximum = extendsUp ? highest + padding : range.Maximum;
+
+        // The padding has to separate the edge from the value; at a magnitude where it rounds away, it cannot.
+        if (TryCreate(minimum, maximum) is not { } reached || !(reached.Minimum < lowest) || !(reached.Maximum > highest))
+        {
+            return range;
+        }
+
+        return reached;
+    }
+
     // One repeated value: a window around it, wide enough to be a range and narrow enough to keep the value's scale.
     private static GraphAxisRange Constant(double value)
     {

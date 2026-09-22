@@ -6,7 +6,11 @@ namespace YAT.Application.Graphs;
 public enum GraphCapability
 {
     // A panel beside the plot with the Mean, standard deviation and N of every series.
-    StatisticsPanel
+    StatisticsPanel,
+
+    // The lines of the graph's specification (LSL, Target, USL), drawn across the plot at their values on the X axis,
+    // which is the axis a graph with this capability reads its measurement on.
+    SpecificationLines
 }
 
 // How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:

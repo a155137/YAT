@@ -1,3 +1,5 @@
+using YAT.Application.Specifications;
+
 namespace YAT.App.Tests.Robustness;
 
 // The named robustness corpus: synthetic datasets of the shapes measured semiconductor data takes, and of the shapes
@@ -83,6 +85,40 @@ internal static class RobustnessCorpus
                 Rows(1011, row => row),
                 Rows(1011, row => row % 13),
                 groups: Labels(1011, row => row == 0 ? "tiny" : row <= 10 ? "small" : row % 17 == 0 ? null : "large"))
+        ];
+    }
+
+    // The named specifications a univariate case is checked with (#036), placed relative to its own data: on its
+    // extremes, outside it, one value at a time, around zero, packed tightly together, and at tiny, large and
+    // unreachable magnitudes. Every one of them is a valid specification. None when the case has no values.
+    public static IReadOnlyList<(string Name, Specification Specification)> Specifications(RobustnessCase robustnessCase)
+    {
+        var values = robustnessCase.Values.OfType<double>().ToArray();
+        if (values.Length == 0)
+        {
+            return [];
+        }
+
+        var minimum = values.Min();
+        var maximum = values.Max();
+        var span = maximum - minimum;
+        var middle = minimum + (span / 2);
+        var step = span > 0 ? span : Math.Max(Math.Abs(minimum) * 1e-3, 1e-3);
+        var magnitude = Math.Max(Math.Abs(minimum), Math.Abs(maximum));
+        var close = Math.Max(Math.Abs(middle) * 1e-12, 1e-300);
+
+        return
+        [
+            ("at-min-and-max", span > 0 ? new Specification(minimum, middle, maximum) : new Specification(minimum, maximum, null)),
+            ("outside-both", new Specification(minimum - step, middle, maximum + step)),
+            ("lsl-only", new Specification(middle, null, null)),
+            ("usl-only-at-max", new Specification(null, null, maximum)),
+            ("target-only-outside", new Specification(null, maximum + (2 * step), null)),
+            ("around-zero", new Specification(-(magnitude + 1), 0, magnitude + 1)),
+            ("close-together", new Specification(middle, middle + close, middle + (2 * close))),
+            ("tiny-magnitude", new Specification(-1e-300, 0, 1e-300)),
+            ("large-magnitude", new Specification(-1e300, 0, 1e300)),
+            ("unreachable", new Specification(null, null, double.MaxValue))
         ];
     }
 

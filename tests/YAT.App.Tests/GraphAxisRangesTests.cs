@@ -128,4 +128,92 @@ public class GraphAxisRangesTests
     {
         Assert.Throws<ArgumentException>(() => GraphAxisRanges.FromValues(minimum, maximum));
     }
+
+    // ---- Including: the range reached out to values that must be seen on it (#036) ----
+
+    private static readonly GraphAxisRange Data = new(10, 20);
+
+    [Fact]
+    public void ValuesStrictlyInsideLeaveTheRangeAsItIs()
+    {
+        Assert.Equal(Data, GraphAxisRanges.Including(Data, [10.001, 15, 19.999]));
+        Assert.Equal(Data, GraphAxisRanges.Including(Data, []));
+    }
+
+    [Fact]
+    public void AValueBelowMovesOnlyTheLowerEdgeAndPadsIt()
+    {
+        // New span 8..20 = 12; padding 5% of that = 0.6 below the value. The upper edge keeps the data's boundary.
+        AssertRange(7.4, 20, GraphAxisRanges.Including(Data, [8]));
+    }
+
+    [Fact]
+    public void AValueAboveMovesOnlyTheUpperEdgeAndPadsIt()
+    {
+        AssertRange(10, 25.75, GraphAxisRanges.Including(Data, [25]));
+    }
+
+    [Fact]
+    public void ValuesOnBothSidesMoveBothEdges()
+    {
+        // Span 0..30 = 30, padding 1.5 on each moved side.
+        AssertRange(-1.5, 31.5, GraphAxisRanges.Including(Data, [0, 15, 30]));
+    }
+
+    [Fact]
+    public void AValueExactlyOnAnEdgeMovesThatEdgeOffIt()
+    {
+        var atMinimum = GraphAxisRanges.Including(Data, [10]);
+        var atMaximum = GraphAxisRanges.Including(Data, [20]);
+
+        AssertRange(9.5, 20, atMinimum);
+        AssertRange(10, 20.5, atMaximum);
+        Assert.True(atMinimum.Minimum < 10);
+        Assert.True(atMaximum.Maximum > 20);
+    }
+
+    [Fact]
+    public void IncludingTheSameValuesAgainChangesNothing()
+    {
+        double[] values = [0, 10, 20, 35];
+        var once = GraphAxisRanges.Including(Data, values);
+        var twice = GraphAxisRanges.Including(once, values);
+
+        Assert.Equal(once, twice);
+        Assert.Equal(twice, GraphAxisRanges.Including(twice, values));
+    }
+
+    [Fact]
+    public void EveryIncludedValueEndsUpStrictlyInside()
+    {
+        double[] values = [-1e-9, 10, 20, 1e6];
+        var range = GraphAxisRanges.Including(Data, values);
+
+        Assert.All(values, value => Assert.True(value > range.Minimum && value < range.Maximum, $"{value:R} is not inside {range}."));
+    }
+
+    [Theory]
+    [InlineData(1.7976931348623157e308)]
+    [InlineData(-1.7976931348623157e308)]
+    public void AValueTheRangeCannotReachKeepsTheRangeAsItIs(double extreme)
+    {
+        // 1e308 padded is past double.MaxValue: rather than an infinite axis, the graph keeps its own.
+        Assert.Equal(Data, GraphAxisRanges.Including(Data, [extreme]));
+        Assert.Equal(Data, GraphAxisRanges.Including(Data, [-extreme, extreme]));
+    }
+
+    [Fact]
+    public void PaddingThatRoundsAwayKeepsTheRangeAsItIs()
+    {
+        // At 1e16 a double steps by 2, so padding a span of 1 by 5% cannot move the edge off the value.
+        var huge = new GraphAxisRange(1e16, 1e16 + 4);
+
+        Assert.Equal(huge, GraphAxisRanges.Including(huge, [1e16]));
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void NonFiniteValuesAreRejected(double value) =>
+        Assert.Throws<ArgumentException>(() => GraphAxisRanges.Including(Data, [value]));
 }

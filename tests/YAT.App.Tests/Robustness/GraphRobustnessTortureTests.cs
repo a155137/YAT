@@ -33,11 +33,13 @@ public sealed class GraphRobustnessTortureTests
             var robustnessCase = RobustnessGenerator.Create(SweepFirstCase + index, SweepMaximumRows);
             observations += robustnessCase.ObservationCount;
 
-            // Every case is built and checked; one in ten is also built again, sampled and drawn.
+            // Every case is built and checked; one in ten is also built again, sampled and drawn. Every other case is
+            // prepared with a generated specification (#036).
             var thorough = index % 10 == 0;
+            var specification = index % 2 == 1 ? RobustnessGenerator.SpecificationFor(robustnessCase, SweepFirstCase + index) : null;
             foreach (var graph in RobustnessGraphs.For(robustnessCase))
             {
-                GraphRobustnessInvariants.Exercise(robustnessCase, graph, thorough ? GraphThemes.Light : null, repeat: thorough);
+                GraphRobustnessInvariants.Exercise(robustnessCase, graph, thorough || specification is not null ? GraphThemes.Light : null, repeat: thorough, specification);
             }
         }
 

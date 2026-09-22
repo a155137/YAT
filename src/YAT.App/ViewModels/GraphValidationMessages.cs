@@ -1,4 +1,5 @@
 using YAT.Application.Graphs;
+using YAT.Application.Specifications;
 
 namespace YAT.app.ViewModels;
 
@@ -28,7 +29,18 @@ public static class GraphValidationMessages
                 $"Please select a Numeric column for {roleName}.",
             GraphValidationReason.ColumnNotFound => "The selected column is no longer available.",
             GraphValidationReason.ColumnFromAnotherWorksheet => "The selected column belongs to another worksheet.",
+            GraphValidationReason.SpecificationValueNotNumeric => $"{FieldName(error.Field)} must be a number.",
+            GraphValidationReason.SpecificationLimitsOutOfOrder => "LSL must be below USL.",
+            GraphValidationReason.SpecificationTargetOutsideLimits => "Target must lie within the specification limits (LSL to USL).",
             _ => "This graph cannot be created with the current settings."
         };
     }
+
+    // The names the setup labels the specification fields with.
+    private static string FieldName(SpecificationField? field) => field switch
+    {
+        SpecificationField.LowerLimit => "LSL",
+        SpecificationField.UpperLimit => "USL",
+        _ => "Target"
+    };
 }

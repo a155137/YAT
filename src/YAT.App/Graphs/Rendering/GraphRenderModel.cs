@@ -152,7 +152,8 @@ public sealed record GraphRenderModel
     // Null or empty when the graph has no title; the layout then gives the space back to the plot area.
     public string? Title { get; }
 
-    public GraphAxisModel XAxis { get; }
+    // Private set only so WithXAxis can replace it on a copy; a model never changes after it is made.
+    public GraphAxisModel XAxis { get; private set; }
 
     public GraphAxisModel YAxis { get; }
 
@@ -167,4 +168,30 @@ public sealed record GraphRenderModel
     public GraphStatisticsPanel? StatisticsPanel { get; init; }
 
     public GraphRenderModel WithStatisticsPanel(GraphStatisticsPanel? panel) => this with { StatisticsPanel = panel };
+
+    // Lines across the plot at chosen axis values (see GraphReferenceLine), in the order they were given. Empty for
+    // none. Like the statistics panel they are added by the graph preparation (GraphSpecificationLinesBuilder), never
+    // by a graph type's own builder.
+    public IReadOnlyList<GraphReferenceLine> ReferenceLines { get; init; } = [];
+
+    public GraphRenderModel WithReferenceLines(IReadOnlyList<GraphReferenceLine> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        if (lines.Any(line => line is null))
+        {
+            throw new ArgumentException("A reference line must not be null.", nameof(lines));
+        }
+
+        return this with { ReferenceLines = [.. lines] };
+    }
+
+    // The same model over another X axis: what a frame becomes when something drawn on it needs the axis to reach
+    // further than the data does. Everything else - title, Y axis, legend, panel, lines - is kept.
+    public GraphRenderModel WithXAxis(GraphAxisModel xAxis)
+    {
+        ArgumentNullException.ThrowIfNull(xAxis);
+        var copy = this with { };
+        copy.XAxis = xAxis;
+        return copy;
+    }
 }

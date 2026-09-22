@@ -96,22 +96,24 @@ public class GraphTypeDefinitionsTests
     [InlineData(GraphType.Histogram)]
     [InlineData(GraphType.ProbabilityPlot)]
     [InlineData(GraphType.EmpiricalCdf)]
-    public void SingleVariableGraphsOfferTheStatisticsPanel(GraphType graphType)
+    public void SingleVariableGraphsOfferTheStatisticsPanelAndSpecificationLines(GraphType graphType)
     {
         var definition = GraphTypeDefinitions.For(graphType);
 
         Assert.True(definition.Supports(GraphCapability.StatisticsPanel));
-        Assert.Equal([GraphCapability.StatisticsPanel], definition.Capabilities);
+        Assert.True(definition.Supports(GraphCapability.SpecificationLines));
+        Assert.Equal([GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines], definition.Capabilities);
     }
 
     [Theory]
     [InlineData(GraphType.ScatterPlot)]
     [InlineData(GraphType.BoxPlot)]
-    public void ScatterAndBoxPlotsHaveNoStatisticsPanel(GraphType graphType)
+    public void ScatterAndBoxPlotsHaveNoStatisticsPanelAndNoSpecificationLines(GraphType graphType)
     {
         var definition = GraphTypeDefinitions.For(graphType);
 
         Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
+        Assert.False(definition.Supports(GraphCapability.SpecificationLines));
         Assert.Empty(definition.Capabilities);
     }
 
@@ -122,5 +124,6 @@ public class GraphTypeDefinitionsTests
 
         Assert.Empty(definition.Capabilities);
         Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
+        Assert.False(definition.Supports(GraphCapability.SpecificationLines));
     }
 }

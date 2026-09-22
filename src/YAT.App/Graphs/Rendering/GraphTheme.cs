@@ -22,6 +22,11 @@ public sealed record GraphTheme
 
     public required SKColor LegendBorder { get; init; }
 
+    // Reference lines across the plot (a specification's LSL, Target and USL) and their labels. Deliberately neutral:
+    // the lines mark where the limits are, not whether the data is good or bad, and they must never be mistaken for a
+    // series, so no palette colour is used. Limits and target differ by dash pattern and width, not by colour.
+    public required SKColor Annotation { get; init; }
+
     // Series colours, used by legend entries (and later by the graphs themselves) through their series index.
     public required IReadOnlyList<SKColor> SeriesPalette { get; init; }
 
@@ -34,6 +39,11 @@ public sealed record GraphTheme
     public float AxisThickness { get; init; } = 1.25f;
 
     public float GridThickness { get; init; } = 1f;
+
+    public float SpecificationLimitThickness { get; init; } = 1.5f;
+
+    // A little heavier than the limits, so the target reads as the centre of the specification.
+    public float TargetThickness { get; init; } = 2f;
 
     // Series colours repeat once the palette runs out, so any series index has a colour.
     public SKColor SeriesColor(int seriesIndex)
@@ -68,6 +78,7 @@ public static class GraphThemes
         Text = new SKColor(0x1F, 0x1F, 0x1F),
         SecondaryText = new SKColor(0x50, 0x50, 0x50),
         LegendBorder = new SKColor(0xC8, 0xC8, 0xC8),
+        Annotation = new SKColor(0x4F, 0x4F, 0x4F),
         SeriesPalette = Palette
     };
 
@@ -80,6 +91,7 @@ public static class GraphThemes
         Text = new SKColor(0xF0, 0xF0, 0xF0),
         SecondaryText = new SKColor(0xC6, 0xC6, 0xC6),
         LegendBorder = new SKColor(0x55, 0x55, 0x55),
+        Annotation = new SKColor(0xD2, 0xD2, 0xD2),
         SeriesPalette = Palette
     };
 }

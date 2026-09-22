@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using YAT.Analytics.Statistics;
 using YAT.Application.Graphs;
+using YAT.Application.Specifications;
 using YAT.app.Graphs.Rendering;
 
 namespace YAT.App.Tests.Robustness;
@@ -30,28 +31,45 @@ internal static class GraphRobustnessInvariants
 
     // Runs one case through one graph at builder level (and, if asked, through the renderer): build, check every
     // invariant, build again and compare, build with a spent display budget and compare the statistics.
-    public static BuiltGraph Exercise(RobustnessCase robustnessCase, RobustnessGraph graph, GraphTheme? renderTheme, bool repeat = true)
+    // specification: prepared with the graph, as a user who typed it would (#036). Every build of the case gets the same.
+    public static BuiltGraph Exercise(
+        RobustnessCase robustnessCase,
+        RobustnessGraph graph,
+        GraphTheme? renderTheme,
+        bool repeat = true,
+        Specification? specification = null)
     {
         var data = RobustnessGraphs.DataFor(graph, robustnessCase);
-        return Exercise(robustnessCase.Describe(RobustnessGraphs.Name(graph)), graph, data, renderTheme, repeat);
+        return Exercise(robustnessCase.Describe(RobustnessGraphs.Name(graph)), graph, data, renderTheme, repeat, specification);
     }
 
-    public static BuiltGraph Exercise(string context, RobustnessGraph graph, GraphData data, GraphTheme? renderTheme, bool repeat = true)
+    public static BuiltGraph Exercise(
+        string context,
+        RobustnessGraph graph,
+        GraphData data,
+        GraphTheme? renderTheme,
+        bool repeat = true,
+        Specification? specification = null)
     {
-        var built = BuildOrFail(context, graph, data);
+        if (specification is { IsEmpty: false })
+        {
+            context += $" with specification {Describe(specification)}";
+        }
+
+        var built = BuildOrFail(context, graph, data, specification: specification);
         Verify(context, built);
 
         if (repeat && built.Model is not null)
         {
             // Implementation invariant: the same data builds the same graph, points and all.
-            var again = BuildOrFail(context, graph, data);
+            var again = BuildOrFail(context, graph, data, specification: specification);
             That(Fingerprint(again, statisticsOnly: false) == Fingerprint(built, statisticsOnly: false), context,
                 "building the same data twice must give the same model");
 
             if (graph != RobustnessGraph.Histogram)
             {
                 // Sampling must not change statistics (the histogram never samples).
-                var sampled = BuildOrFail(context, graph, data, SamplingBudget(graph, data));
+                var sampled = BuildOrFail(context, graph, data, SamplingBudget(graph, data), specification);
                 Verify(context + " (sampled)", sampled);
                 var expected = Fingerprint(built, statisticsOnly: true);
                 var actual = Fingerprint(sampled, statisticsOnly: true);
@@ -74,11 +92,16 @@ internal static class GraphRobustnessInvariants
         return built;
     }
 
-    public static BuiltGraph BuildOrFail(string context, RobustnessGraph graph, GraphData data, int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints)
+    public static BuiltGraph BuildOrFail(
+        string context,
+        RobustnessGraph graph,
+        GraphData data,
+        int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints,
+        Specification? specification = null)
     {
         try
         {
-            return RobustnessGraphs.Build(graph, data, maximumRenderedPoints, TestContext.Current.CancellationToken);
+            return RobustnessGraphs.Build(graph, data, maximumRenderedPoints, TestContext.Current.CancellationToken, specification);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -103,6 +126,7 @@ internal static class GraphRobustnessInvariants
 
         Frame(context, built.Frame!);
         StatisticsPanel(context, built);
+        SpecificationLines(context, built);
 
         switch (built.Model)
         {
@@ -196,6 +220,100 @@ internal static class GraphRobustnessInvariants
             }
         }
     }
+
+    // ---- Specification lines (#036) ----
+
+    // Implementation invariants: a graph type without the capability, or a graph without a specification, shows the
+    // builder's own X axis and no line at all. Otherwise there is one X line per finite value - LSL, Target, USL, in
+    // that order, labelled "<name> <G8 value>" - the Y axis is the builder's, and the displayed X axis is the builder's
+    // reached out by GraphAxisRanges.Including: it covers the builder's axis, its ticks are the nice ticks of the new
+    // range, and its title is kept.
+    //
+    // Mathematical invariant: whenever the values and the axis are of a magnitude the padding can separate, every value
+    // lies strictly inside the displayed axis, so no line is ever drawn on the frame or lost outside it. Beyond that
+    // (values near the limits of double) the axis may stay as the builder made it, and must then be exactly that.
+    private static void SpecificationLines(string context, BuiltGraph built)
+    {
+        var frame = built.Frame!;
+        var builder = RobustnessGraphs.BuilderFrame(built.Model!);
+        var specification = built.Specification;
+        var offered = GraphTypeDefinitions.For(RobustnessGraphs.TypeOf(built.Graph)).Supports(GraphCapability.SpecificationLines);
+
+        That(ReferenceEquals(frame.YAxis, builder.YAxis), context, "the specification changed the Y axis");
+
+        var expected = new List<(string Name, double Value, GraphReferenceLineKind Kind)>();
+        if (offered)
+        {
+            AddExpected(expected, GraphSpecificationLinesBuilder.LowerLimitLabel, specification.LowerLimit, GraphReferenceLineKind.SpecificationLimit);
+            AddExpected(expected, GraphSpecificationLinesBuilder.TargetLabel, specification.Target, GraphReferenceLineKind.Target);
+            AddExpected(expected, GraphSpecificationLinesBuilder.UpperLimitLabel, specification.UpperLimit, GraphReferenceLineKind.SpecificationLimit);
+        }
+
+        That(frame.ReferenceLines.Count == expected.Count, context,
+            $"the frame has {frame.ReferenceLines.Count} reference lines for {expected.Count} specification values");
+        if (expected.Count == 0)
+        {
+            That(ReferenceEquals(frame.XAxis, builder.XAxis), context, "without specification lines the X axis must be the builder's");
+            return;
+        }
+
+        for (var index = 0; index < Math.Min(frame.ReferenceLines.Count, expected.Count); index++)
+        {
+            var line = frame.ReferenceLines[index];
+            var (name, value, kind) = expected[index];
+            That(line.Axis == GraphReferenceAxis.X && line.Value == value && line.Kind == kind && double.IsFinite(line.Value), context,
+                $"reference line {index} is {line.Axis} {line.Value:R} {line.Kind}, not X {value:R} {kind}");
+            That(line.Label == GraphSpecificationLinesBuilder.Label(name, value), context, $"reference line {index} is labelled '{line.Label}'");
+        }
+
+        var values = expected.Select(item => item.Value).ToArray();
+        var axis = frame.XAxis;
+        var original = builder.XAxis.Range;
+
+        That(axis.Range == GraphAxisRanges.Including(original, values), context,
+            $"the X axis {axis.Range.Minimum:R}..{axis.Range.Maximum:R} is not the builder's axis reached out to the specification");
+        That(axis.Range.Minimum <= original.Minimum && axis.Range.Maximum >= original.Maximum, context,
+            "the specification narrowed the X axis");
+        That(axis.Title == builder.XAxis.Title, context, "the specification changed the X axis title");
+
+        if (axis.Range == original)
+        {
+            That(ReferenceEquals(axis, builder.XAxis), context, "an unchanged X range must keep the builder's axis");
+        }
+        else
+        {
+            That(axis.Ticks.Select(tick => tick.Value).SequenceEqual(GraphAxisTicks.Nice(axis.Range).Select(tick => tick.Value)), context,
+                "a widened X axis must have the nice ticks of its new range");
+            // GraphAxisModel allows ticks outside the range (they are not drawn), and a nice tick is k * step, which can
+            // round a last-bit past an edge; what must not happen is a tick meaningfully outside the new range.
+            var slack = axis.Range.Span * 1e-9;
+            That(axis.Ticks.All(tick => tick.Value >= axis.Range.Minimum - slack && tick.Value <= axis.Range.Maximum + slack), context,
+                Invariant($"a widened X axis has a tick outside its range {axis.Range.Minimum:R}..{axis.Range.Maximum:R}: {string.Join(", ", axis.Ticks.Select(tick => tick.Value.ToString("R", CultureInfo.InvariantCulture)))}"));
+        }
+
+        var lowest = Math.Min(values.Min(), original.Minimum);
+        var highest = Math.Max(values.Max(), original.Maximum);
+        var magnitude = Math.Max(Math.Abs(lowest), Math.Abs(highest));
+        var representable = magnitude <= 1e300 && highest - lowest > 1e-9 * magnitude;
+        var inside = values.All(value => value > axis.Range.Minimum && value < axis.Range.Maximum);
+        That(inside || (!representable && axis.Range == original), context,
+            $"a specification value lies outside or on the X axis {axis.Range.Minimum:R}..{axis.Range.Maximum:R}");
+    }
+
+    private static void AddExpected(
+        List<(string Name, double Value, GraphReferenceLineKind Kind)> expected,
+        string name,
+        double? value,
+        GraphReferenceLineKind kind)
+    {
+        if (value is { } number && double.IsFinite(number))
+        {
+            expected.Add((name, number, kind));
+        }
+    }
+
+    public static string Describe(Specification specification) =>
+        Invariant($"LSL={specification.LowerLimit:R} Target={specification.Target:R} USL={specification.UpperLimit:R}");
 
     // ---- Histogram ----
 
@@ -524,6 +642,16 @@ internal static class GraphRobustnessInvariants
     // Everything a model says, as text. statisticsOnly leaves out what sampling may change - drawn points and
     // outliers, rendered counts, whether the model was sampled - and keeps observation counts, statistics, axes,
     // categories, series order and legend.
+    // What the graph type's builder made, whatever was applied to its frame afterwards: the builder's own axes and
+    // legend, the statistics panel, and the plot model. A specification may widen the displayed X axis and add lines;
+    // this must be the same with or without one (#036).
+    public static string PlotFingerprint(BuiltGraph built) =>
+        built.Model is null
+            ? "no model"
+            : Fingerprint(
+                built with { Frame = RobustnessGraphs.BuilderFrame(built.Model).WithStatisticsPanel(built.Frame!.StatisticsPanel) },
+                statisticsOnly: false);
+
     public static string Fingerprint(BuiltGraph built, bool statisticsOnly)
     {
         if (built.Model is null)
@@ -553,6 +681,10 @@ internal static class GraphRobustnessInvariants
         {
             text.Append("none");
         }
+
+        // Reference lines are part of the frame: sampling must not move them either.
+        text.Append(" lines=");
+        text.AppendJoin(",", built.Frame.ReferenceLines.Select(line => Invariant($"{line.Axis}:{line.Value:R}:{line.Kind}:{line.Label}")));
 
         switch (built.Model)
         {

@@ -1,3 +1,4 @@
+using YAT.Application.Specifications;
 using YAT.Domain.Entities;
 
 namespace YAT.Application.Graphs;
@@ -25,12 +26,25 @@ public enum GraphValidationReason
     ColumnFromAnotherWorksheet,
 
     // The column's data type is not allowed for the role (e.g. a String column on a Numeric axis).
-    IncompatibleDataType
+    IncompatibleDataType,
+
+    // A specification value is not a finite number. Field says which one.
+    SpecificationValueNotNumeric,
+
+    // The lower specification limit is not below the upper one.
+    SpecificationLimitsOutOfOrder,
+
+    // The target lies below the lower specification limit or above the upper one.
+    SpecificationTargetOutsideLimits
 }
 
-// One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct; the UI turns this into
-// readable text.
-public sealed record GraphValidationError(GraphValidationReason Reason, GraphVariableRole? Role = null, Guid? WorksheetColumnId = null);
+// One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
+// the specification, Field; the UI turns this into readable text.
+public sealed record GraphValidationError(
+    GraphValidationReason Reason,
+    GraphVariableRole? Role = null,
+    Guid? WorksheetColumnId = null,
+    SpecificationField? Field = null);
 
 public sealed record GraphValidationResult(IReadOnlyList<GraphValidationError> Errors)
 {
@@ -109,8 +123,25 @@ public sealed class GraphConfigurationValidator
             }
         }
 
+        // A specification is checked only where it is drawn; graph types without the capability ignore it.
+        if (definition.Supports(GraphCapability.SpecificationLines))
+        {
+            errors.AddRange(SpecificationErrors(configuration.Specification));
+        }
+
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);
     }
+
+    // The shared specification rules, as graph validation errors.
+    private static IEnumerable<GraphValidationError> SpecificationErrors(Specification specification) =>
+        SpecificationRules.Check(specification).Select(problem => new GraphValidationError(
+            problem.Kind switch
+            {
+                SpecificationProblemKind.NotFinite => GraphValidationReason.SpecificationValueNotNumeric,
+                SpecificationProblemKind.LimitsOutOfOrder => GraphValidationReason.SpecificationLimitsOutOfOrder,
+                _ => GraphValidationReason.SpecificationTargetOutsideLimits
+            },
+            Field: problem.Field));
 
     private static void AddOnce(List<GraphValidationError> errors, GraphValidationError error)
     {

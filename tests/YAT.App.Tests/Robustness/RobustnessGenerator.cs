@@ -1,4 +1,5 @@
 using System.Globalization;
+using YAT.Application.Specifications;
 
 namespace YAT.App.Tests.Robustness;
 
@@ -64,6 +65,47 @@ internal static class RobustnessGenerator
     // Most cases are small or medium, a few reach the largest size: small cases are where edge cases live, and they are
     // cheap.
     private static readonly int[] SmallSizes = [1, 2, 3, 4, 5, 8, 16, 50, 200, 1000];
+
+    // A random specification for a generated case (#036), fully determined by (seed, caseNumber) like the case itself.
+    // Its values are placed around the data - often on its extremes or at 0, otherwise anywhere from one span below
+    // it to one span above - and any non-empty subset of LSL, Target and USL is kept, in order, so it is always valid.
+    public static Specification SpecificationFor(RobustnessCase robustnessCase, int caseNumber, ulong seed = PrimarySeed)
+    {
+        var values = robustnessCase.Values.OfType<double>().ToArray();
+        if (values.Length == 0)
+        {
+            return Specification.None;
+        }
+
+        var random = new RobustnessRandom(RobustnessRandom.Mix(seed ^ 0x5EC5EC5EC5EC5ECUL, caseNumber));
+        var minimum = values.Min();
+        var maximum = values.Max();
+        var span = maximum > minimum ? maximum - minimum : Math.Max(Math.Abs(minimum) * 1e-3, 1e-3);
+
+        double Around() => random.Next(8) switch
+        {
+            0 => minimum,
+            1 => maximum,
+            2 => 0,
+            _ => minimum + (span * ((random.NextDouble() * 3) - 1))
+        };
+
+        double[] picks = [Around(), Around(), Around()];
+        Array.Sort(picks);
+
+        var kept = 1 + random.Next(7);
+        double? lower = (kept & 1) != 0 ? picks[0] : null;
+        double? target = (kept & 2) != 0 ? picks[1] : null;
+        double? upper = (kept & 4) != 0 ? picks[2] : null;
+
+        // Two equal picks cannot both be limits: LSL must be below USL.
+        if (lower is { } low && upper is { } high && low >= high)
+        {
+            upper = null;
+        }
+
+        return new Specification(lower, target, upper);
+    }
 
     // The case with this number, of at most maximumRows rows.
     public static RobustnessCase Create(int caseNumber, int maximumRows, ulong seed = PrimarySeed)

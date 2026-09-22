@@ -241,6 +241,25 @@ public class GraphDataQueryServiceTests
         Assert.Equal(shown.Variable, hidden.Variable);
     }
 
+    [Fact]
+    public async Task ASpecificationDoesNotChangeTheDataThatIsRead()
+    {
+        var fixture = new Fixture();
+        var variable = fixture.Numeric("Reg1", 0, 1, null, 3, 4);
+        var group = fixture.Text("Lot", 1, "A", "B", null, "A");
+        var configuration = fixture.Configuration(
+            GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
+
+        var without = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
+        var with = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(
+            configuration with { Specification = new YAT.Application.Specifications.Specification(-100, 2, 100) }));
+
+        // A specification far outside the data neither filters nor adds observations: it is not read at all.
+        Assert.Equal(without.Values.ToArray(), with.Values.ToArray());
+        Assert.Equal(StringGroups(without), StringGroups(with));
+        Assert.Equal(without.Variable, with.Variable);
+    }
+
     // ---- Order, chunking and column state ----
 
     [Fact]

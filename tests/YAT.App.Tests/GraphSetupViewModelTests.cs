@@ -1,4 +1,5 @@
 using YAT.Application.Graphs;
+using YAT.Application.Specifications;
 using YAT.app.ViewModels;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
@@ -232,5 +233,170 @@ public class GraphSetupViewModelTests
         setup.ShowStatistics = false;
 
         Assert.Contains(nameof(GraphSetupViewModel.ShowStatistics), changed);
+    }
+
+    // ---- Specification (#036) ----
+
+    private static GraphSetupViewModel Histogram()
+    {
+        var setup = Setup(GraphType.Histogram);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+        return setup;
+    }
+
+    private static GraphSetupViewModel WithSpecification(string lower, string target, string upper)
+    {
+        var setup = Histogram();
+        setup.LowerLimitText = lower;
+        setup.TargetText = target;
+        setup.UpperLimitText = upper;
+        return setup;
+    }
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public void DistributionGraphsOfferABlankSpecification(GraphType graphType)
+    {
+        var setup = Setup(graphType);
+
+        Assert.True(setup.SupportsSpecificationLines);
+        Assert.Equal(string.Empty, setup.LowerLimitText);
+        Assert.Equal(string.Empty, setup.TargetText);
+        Assert.Equal(string.Empty, setup.UpperLimitText);
+    }
+
+    [Theory]
+    [InlineData(GraphType.ScatterPlot)]
+    [InlineData(GraphType.BoxPlot)]
+    public void GraphsWithoutSpecificationLinesDoNotOfferThem(GraphType graphType) =>
+        Assert.False(Setup(graphType).SupportsSpecificationLines);
+
+    [Fact]
+    public void BlankFieldsGiveNoSpecification()
+    {
+        var configuration = WithSpecification("", "  ", "\t")!.Confirm()!;
+
+        Assert.True(configuration.Specification.IsEmpty);
+    }
+
+    [Theory]
+    [InlineData("14.5", "15", "15.5", 14.5, 15.0, 15.5)]
+    [InlineData(" 14.5 ", "", "", 14.5, null, null)]
+    [InlineData("", "1e-3", "", null, 0.001, null)]
+    [InlineData("-2.5E+2", "", "3E2", -250.0, null, 300.0)]
+    [InlineData("", "", ".5", null, null, 0.5)]
+    public void TypedValuesAreParsedInvariantly(string lower, string target, string upper, double? expectedLower, double? expectedTarget, double? expectedUpper)
+    {
+        var setup = WithSpecification(lower, target, upper);
+
+        Assert.True(setup.CanConfirm);
+        Assert.Equal(new Specification(expectedLower, expectedTarget, expectedUpper), setup.Confirm()!.Specification);
+        Assert.Null(setup.ValidationMessage);
+    }
+
+    [Theory]
+    [InlineData("abc", "", "", "LSL must be a number.")]
+    [InlineData("", "NaN", "", "Target must be a number.")]
+    [InlineData("", "", "Infinity", "USL must be a number.")]
+    [InlineData("", "", "-Infinity", "USL must be a number.")]
+    [InlineData("1,000", "", "", "LSL must be a number.")]
+    [InlineData("14,5", "", "", "LSL must be a number.")]
+    [InlineData("16", "", "15", "LSL must be below USL.")]
+    [InlineData("15", "", "15", "LSL must be below USL.")]
+    [InlineData("14.5", "16", "15.5", "Target must lie within the specification limits (LSL to USL).")]
+    [InlineData("14.5", "14", "", "Target must lie within the specification limits (LSL to USL).")]
+    public void AnInvalidSpecificationCannotBeConfirmedAndSaysWhy(string lower, string target, string upper, string message)
+    {
+        var setup = WithSpecification(lower, target, upper);
+
+        Assert.False(setup.CanConfirm);
+        Assert.Null(setup.ValidationMessage);
+
+        Assert.Null(setup.Confirm());
+        Assert.Equal(message, setup.ValidationMessage);
+        Assert.False(setup.CanConfirm);
+    }
+
+    [Theory]
+    [InlineData("14.5", "14.5", "15.5")]
+    [InlineData("14.5", "15.5", "15.5")]
+    [InlineData("", "15", "")]
+    public void ATargetOnALimitOrOnItsOwnIsValid(string lower, string target, string upper) =>
+        Assert.NotNull(WithSpecification(lower, target, upper).Confirm());
+
+    [Fact]
+    public void CanConfirmFollowsTheSpecificationAsItIsTyped()
+    {
+        var setup = Histogram();
+        Assert.True(setup.CanConfirm);
+
+        setup.LowerLimitText = "x";
+        Assert.False(setup.CanConfirm);
+
+        setup.LowerLimitText = "14.5";
+        Assert.True(setup.CanConfirm);
+
+        setup.UpperLimitText = "14";
+        Assert.False(setup.CanConfirm);
+
+        setup.UpperLimitText = string.Empty;
+        Assert.True(setup.CanConfirm);
+    }
+
+    [Fact]
+    public void AMissingVariableIsReportedBeforeTheSpecification()
+    {
+        var setup = Setup(GraphType.Histogram);
+        setup.LowerLimitText = "abc";
+
+        Assert.Null(setup.Confirm());
+        Assert.Equal("Please select a variable.", setup.ValidationMessage);
+    }
+
+    [Fact]
+    public void TextThatIsNotANumberIsReportedBeforeValuesThatDoNotFit()
+    {
+        var setup = WithSpecification("16", "abc", "15");
+
+        Assert.Null(setup.Confirm());
+        Assert.Equal("Target must be a number.", setup.ValidationMessage);
+    }
+
+    [Fact]
+    public void TheSpecificationAndTheStatisticsOptionAreIndependent()
+    {
+        var setup = WithSpecification("14.5", "", "15.5");
+        setup.ShowStatistics = false;
+
+        var configuration = setup.Confirm()!;
+
+        Assert.False(configuration.PresentationOptions.ShowStatistics);
+        Assert.Equal(new Specification(14.5, null, 15.5), configuration.Specification);
+    }
+
+    [Fact]
+    public void ANewSetupStartsBlankWhateverTheLastOneHad()
+    {
+        WithSpecification("1", "2", "3").Confirm();
+
+        Assert.True(Histogram().Confirm()!.Specification.IsEmpty);
+    }
+
+    [Fact]
+    public void SpecificationFieldsAreObservable()
+    {
+        var setup = Setup(GraphType.Histogram);
+        var changed = new List<string?>();
+        setup.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        setup.LowerLimitText = "1";
+        setup.TargetText = "2";
+        setup.UpperLimitText = "3";
+
+        Assert.Contains(nameof(GraphSetupViewModel.LowerLimitText), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.TargetText), changed);
+        Assert.Contains(nameof(GraphSetupViewModel.UpperLimitText), changed);
     }
 }

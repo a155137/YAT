@@ -3,6 +3,7 @@ using SkiaSharp;
 using YAT.App.Tests.TestDoubles;
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Graphs;
+using YAT.Application.Specifications;
 using YAT.app.Composition;
 using YAT.app.Graphs.Export;
 using YAT.app.Graphs.Rendering;
@@ -21,8 +22,12 @@ public enum RobustnessGraph
 }
 
 // One graph built from one dataset: the graph data it was built from, and what the graph type's own builder made of
-// it. Model, Frame and Plot are null when the builder had nothing to draw.
-internal sealed record BuiltGraph(RobustnessGraph Graph, GraphData Data, object? Model, GraphRenderModel? Frame, IGraphPlotRenderer? Plot);
+// it. Model, Frame and Plot are null when the builder had nothing to draw. Frame is the frame the application shows -
+// the builder's, with the presentation applied - and Specification the one it was prepared with (#036).
+internal sealed record BuiltGraph(RobustnessGraph Graph, GraphData Data, object? Model, GraphRenderModel? Frame, IGraphPlotRenderer? Plot)
+{
+    public Specification Specification { get; init; } = Specification.None;
+}
 
 // How the harness turns a robustness case into graphs: the graph data a case becomes (the way the data pipeline
 // compacts worksheet rows), the production builder of each graph type, and the production renderers and exporter.
@@ -146,8 +151,10 @@ internal static class RobustnessGraphs
         RobustnessGraph graph,
         GraphData data,
         int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Specification? specification = null)
     {
+        specification ??= Specification.None;
         switch (graph)
         {
             case RobustnessGraph.Histogram:
@@ -155,7 +162,7 @@ internal static class RobustnessGraphs
                 var univariate = (UnivariateGraphData)data;
                 var model = new HistogramRenderModelBuilder().Build(
                     univariate, new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return Built(graph, data, model, model?.Frame, model is null ? null : new HistogramRenderer(model), cancellationToken);
+                return Built(graph, data, model, model?.Frame, model is null ? null : new HistogramRenderer(model), cancellationToken, specification);
             }
 
             case RobustnessGraph.BoxPlot:
@@ -167,7 +174,7 @@ internal static class RobustnessGraphs
                         [.. multi.Variables.Select(variable => variable.Variable.Name)],
                         multi.Variables.Select(variable => variable.Group?.Column.Name).FirstOrDefault(name => name is not null)),
                     cancellationToken);
-                return Built(graph, data, model, model?.Frame, model is null ? null : new BoxPlotRenderer(model), cancellationToken);
+                return Built(graph, data, model, model?.Frame, model is null ? null : new BoxPlotRenderer(model), cancellationToken, specification);
             }
 
             case RobustnessGraph.ProbabilityPlot:
@@ -175,7 +182,7 @@ internal static class RobustnessGraphs
                 var univariate = (UnivariateGraphData)data;
                 var model = new ProbabilityPlotRenderModelBuilder(maximumRenderedPoints).Build(
                     univariate, new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return Built(graph, data, model, model?.Frame, model is null ? null : new ProbabilityPlotRenderer(model), cancellationToken);
+                return Built(graph, data, model, model?.Frame, model is null ? null : new ProbabilityPlotRenderer(model), cancellationToken, specification);
             }
 
             case RobustnessGraph.EmpiricalCdf:
@@ -183,7 +190,7 @@ internal static class RobustnessGraphs
                 var univariate = (UnivariateGraphData)data;
                 var model = new EmpiricalCdfRenderModelBuilder(maximumRenderedPoints).Build(
                     univariate, new EmpiricalCdfLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return Built(graph, data, model, model?.Frame, model is null ? null : new EmpiricalCdfRenderer(model), cancellationToken);
+                return Built(graph, data, model, model?.Frame, model is null ? null : new EmpiricalCdfRenderer(model), cancellationToken, specification);
             }
 
             default:
@@ -191,25 +198,45 @@ internal static class RobustnessGraphs
                 var scatter = (ScatterGraphData)data;
                 var model = new ScatterRenderModelBuilder(maximumRenderedPoints).Build(
                     scatter, new ScatterPlotLabels(scatter.X.Name, scatter.Y.Name, scatter.Group?.Column.Name), cancellationToken);
-                return Built(graph, data, model, model?.Frame, model is null ? null : new ScatterRenderer(model), cancellationToken);
+                return Built(graph, data, model, model?.Frame, model is null ? null : new ScatterRenderer(model), cancellationToken, specification);
             }
         }
     }
 
-    // The graph as the application prepares it: the builder's frame, with the statistics panel attached the way the
-    // graph preparation attaches it - by the graph type's capability and the default options (statistics shown).
+    // The graph as the application prepares it: the builder's frame, with its presentation applied through the one
+    // pipeline the graph preparation uses - the default options (statistics shown) and the given specification.
     private static BuiltGraph Built(
         RobustnessGraph graph,
         GraphData data,
         object? model,
         GraphRenderModel? frame,
         IGraphPlotRenderer? plot,
-        CancellationToken cancellationToken) =>
-        new(graph, data, model, frame is null
-            ? null
-            : GraphStatisticsPanelBuilder.Attach(
-                frame, data, GraphTypeDefinitions.For(TypeOf(graph)), GraphPresentationOptions.Default, cancellationToken),
-            plot);
+        CancellationToken cancellationToken,
+        Specification specification) =>
+        new(graph, data, model, frame is null ? null : Present(graph, data, frame, specification, cancellationToken), plot)
+        {
+            Specification = specification
+        };
+
+    public static GraphRenderModel Present(
+        RobustnessGraph graph,
+        GraphData data,
+        GraphRenderModel builderFrame,
+        Specification specification,
+        CancellationToken cancellationToken = default) =>
+        GraphPresentation.Apply(
+            builderFrame, data, new GraphConfiguration(TypeOf(graph), Guid.Empty, []) { Specification = specification }, cancellationToken);
+
+    // The frame the graph type's own builder made, before anything was applied to it.
+    public static GraphRenderModel BuilderFrame(object model) => model switch
+    {
+        HistogramRenderModel histogram => histogram.Frame,
+        BoxPlotRenderModel boxPlot => boxPlot.Frame,
+        ProbabilityPlotRenderModel probability => probability.Frame,
+        EmpiricalCdfRenderModel empirical => empirical.Frame,
+        ScatterRenderModel scatter => scatter.Frame,
+        _ => throw new ArgumentException($"Unknown render model {model.GetType().Name}.", nameof(model))
+    };
 
     // Draws the graph off screen through the frame renderer the graph window uses.
     public static void Render(BuiltGraph built, GraphTheme theme)

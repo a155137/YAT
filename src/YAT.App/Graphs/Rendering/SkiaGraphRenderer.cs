@@ -39,8 +39,7 @@ public sealed class SkiaGraphRenderer
         fill.Color = theme.Background;
         canvas.DrawRect(bounds, fill);
 
-        var metrics = Measure(model, titleFont, axisTitleFont, tickFont);
-        var layout = GraphLayoutCalculator.Calculate(bounds, model, metrics);
+        var layout = Arrange(bounds, model, titleFont, axisTitleFont, tickFont, out var metrics);
         if (!layout.HasPlotArea)
         {
             // Too small for a usable plot: the background alone, rather than axes drawn over each other.
@@ -54,10 +53,12 @@ public sealed class SkiaGraphRenderer
 
         DrawGrid(canvas, model, layout, transform, theme, stroke);
         DrawPlot(canvas, layout, transform, theme, plot);
+        DrawReferenceLines(canvas, model, layout, transform, theme);
         DrawAxisLines(canvas, layout, theme, stroke);
         DrawTicks(canvas, model, layout, metrics, transform, theme, stroke, fill, tickFont);
         DrawAxisTitles(canvas, model, layout, theme, fill, axisTitleFont);
         DrawTitle(canvas, model, layout, theme, fill, titleFont);
+        DrawReferenceLabels(canvas, model, layout, transform, theme, fill, tickFont);
         DrawLegend(canvas, model, layout, theme, fill, stroke, tickFont);
         DrawStatisticsPanel(canvas, model, layout, theme, fill, stroke, tickFont);
     }
@@ -69,7 +70,36 @@ public sealed class SkiaGraphRenderer
         using var titleFont = Font(theme.TitleFontSize);
         using var axisTitleFont = Font(theme.AxisTitleFontSize);
         using var tickFont = Font(theme.TickLabelFontSize);
-        return GraphLayoutCalculator.Calculate(bounds, model, Measure(model, titleFont, axisTitleFont, tickFont));
+        return Arrange(bounds, model, titleFont, axisTitleFont, tickFont, out _);
+    }
+
+    // The layout of this model on this canvas. Reference line labels need a band above the plot whose height depends on
+    // how many rows their labels take, and that depends on where the lines fall across the plot. The plot's width does
+    // not depend on the band's height, so the layout is worked out without the band first, the labels are placed along
+    // that width, and the band they need is then reserved. A model without vertical lines is laid out once, as always.
+    private static GraphLayout Arrange(
+        SKRect bounds,
+        GraphRenderModel model,
+        SKFont titleFont,
+        SKFont axisTitleFont,
+        SKFont tickFont,
+        out GraphLayoutMetrics metrics)
+    {
+        metrics = Measure(model, titleFont, axisTitleFont, tickFont);
+        var layout = GraphLayoutCalculator.Calculate(bounds, model, metrics);
+        if (!layout.HasPlotArea || !model.ReferenceLines.Any(line => line.Axis == GraphReferenceAxis.X))
+        {
+            return layout;
+        }
+
+        var rows = PlaceReferenceLabels(model, layout.PlotArea, tickFont).Select(label => label.Row + 1).DefaultIfEmpty(0).Max();
+        if (rows == 0)
+        {
+            return layout;
+        }
+
+        metrics = metrics with { ReferenceLabelHeight = ReferenceLabelBandHeight(rows, tickFont) };
+        return GraphLayoutCalculator.Calculate(bounds, model, metrics);
     }
 
     // The height of one line of the statistics panel in this theme.
@@ -317,6 +347,169 @@ public sealed class SkiaGraphRenderer
         }
 
         canvas.RestoreToCount(restore);
+    }
+
+    // ---- Reference lines ----
+    //
+    // Lines across the plot at chosen values, over the data and under the axes, clipped to the plot area like the data.
+    // They are drawn in the theme's neutral annotation colour, never a series colour: a specification limit dashed, a
+    // target a little heavier with a long-short dash, so the two read apart without colour meaning good or bad.
+    //
+    // The label of a vertical line sits in the band above the plot, over its line. Labels that would run into each
+    // other move up a row - the first row, nearest the plot, that has room - and a label near either end of the plot is
+    // pushed inward so that it stays over the plot instead of running off it.
+
+    private const float ReferenceLabelGap = 6f;
+    private const float ReferenceLabelRowSpacing = 2f;
+    private const float ReferenceLabelBottomGap = 3f;
+
+    private static readonly float[] SpecificationLimitDash = [6f, 4f];
+    private static readonly float[] TargetDash = [12f, 3f, 3f, 3f];
+
+    // Where one label of a vertical reference line goes: its left edge and width across the plot, and its row in the
+    // band (0 is the row nearest the plot).
+    internal readonly record struct ReferenceLabelPlacement(GraphReferenceLine Line, float Left, float Width, int Row);
+
+    // The labels of the model's vertical lines that land on the plot, placed across a plot area. Lines are taken from
+    // left to right (in model order where they coincide); each label is centred on its line, moved inward when that
+    // would take it past either end of the plot, and put in the lowest row where it clears every label already there.
+    internal static IReadOnlyList<ReferenceLabelPlacement> PlaceReferenceLabels(GraphRenderModel model, SKRect plotArea, SKFont font)
+    {
+        if (plotArea.Width <= 0 || plotArea.Height <= 0)
+        {
+            return [];
+        }
+
+        var transform = new GraphCoordinateTransform(model.XAxis.Range, model.YAxis.Range, plotArea);
+        var candidates = model.ReferenceLines
+            .Select((line, order) => (Line: line, Order: order, X: (float)transform.ToScreenX(line.Value)))
+            .Where(candidate => candidate.Line.Axis == GraphReferenceAxis.X
+                && !string.IsNullOrEmpty(candidate.Line.Label)
+                && IsVisible(candidate.X, plotArea.Left, plotArea.Right))
+            .OrderBy(candidate => candidate.X)
+            .ThenBy(candidate => candidate.Order);
+
+        var rowEnds = new List<float>();
+        var placements = new List<ReferenceLabelPlacement>();
+        foreach (var candidate in candidates)
+        {
+            var width = font.MeasureText(candidate.Line.Label);
+            var left = Math.Clamp(candidate.X - (width / 2f), plotArea.Left, Math.Max(plotArea.Left, plotArea.Right - width));
+
+            var row = rowEnds.FindIndex(end => end + ReferenceLabelGap <= left);
+            if (row < 0)
+            {
+                row = rowEnds.Count;
+                rowEnds.Add(0f);
+            }
+
+            rowEnds[row] = left + width;
+            placements.Add(new ReferenceLabelPlacement(candidate.Line, left, width, row));
+        }
+
+        return placements;
+    }
+
+    // The band that holds this many rows of labels, with a little room between the lowest row and the plot.
+    internal static float ReferenceLabelBandHeight(int rows, SKFont font) =>
+        rows <= 0 ? 0f : ReferenceLabelBottomGap + (rows * LineHeight(font)) + ((rows - 1) * ReferenceLabelRowSpacing);
+
+    private static void DrawReferenceLines(
+        SKCanvas canvas,
+        GraphRenderModel model,
+        GraphLayout layout,
+        GraphCoordinateTransform transform,
+        GraphTheme theme)
+    {
+        if (model.ReferenceLines.Count == 0)
+        {
+            return;
+        }
+
+        var plotArea = layout.PlotArea;
+        using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, Color = theme.Annotation };
+        using var limitDash = SKPathEffect.CreateDash(SpecificationLimitDash, 0f);
+        using var targetDash = SKPathEffect.CreateDash(TargetDash, 0f);
+
+        var restore = canvas.Save();
+        canvas.ClipRect(plotArea);
+
+        foreach (var line in model.ReferenceLines)
+        {
+            var isTarget = line.Kind == GraphReferenceLineKind.Target;
+            stroke.StrokeWidth = isTarget ? theme.TargetThickness : theme.SpecificationLimitThickness;
+            stroke.PathEffect = isTarget ? targetDash : limitDash;
+
+            if (line.Axis == GraphReferenceAxis.X)
+            {
+                var x = (float)transform.ToScreenX(line.Value);
+                if (IsVisible(x, plotArea.Left, plotArea.Right))
+                {
+                    // Drawn from the bottom up, so every line's dash pattern starts at the axis.
+                    canvas.DrawLine(x, plotArea.Bottom, x, plotArea.Top, stroke);
+                }
+            }
+            else
+            {
+                var y = (float)transform.ToScreenY(line.Value);
+                if (IsVisible(y, plotArea.Top, plotArea.Bottom))
+                {
+                    canvas.DrawLine(plotArea.Left, y, plotArea.Right, y, stroke);
+                }
+            }
+        }
+
+        stroke.PathEffect = null;
+        canvas.RestoreToCount(restore);
+    }
+
+    private static void DrawReferenceLabels(
+        SKCanvas canvas,
+        GraphRenderModel model,
+        GraphLayout layout,
+        GraphCoordinateTransform transform,
+        GraphTheme theme,
+        SKPaint fill,
+        SKFont font)
+    {
+        if (model.ReferenceLines.Count == 0)
+        {
+            return;
+        }
+
+        fill.Color = theme.Annotation;
+        var fontMetrics = font.Metrics;
+        var lineHeight = LineHeight(font);
+
+        var band = layout.ReferenceLabelArea;
+        if (!band.IsEmpty)
+        {
+            var restore = canvas.Save();
+            canvas.ClipRect(band);
+            foreach (var label in PlaceReferenceLabels(model, layout.PlotArea, font))
+            {
+                var bottom = band.Bottom - ReferenceLabelBottomGap - (label.Row * (lineHeight + ReferenceLabelRowSpacing));
+                canvas.DrawText(label.Line.Label, label.Left, bottom - fontMetrics.Descent, SKTextAlign.Left, font, fill);
+            }
+
+            canvas.RestoreToCount(restore);
+        }
+
+        // A horizontal line has no band: its label sits just above it at the right end of the plot. No graph draws
+        // one yet; the frame handles both axes so that the line primitive means the same on either.
+        var plotArea = layout.PlotArea;
+        var plotRestore = canvas.Save();
+        canvas.ClipRect(plotArea);
+        foreach (var line in model.ReferenceLines.Where(line => line.Axis == GraphReferenceAxis.Y))
+        {
+            var y = (float)transform.ToScreenY(line.Value);
+            if (IsVisible(y, plotArea.Top, plotArea.Bottom))
+            {
+                canvas.DrawText(line.Label, plotArea.Right - ReferenceLabelGap, y - ReferenceLabelBottomGap - fontMetrics.Descent, SKTextAlign.Right, font, fill);
+            }
+        }
+
+        canvas.RestoreToCount(plotRestore);
     }
 
     // ---- Statistics panel ----

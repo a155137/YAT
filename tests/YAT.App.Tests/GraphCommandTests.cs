@@ -1,5 +1,6 @@
 using YAT.App.Tests.TestDoubles;
 using YAT.Application.Graphs;
+using YAT.Application.Specifications;
 using YAT.app.Analyses;
 using YAT.app.Composition;
 using YAT.app.Graphs;
@@ -948,6 +949,144 @@ public class GraphCommandTests
 
         var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
         Assert.Null(frame.StatisticsPanel);
+    }
+
+    // ---- Specification lines (#036) ----
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public async Task ASpecificationTypedInTheSetupIsDrawnOnTheGraph(GraphType graphType)
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n14.9\n15.0\n15.1\n15.2\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.LowerLimitText = "14";
+            setup.TargetText = "15";
+            setup.UpperLimitText = "16";
+            return ConfirmWith(setup, ("Graph variables", "Reg1"));
+        };
+
+        await Command(runtime, graphType).ExecuteAsync(null);
+
+        Assert.Equal(new Specification(14, 15, 16), runtime.Graphs.LastConfiguration!.Specification);
+        var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Equal(["LSL 14", "Target 15", "USL 16"], frame.ReferenceLines.Select(line => line.Label));
+        Assert.All(frame.ReferenceLines, line => Assert.Equal(GraphReferenceAxis.X, line.Axis));
+
+        // The limits lie outside the data, so the displayed axis reaches out to show them.
+        Assert.True(frame.XAxis.Range.Minimum < 14 && frame.XAxis.Range.Maximum > 16);
+
+        // The statistics are those of the data, whatever the specification.
+        var row = Assert.Single(frame.StatisticsPanel!.Rows);
+        Assert.Equal(4, row.Count);
+        Assert.Equal(15.05, row.Mean, 1e-12);
+    }
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public async Task WithoutASpecificationTheGraphIsWhatItWasBefore(GraphType graphType)
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tLot\n1\tA\n2\tB\n3\tA\n4\tB\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
+
+        await Command(runtime, graphType).ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.True(runtime.Graphs.LastConfiguration!.Specification.IsEmpty);
+        Assert.Empty(frame.ReferenceLines);
+
+        // Apart from the panel, the frame shown is the one the graph type's builder made, axis for axis.
+        var builderFrame = plot switch
+        {
+            HistogramRenderer histogram => histogram.Model.Frame,
+            ProbabilityPlotRenderer probability => probability.Model.Frame,
+            EmpiricalCdfRenderer cdf => cdf.Model.Frame,
+            _ => throw new InvalidOperationException()
+        };
+        Assert.Same(builderFrame.XAxis, frame.XAxis);
+        Assert.Same(builderFrame.YAxis, frame.YAxis);
+    }
+
+    [Fact]
+    public async Task AGroupedEmpiricalCdfWithStatisticsOffStillDrawsEachLineOnce()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tLot\n1\tA\n2\tB\n3\tC\n4\tA\n5\tB\n6\tC\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.ShowStatistics = false;
+            setup.LowerLimitText = "1.5";
+            setup.UpperLimitText = "5.5";
+            return ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
+        };
+
+        await runtime.Shell.EmpiricalCdfCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Null(frame.StatisticsPanel);
+        Assert.Equal(3, Assert.IsType<EmpiricalCdfRenderer>(plot).Model.Series.Count);
+        Assert.Equal(["LSL 1.5", "USL 5.5"], frame.ReferenceLines.Select(line => line.Label));
+        Assert.Equal(3, frame.Legend!.Entries.Count);
+    }
+
+    [Fact]
+    public async Task AnInvalidSpecificationKeepsTheSetupOpenAndDrawsNothing()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n");
+        string? message = null;
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.LowerLimitText = "16";
+            setup.UpperLimitText = "15";
+            var configuration = ConfirmWith(setup, ("Graph variables", "Reg1"));
+            message = setup.ValidationMessage;
+            return configuration;
+        };
+
+        await runtime.Shell.HistogramCommand.ExecuteAsync(null);
+
+        Assert.Equal("LSL must be below USL.", message);
+        Assert.Empty(runtime.GraphWindows.Shown);
+    }
+
+    [Fact]
+    public async Task AScatterPlotAndABoxPlotNeverDrawASpecification()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t2\n3\t4\n5\t6\n");
+
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            Assert.False(setup.SupportsSpecificationLines);
+            setup.LowerLimitText = "0";
+            return ConfirmWithFirstColumns(setup);
+        };
+        await runtime.Shell.ScatterPlotCommand.ExecuteAsync(null);
+        Assert.True(runtime.Graphs.LastConfiguration!.Specification.IsEmpty);
+
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            Assert.False(setup.SupportsSpecificationLines);
+            setup.UpperLimitText = "0";
+            return ConfirmWithVariables(setup, "Reg1", "Reg2");
+        };
+        await runtime.Shell.BoxPlotCommand.ExecuteAsync(null);
+        Assert.True(runtime.Graphs.LastConfiguration!.Specification.IsEmpty);
+
+        Assert.Equal(2, runtime.GraphWindows.Shown.Count);
+        Assert.All(runtime.GraphWindows.Shown, shown => Assert.Empty(shown.Frame.ReferenceLines));
     }
 
     // Confirms a box plot setup by ticking the named graph variables, and optionally a grouping column.

@@ -12,9 +12,11 @@ public static class GraphTypeDefinitions
 
     private static readonly GraphRoleDefinition GroupRole = new(GraphVariableRole.Group, "Group", IsRequired: false, NumericOrString);
 
-    // The single-variable distribution graphs show a statistics panel beside the plot; a scatter plot and a box plot
-    // do not (a box plot already draws its statistics).
-    private static readonly IReadOnlyList<GraphCapability> WithStatisticsPanel = [GraphCapability.StatisticsPanel];
+    // The single-variable distribution graphs show a statistics panel beside the plot and their specification across
+    // it: each reads one measurement along its X axis. A scatter plot and a box plot do neither (a box plot already
+    // draws its statistics, and neither has one measurement axis a single specification belongs to).
+    private static readonly IReadOnlyList<GraphCapability> DistributionCapabilities =
+        [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines];
 
     private static readonly IReadOnlyList<GraphTypeDefinition> Definitions =
     [
@@ -30,7 +32,7 @@ public static class GraphTypeDefinitions
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = WithStatisticsPanel },
+        ]) { Capabilities = DistributionCapabilities },
         // The only graph so far that draws several measured variables at once: its variable role takes as many columns
         // as the user selects, and the generic setup and validation follow that flag rather than the graph type.
         new(GraphType.BoxPlot, "Box Plot",
@@ -43,12 +45,12 @@ public static class GraphTypeDefinitions
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = WithStatisticsPanel },
+        ]) { Capabilities = DistributionCapabilities },
         new(GraphType.EmpiricalCdf, "Empirical CDF",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = WithStatisticsPanel }
+        ]) { Capabilities = DistributionCapabilities }
     ];
 
     // In menu order.

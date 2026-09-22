@@ -1,4 +1,5 @@
 using YAT.Application.Graphs;
+using YAT.Application.Specifications;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
 
@@ -226,5 +227,65 @@ public class GraphConfigurationValidatorTests
 
         var assignmentProperties = typeof(GraphColumnAssignment).GetProperties().Select(property => property.Name).Order();
         Assert.Equal([nameof(GraphColumnAssignment.Role), nameof(GraphColumnAssignment.WorksheetColumnId)], assignmentProperties);
+    }
+
+    // ---- Specification (#036) ----
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public void AValidSpecificationIsAcceptedWhereItIsDrawn(GraphType graphType)
+    {
+        var configuration = Configuration(graphType, (GraphVariableRole.Variable, Reg1)) with
+        {
+            Specification = new Specification(14.5, 15, 15.5)
+        };
+
+        Assert.True(Validate(configuration).IsValid);
+    }
+
+    [Theory]
+    [InlineData(16.0, null, 15.0, GraphValidationReason.SpecificationLimitsOutOfOrder, SpecificationField.UpperLimit)]
+    [InlineData(15.0, null, 15.0, GraphValidationReason.SpecificationLimitsOutOfOrder, SpecificationField.UpperLimit)]
+    [InlineData(14.5, 16.0, 15.5, GraphValidationReason.SpecificationTargetOutsideLimits, SpecificationField.Target)]
+    [InlineData(double.NaN, null, null, GraphValidationReason.SpecificationValueNotNumeric, SpecificationField.LowerLimit)]
+    [InlineData(null, double.PositiveInfinity, null, GraphValidationReason.SpecificationValueNotNumeric, SpecificationField.Target)]
+    public void AnInvalidSpecificationIsReportedWithItsField(
+        double? lower, double? target, double? upper, GraphValidationReason reason, SpecificationField field)
+    {
+        var configuration = Configuration(GraphType.Histogram, (GraphVariableRole.Variable, Reg1)) with
+        {
+            Specification = new Specification(lower, target, upper)
+        };
+
+        var error = Assert.Single(Validate(configuration).Errors);
+        Assert.Equal(reason, error.Reason);
+        Assert.Equal(field, error.Field);
+    }
+
+    [Theory]
+    [InlineData(GraphType.ScatterPlot)]
+    [InlineData(GraphType.BoxPlot)]
+    public void GraphsThatDrawNoSpecificationIgnoreIt(GraphType graphType)
+    {
+        var configuration = (graphType == GraphType.ScatterPlot
+            ? Configuration(graphType, (GraphVariableRole.X, Reg1), (GraphVariableRole.Y, Reg2))
+            : Configuration(graphType, (GraphVariableRole.Variable, Reg1))) with
+        {
+            Specification = new Specification(16, null, 15)
+        };
+
+        Assert.True(Validate(configuration).IsValid);
+    }
+
+    [Fact]
+    public void ColumnProblemsComeBeforeSpecificationProblems()
+    {
+        var configuration = Configuration(GraphType.Histogram) with { Specification = new Specification(16, null, 15) };
+
+        var reasons = Validate(configuration).Errors.Select(error => error.Reason);
+
+        Assert.Equal([GraphValidationReason.MissingRequiredRole, GraphValidationReason.SpecificationLimitsOutOfOrder], reasons);
     }
 }

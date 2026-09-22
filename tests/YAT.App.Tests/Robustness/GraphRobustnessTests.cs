@@ -112,6 +112,113 @@ public sealed class GraphRobustnessNamedTests
     }
 }
 
+// #036: every named univariate case with every named specification, through every univariate graph and the one
+// presentation pipeline the application uses. The specification lines hold their invariants, and the plot - bins,
+// points, fitted lines, statistics, panel - is exactly what it is without a specification.
+public sealed class GraphRobustnessSpecificationTests
+{
+    public static TheoryData<string> UnivariateCases => GraphRobustnessNamedTests.UnivariateCases;
+
+    // Drawing is where the time goes, so only a few specifications per case are drawn, and only a few are also
+    // rebuilt and sampled; every one of them is built and checked.
+    private static readonly HashSet<string> Drawn = ["at-min-and-max", "outside-both", "close-together", "unreachable"];
+    private static readonly HashSet<string> Repeated = ["outside-both", "around-zero"];
+
+    [Theory]
+    [MemberData(nameof(UnivariateCases))]
+    public void EverySpecificationHoldsItsInvariantsAndLeavesThePlotAlone(string name)
+    {
+        var robustnessCase = RobustnessCorpus.Named(name);
+        var specifications = RobustnessCorpus.Specifications(robustnessCase);
+
+        foreach (var graph in RobustnessGraphs.UnivariateGraphs)
+        {
+            var data = RobustnessGraphs.DataFor(graph, robustnessCase);
+            var context = robustnessCase.Describe(RobustnessGraphs.Name(graph));
+            var plain = GraphRobustnessInvariants.BuildOrFail(context, graph, data);
+            var plot = GraphRobustnessInvariants.PlotFingerprint(plain);
+
+            foreach (var (specificationName, specification) in specifications)
+            {
+                Assert.True(YAT.Application.Specifications.SpecificationRules.IsValid(specification), $"{specificationName} is not a valid specification.");
+
+                var built = GraphRobustnessInvariants.Exercise(
+                    $"{context} [{specificationName}]",
+                    graph,
+                    data,
+                    Drawn.Contains(specificationName) ? GraphThemes.Light : null,
+                    repeat: Repeated.Contains(specificationName),
+                    specification: specification);
+
+                var actual = GraphRobustnessInvariants.PlotFingerprint(built);
+                Assert.True(actual == plot,
+                    $"{context} [{specificationName}]\n  the specification changed the plot:\n    without: {plot}\n    with:    {actual}");
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(GraphRobustnessNamedTests.PairedCases), MemberType = typeof(GraphRobustnessNamedTests))]
+    public void AScatterPlotIgnoresEverySpecification(string name)
+    {
+        var robustnessCase = RobustnessCorpus.Named(name);
+        foreach (var (_, specification) in RobustnessCorpus.Specifications(robustnessCase))
+        {
+            var built = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.Scatter, null, repeat: false, specification);
+            Assert.True(built.Model is null || built.Frame!.ReferenceLines.Count == 0);
+        }
+    }
+
+    // Named on their own: a constant column and a column of tiny values, with limits exactly on the data.
+    [Theory]
+    [InlineData("constant", RobustnessGraph.Histogram)]
+    [InlineData("tiny-range", RobustnessGraph.ProbabilityPlot)]
+    [InlineData("constant-decimal-grouped", RobustnessGraph.EmpiricalCdf)]
+    public void LimitsExactlyOnTheDataSitInsideTheAxis(string name, RobustnessGraph graph)
+    {
+        var robustnessCase = RobustnessCorpus.Named(name);
+        var (_, specification) = RobustnessCorpus.Specifications(robustnessCase).Single(item => item.Name == "at-min-and-max");
+
+        var built = GraphRobustnessInvariants.Exercise(robustnessCase, graph, GraphThemes.Dark, repeat: true, specification);
+
+        var range = built.Frame!.XAxis.Range;
+        Assert.All(built.Frame.ReferenceLines, line => Assert.True(line.Value > range.Minimum && line.Value < range.Maximum));
+    }
+
+    // The specification invariants are not vacuous: a frame whose lines or axis disagree with its specification is caught.
+    [Fact]
+    public void AFrameThatDisagreesWithItsSpecificationIsCaught()
+    {
+        var robustnessCase = RobustnessCorpus.Named("uneven-groups");
+        var specification = new YAT.Application.Specifications.Specification(-100, 500, 2000);
+        var built = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.Histogram, null, repeat: false, specification);
+        var frame = built.Frame!;
+        var builder = RobustnessGraphs.BuilderFrame(built.Model!);
+        var lines = frame.ReferenceLines;
+
+        GraphRenderModel[] wrong =
+        [
+            frame.WithReferenceLines([]),
+            frame.WithReferenceLines([.. lines.Take(2)]),
+            frame.WithReferenceLines([.. lines.Reverse()]),
+            frame.WithReferenceLines([new GraphReferenceLine(GraphReferenceAxis.X, -100, "LSL -99", GraphReferenceLineKind.SpecificationLimit), .. lines.Skip(1)]),
+            frame.WithReferenceLines([new GraphReferenceLine(GraphReferenceAxis.Y, -100, "LSL -100", GraphReferenceLineKind.SpecificationLimit), .. lines.Skip(1)]),
+            frame.WithXAxis(builder.XAxis),
+            frame.WithXAxis(new GraphAxisModel(frame.XAxis.Range, frame.XAxis.Ticks, "renamed"))
+        ];
+
+        foreach (var candidate in wrong)
+        {
+            Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("tampered", built with { Frame = candidate }));
+        }
+
+        // Lines on a graph that does not draw a specification are caught too.
+        var boxPlot = GraphRobustnessInvariants.Exercise(robustnessCase, RobustnessGraph.BoxPlot, null, repeat: false, specification);
+        Assert.Empty(boxPlot.Frame!.ReferenceLines);
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("box plot with lines", boxPlot with { Frame = boxPlot.Frame.WithReferenceLines(lines) }));
+    }
+}
+
 // L1: deterministic generated cases, biased towards semiconductor-like data.
 public sealed class GraphRobustnessGeneratedTests
 {
@@ -128,9 +235,12 @@ public sealed class GraphRobustnessGeneratedTests
     {
         var robustnessCase = RobustnessGenerator.Create(caseNumber, MaximumRows);
 
+        // One case in ten also carries a generated specification (#036); the explicit sweep gives one to half of its cases.
+        var specification = caseNumber % 10 == 0 ? RobustnessGenerator.SpecificationFor(robustnessCase, caseNumber) : null;
+
         foreach (var graph in RobustnessGraphs.For(robustnessCase))
         {
-            GraphRobustnessInvariants.Exercise(robustnessCase, graph, renderTheme: null);
+            GraphRobustnessInvariants.Exercise(robustnessCase, graph, renderTheme: null, specification: specification);
         }
     }
 

@@ -164,6 +164,15 @@ internal sealed class GraphSetupWindow : Window
         var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
         column.Children.Add(Roles(setup));
 
+        if (!setup.SupportsStatisticsPanel && !setup.SupportsSpecificationLines)
+        {
+            Grid.SetColumn(column, 2);
+            return column;
+        }
+
+        var options = new StackPanel { Spacing = 4 };
+        options.Children.Add(new TextBlock { Text = "Options", FontWeight = FontWeight.SemiBold });
+
         if (setup.SupportsStatisticsPanel)
         {
             var showStatistics = new CheckBox { Content = "Show statistics" };
@@ -173,19 +182,52 @@ internal sealed class GraphSetupWindow : Window
                 Mode = BindingMode.TwoWay
             });
 
-            column.Children.Add(new StackPanel
-            {
-                Spacing = 4,
-                Children =
-                {
-                    new TextBlock { Text = "Options", FontWeight = FontWeight.SemiBold },
-                    showStatistics
-                }
-            });
+            options.Children.Add(showStatistics);
         }
 
+        if (setup.SupportsSpecificationLines)
+        {
+            options.Children.Add(new TextBlock { Text = "Specification", Margin = new Thickness(0, 6, 0, 0) });
+            options.Children.Add(Specification(setup));
+        }
+
+        column.Children.Add(options);
         Grid.SetColumn(column, 2);
         return column;
+    }
+
+    // LSL, Target and USL on one line. Blank fields draw nothing, so there is no separate switch for the lines.
+    private static Control Specification(GraphSetupViewModel setup)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        AddSpecificationField(row, setup, "LSL", nameof(GraphSetupViewModel.LowerLimitText));
+        AddSpecificationField(row, setup, "Target", nameof(GraphSetupViewModel.TargetText), leftMargin: 10);
+        AddSpecificationField(row, setup, "USL", nameof(GraphSetupViewModel.UpperLimitText), leftMargin: 10);
+        return row;
+    }
+
+    private static void AddSpecificationField(StackPanel row, GraphSetupViewModel setup, string label, string property, double leftMargin = 0)
+    {
+        row.Children.Add(new TextBlock
+        {
+            Text = label,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(leftMargin, 0, 0, 0)
+        });
+
+        var editor = new TextBox
+        {
+            Width = 80,
+            MinHeight = 0,
+            Padding = new Thickness(6, 2),
+            HorizontalContentAlignment = HorizontalAlignment.Right,
+            PlaceholderText = "—"
+        };
+
+        // Named after its field, so the dialog can be driven and inspected by the field it edits.
+        editor.Name = property;
+        editor.Bind(TextBox.TextProperty, new Binding(property) { Source = setup, Mode = BindingMode.TwoWay });
+        row.Children.Add(editor);
     }
 
     // One column for a role that takes one.
