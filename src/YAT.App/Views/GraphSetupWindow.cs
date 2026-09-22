@@ -79,7 +79,7 @@ internal sealed class GraphSetupWindow : Window
                 new Grid
                 {
                     ColumnDefinitions = new ColumnDefinitions("240,24,*"),
-                    Children = { AvailableColumns(setup), Roles(setup) }
+                    Children = { AvailableColumns(setup), RightColumn(setup) }
                 },
                 _validation,
                 new StackPanel
@@ -154,8 +154,38 @@ internal sealed class GraphSetupWindow : Window
             row++;
         }
 
-        Grid.SetColumn(panel, 2);
         return panel;
+    }
+
+    // The roles, then the options the graph type offers. An option the graph type does not have is left out entirely
+    // rather than shown disabled; which options exist is read from the graph type's capabilities.
+    private static Control RightColumn(GraphSetupViewModel setup)
+    {
+        var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
+        column.Children.Add(Roles(setup));
+
+        if (setup.SupportsStatisticsPanel)
+        {
+            var showStatistics = new CheckBox { Content = "Show statistics" };
+            showStatistics.Bind(ToggleButton.IsCheckedProperty, new Binding(nameof(GraphSetupViewModel.ShowStatistics))
+            {
+                Source = setup,
+                Mode = BindingMode.TwoWay
+            });
+
+            column.Children.Add(new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock { Text = "Options", FontWeight = FontWeight.SemiBold },
+                    showStatistics
+                }
+            });
+        }
+
+        Grid.SetColumn(column, 2);
+        return column;
     }
 
     // One column for a role that takes one.

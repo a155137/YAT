@@ -104,10 +104,20 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             role.SelectedOptions.CollectionChanged += (_, _) => OnSelectionChanged();
         }
 
+        // Statistics are shown unless the user turns them off (only offered where the graph type has the panel).
+        ShowStatistics = GraphPresentationOptions.Default.ShowStatistics;
+
         OnSelectionChanged();
     }
 
     public string Title => _definition.DisplayName;
+
+    // Whether the graph type offers a statistics panel; the setup shows the option only when it does.
+    public bool SupportsStatisticsPanel => _definition.Supports(GraphCapability.StatisticsPanel);
+
+    // Show statistics: checked to begin with.
+    [ObservableProperty]
+    public partial bool ShowStatistics { get; set; }
 
     public GraphType GraphType => _definition.GraphType;
 
@@ -144,7 +154,10 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         new(_definition.GraphType, WorksheetId,
         [
             .. Roles.SelectMany(role => role.SelectedColumnIds.Select(columnId => new GraphColumnAssignment(role.Role, columnId)))
-        ]);
+        ])
+        {
+            PresentationOptions = new GraphPresentationOptions(ShowStatistics)
+        };
 
     private void OnSelectionChanged()
     {

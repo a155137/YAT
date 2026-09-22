@@ -102,6 +102,7 @@ internal static class GraphRobustnessInvariants
         }
 
         Frame(context, built.Frame!);
+        StatisticsPanel(context, built);
 
         switch (built.Model)
         {
@@ -135,6 +136,64 @@ internal static class GraphRobustnessInvariants
             That(range.IsValid && double.IsFinite(range.Minimum) && double.IsFinite(range.Maximum) && range.Minimum < range.Maximum,
                 context, $"{name} axis range {range.Minimum:R}..{range.Maximum:R} must be finite and non-empty");
             That(axis.Ticks.All(tick => double.IsFinite(tick.Value) && tick.Label is not null), context, $"{name} axis ticks must be finite");
+        }
+    }
+
+    // ---- Statistics panel ----
+
+    // Implementation invariant: a graph type that offers the panel has one (statistics are shown by default); one that
+    // does not never has one. Then, for the panel: one row per series of the graph - same labels, same order, same
+    // colours, same N - adding up to every observation (implementation invariants), and statistics that are what they
+    // must be whatever the implementation (mathematical invariants): a finite mean within the observations, a finite
+    // non-negative standard deviation that exists exactly for N >= 2, and exactly 0 for exactly constant data.
+    private static void StatisticsPanel(string context, BuiltGraph built)
+    {
+        var panel = built.Frame!.StatisticsPanel;
+        var offered = GraphTypeDefinitions.For(RobustnessGraphs.TypeOf(built.Graph)).Supports(GraphCapability.StatisticsPanel);
+        That((panel is not null) == offered, context,
+            offered ? "the graph type offers a statistics panel but the graph has none" : "a graph type without a statistics panel has one");
+
+        if (panel is null)
+        {
+            return;
+        }
+
+        var data = (UnivariateGraphData)built.Data;
+        var expected = ExpectedSeries(data.Group, data.Values.Span);
+
+        That(panel.IsGrouped == (data.Group is not null), context, "the panel is grouped exactly when the graph is");
+        That(panel.Rows.Count == expected.Count, context, $"the panel has {panel.Rows.Count} rows for {expected.Count} series");
+        That(panel.Rows.Sum(row => row.Count) == EffectiveCount(data), context,
+            $"the panel counts {panel.Rows.Sum(row => row.Count)} of {EffectiveCount(data)} observations");
+
+        for (var index = 0; index < Math.Min(panel.Rows.Count, expected.Count); index++)
+        {
+            var row = panel.Rows[index];
+            var (label, values) = expected[index];
+            var where = $"statistics row {index} ({row.Label})";
+
+            That(row.Label == label, context, $"{where} is labelled '{row.Label}' where the graph's series is '{label}'");
+            That(row.SeriesIndex == (data.Group is null ? null : index), context, $"{where} has series index {row.SeriesIndex}");
+            That(row.Count == values.Length, context, $"{where} counts {row.Count} of {values.Length} observations");
+            That(row.CountText == row.Count.ToString(CultureInfo.InvariantCulture), context, $"{where} shows N as '{row.CountText}'");
+
+            var minimum = values.Min();
+            var maximum = values.Max();
+            That(double.IsFinite(row.Mean) && WithinTolerance(row.Mean, minimum, maximum, values.Length), context,
+                $"{where} mean {row.Mean:R} lies outside {minimum:R}..{maximum:R}");
+            That(row.Mean == Descriptives.Mean(values), context, $"{where} mean {row.Mean:R} is not the Analytics mean");
+
+            if (values.Length < 2)
+            {
+                That(row.StandardDeviation is null, context, $"{where} has a standard deviation for a single observation");
+            }
+            else
+            {
+                That(row.StandardDeviation is { } spread && double.IsFinite(spread) && spread >= 0, context,
+                    $"{where} standard deviation {row.StandardDeviation:R} must be finite and non-negative for N >= 2");
+                That(!(minimum == maximum) || row.StandardDeviation == 0, context,
+                    $"{where} of exactly constant data has standard deviation {row.StandardDeviation:R}, not 0");
+            }
         }
     }
 
@@ -478,6 +537,22 @@ internal static class GraphRobustnessInvariants
         text.Append(" legend=").Append(built.Frame.Legend is { } legend
             ? string.Join(",", legend.Entries.Select(entry => $"{entry.Label}#{entry.SeriesIndex}"))
             : "none");
+
+        // The statistics panel is statistics: sampling must leave it exactly as it is.
+        text.Append(" statistics=");
+        if (built.Frame.StatisticsPanel is { } panel)
+        {
+            text.Append(panel.GroupHeader ?? "ungrouped");
+            foreach (var row in panel.Rows)
+            {
+                text.Append(Invariant(
+                    $" [{row.Label}#{row.SeriesIndex} n={row.Count} mean={row.Mean:R} sd={row.StandardDeviation:R} {row.MeanText}/{row.StandardDeviationText}/{row.CountText}]"));
+            }
+        }
+        else
+        {
+            text.Append("none");
+        }
 
         switch (built.Model)
         {

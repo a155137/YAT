@@ -223,6 +223,24 @@ public class GraphDataQueryServiceTests
         Assert.True(data.Group!.IsMissing(1));
     }
 
+    [Fact]
+    public async Task PresentationOptionsDoNotChangeTheDataThatIsRead()
+    {
+        var fixture = new Fixture();
+        var variable = fixture.Numeric("Reg1", 0, 1, null, 3, 4);
+        var group = fixture.Text("Lot", 1, "A", "B", null, "A");
+        var configuration = fixture.Configuration(
+            GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
+
+        var shown = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
+        var hidden = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(
+            configuration with { PresentationOptions = new GraphPresentationOptions(ShowStatistics: false) }));
+
+        Assert.Equal(shown.Values.ToArray(), hidden.Values.ToArray());
+        Assert.Equal(StringGroups(shown), StringGroups(hidden));
+        Assert.Equal(shown.Variable, hidden.Variable);
+    }
+
     // ---- Order, chunking and column state ----
 
     [Fact]

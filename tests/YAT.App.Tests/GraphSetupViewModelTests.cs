@@ -185,4 +185,52 @@ public class GraphSetupViewModelTests
         Assert.Equal(["(None)", "Lot"], Role(setup, GraphVariableRole.Group).Options.Select(option => option.Name));
         Assert.False(setup.CanConfirm);
     }
+
+    // ---- Options ----
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public void GraphsWithTheStatisticsPanelOfferItCheckedToBeginWith(GraphType graphType)
+    {
+        var setup = Setup(graphType);
+
+        Assert.True(setup.SupportsStatisticsPanel);
+        Assert.True(setup.ShowStatistics);
+    }
+
+    [Theory]
+    [InlineData(GraphType.ScatterPlot)]
+    [InlineData(GraphType.BoxPlot)]
+    public void GraphsWithoutTheStatisticsPanelDoNotOfferIt(GraphType graphType)
+    {
+        Assert.False(Setup(graphType).SupportsStatisticsPanel);
+    }
+
+    [Fact]
+    public void TheConfigurationCarriesWhetherStatisticsAreShown()
+    {
+        var setup = Setup(GraphType.Histogram);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+
+        Assert.True(setup.Confirm()!.PresentationOptions.ShowStatistics);
+
+        setup.ShowStatistics = false;
+        var off = setup.Confirm()!;
+        Assert.False(off.PresentationOptions.ShowStatistics);
+        Assert.Equal([new GraphColumnAssignment(GraphVariableRole.Variable, Reg1.Id)], off.Assignments);
+    }
+
+    [Fact]
+    public void ShowStatisticsIsObservable()
+    {
+        var setup = Setup(GraphType.Histogram);
+        var changed = new List<string?>();
+        setup.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        setup.ShowStatistics = false;
+
+        Assert.Contains(nameof(GraphSetupViewModel.ShowStatistics), changed);
+    }
 }

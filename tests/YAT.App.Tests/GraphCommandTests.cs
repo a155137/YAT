@@ -799,6 +799,157 @@ public class GraphCommandTests
         Assert.Empty(runtime.GraphDialogs.Errors);
     }
 
+    // ---- Statistics panel ----
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public async Task AGraphWithTheStatisticsPanelShowsItByDefault(GraphType graphType)
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n4\n\n");
+        runtime.GraphDialogs.Answer = setup => ConfirmWith(setup, ("Graph variables", "Reg1"));
+
+        await Command(runtime, graphType).ExecuteAsync(null);
+
+        Assert.True(runtime.Graphs.LastConfiguration!.PresentationOptions.ShowStatistics);
+        var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
+        var panel = Assert.IsType<GraphStatisticsPanel>(frame.StatisticsPanel);
+        Assert.False(panel.IsGrouped);
+
+        var row = Assert.Single(panel.Rows);
+        Assert.Equal(4, row.Count);
+        Assert.Equal(2.5, row.Mean);
+        Assert.Equal("2.5", row.MeanText);
+        Assert.Equal("1.2909944", row.StandardDeviationText);
+        Assert.Equal("4", row.CountText);
+    }
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public async Task TurningStatisticsOffInTheSetupDrawsTheGraphWithoutThePanel(GraphType graphType)
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n1\n2\n3\n4\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            setup.ShowStatistics = false;
+            return ConfirmWith(setup, ("Graph variables", "Reg1"));
+        };
+
+        await Command(runtime, graphType).ExecuteAsync(null);
+
+        Assert.False(runtime.Graphs.LastConfiguration!.PresentationOptions.ShowStatistics);
+        var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Null(frame.StatisticsPanel);
+    }
+
+    // The panel's rows are the graph's series: same labels, same order, same colours, same N.
+    [Fact]
+    public async Task AGroupedProbabilityPlotHasOneRowPerSeriesAndItsFittedLinesStatistics()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tLot\n1.1\tB\n2.3\tA\n3.6\tB\n4.2\tA\n5.9\tB\n6.4\tA\n7.5\tC\n");
+        runtime.GraphDialogs.Answer = setup =>
+            ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
+
+        await runtime.Shell.ProbabilityPlotCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var model = Assert.IsType<ProbabilityPlotRenderer>(plot).Model;
+        var panel = Assert.IsType<GraphStatisticsPanel>(frame.StatisticsPanel);
+
+        Assert.Equal("Lot", panel.GroupHeader);
+        Assert.Equal(model.Series.Select(series => series.Label), panel.Rows.Select(row => row.Label));
+        Assert.Equal(model.Series.Select(series => (int?)series.SeriesIndex), panel.Rows.Select(row => row.SeriesIndex));
+        Assert.Equal(model.Series.Select(series => series.ObservationCount), panel.Rows.Select(row => row.Count));
+        Assert.NotNull(frame.Legend);
+
+        foreach (var (series, row) in model.Series.Zip(panel.Rows))
+        {
+            if (series.FittedLine is { } line)
+            {
+                Assert.Equal(line.Mean, row.Mean, 1e-12);
+                Assert.Equal(line.StandardDeviation, row.StandardDeviation!.Value, 1e-12);
+            }
+            else
+            {
+                Assert.Null(row.StandardDeviation);
+            }
+        }
+
+        // Lot C has one observation: a Mean and an N, but no standard deviation.
+        Assert.Equal(GraphStatisticsPanelBuilder.UndefinedText, panel.Rows[^1].StandardDeviationText);
+    }
+
+    [Fact]
+    public async Task AGroupedEmpiricalCdfCountsRowsWithoutAGroupUnderMissing()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tSITE\n0.1\t1\n0.1\t\n0.1\t2\n0.1\t1\n0.1\t\n");
+        runtime.GraphDialogs.Answer = setup =>
+            ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "SITE"));
+
+        await runtime.Shell.EmpiricalCdfCommand.ExecuteAsync(null);
+
+        var (frame, plot) = Assert.Single(runtime.GraphWindows.Shown);
+        var model = Assert.IsType<EmpiricalCdfRenderer>(plot).Model;
+        var panel = Assert.IsType<GraphStatisticsPanel>(frame.StatisticsPanel);
+
+        Assert.Equal(["1", GraphStatisticsPanelBuilder.MissingGroupLabel, "2"], panel.Rows.Select(row => row.Label));
+        Assert.Equal(model.Series.Select(series => series.Label), panel.Rows.Select(row => row.Label));
+        Assert.Equal([2, 2, 1], panel.Rows.Select(row => row.Count));
+
+        // Constant decimals: exactly no spread where there are two or more, none at all where there is one.
+        Assert.Equal([0d, 0d, null], panel.Rows.Select(row => row.StandardDeviation));
+        Assert.All(panel.Rows, row => Assert.Equal("0.1", row.MeanText));
+    }
+
+    [Fact]
+    public async Task AScatterPlotNeverHasAStatisticsPanel()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t2\n3\t4\n5\t6\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            Assert.False(setup.SupportsStatisticsPanel);
+            setup.ShowStatistics = true;
+            return ConfirmWithFirstColumns(setup);
+        };
+
+        await runtime.Shell.ScatterPlotCommand.ExecuteAsync(null);
+
+        var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Null(frame.StatisticsPanel);
+    }
+
+    [Fact]
+    public async Task ABoxPlotNeverHasAStatisticsPanel()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\tReg2\n1\t2\n3\t4\n5\t6\n");
+        runtime.GraphDialogs.Answer = setup =>
+        {
+            Assert.False(setup.SupportsStatisticsPanel);
+            setup.ShowStatistics = true;
+            return ConfirmWithVariables(setup, "Reg1", "Reg2");
+        };
+
+        await runtime.Shell.BoxPlotCommand.ExecuteAsync(null);
+
+        var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
+        Assert.Null(frame.StatisticsPanel);
+    }
+
     // Confirms a box plot setup by ticking the named graph variables, and optionally a grouping column.
     private static GraphConfiguration? ConfirmWithVariables(GraphSetupViewModel setup, params string[] variables) =>
         ConfirmWithVariables(setup, variables, null);

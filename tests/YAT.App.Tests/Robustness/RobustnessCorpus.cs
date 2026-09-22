@@ -30,6 +30,9 @@ internal static class RobustnessCorpus
             Case("n-2", "Size", [10, 20]),
             Case("constant", "Constant", Repeat(100, 50)),
 
+            // A decimal that binary cannot hold, in groups: exactly constant everywhere, with a group of one (Task #035).
+            Case("constant-decimal-grouped", "Constant", Repeat(0.1, 41), groups: Labels(41, row => row == 40 ? "single" : row % 2 == 0 ? "A" : "B")),
+
             Case("issue-0341-repeated", "Issue0341", Cycle(Issue0341, 800)),
             Case("issue-0341-minimal", "Issue0341", [.. Issue0341]),
             Case("issue-0341-mirrored", "Issue0341", Cycle([.. Issue0341.Select(value => -value)], 800)),

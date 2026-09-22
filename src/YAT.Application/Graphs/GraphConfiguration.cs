@@ -8,6 +8,9 @@ public sealed record GraphColumnAssignment(GraphVariableRole Role, Guid Workshee
 // roles. Validate it with GraphConfigurationValidator before using it; nothing here reads worksheet values.
 public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, IReadOnlyList<GraphColumnAssignment> Assignments)
 {
+    // How the graph is presented. Configurations that do not say keep the defaults.
+    public GraphPresentationOptions PresentationOptions { get; init; } = GraphPresentationOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

@@ -29,6 +29,13 @@ public sealed record GraphLayoutMetrics
 
     public float LegendWidth { get; init; }
 
+    // Height of the legend box with all of its entries. Only used when a statistics panel shares the legend's column:
+    // on its own the legend keeps the plot's full height to grow into.
+    public float LegendHeight { get; init; }
+
+    // Width the statistics panel needs for its widest content (already capped at its maximum width).
+    public float StatisticsPanelWidth { get; init; }
+
     // Rejects sizes that would produce meaningless rectangles. Zero is valid and means "this element is not shown".
     internal void EnsureValid()
     {
@@ -41,6 +48,8 @@ public sealed record GraphLayoutMetrics
         Require(YTickLabelWidth, nameof(YTickLabelWidth));
         Require(XTickLabelOverflow, nameof(XTickLabelOverflow));
         Require(LegendWidth, nameof(LegendWidth));
+        Require(LegendHeight, nameof(LegendHeight));
+        Require(StatisticsPanelWidth, nameof(StatisticsPanelWidth));
     }
 
     private static void Require(float value, string name)
@@ -60,7 +69,14 @@ public sealed record GraphLayoutMetrics
 // renderer then paints the background only, instead of drawing axes on top of each other.
 public sealed record GraphLayout
 {
-    public GraphLayout(SKRect canvas, SKRect titleArea, SKRect plotArea, SKRect xAxisArea, SKRect yAxisArea, SKRect legendArea)
+    public GraphLayout(
+        SKRect canvas,
+        SKRect titleArea,
+        SKRect plotArea,
+        SKRect xAxisArea,
+        SKRect yAxisArea,
+        SKRect legendArea,
+        SKRect statisticsPanelArea = default)
     {
         Canvas = canvas;
         TitleArea = titleArea;
@@ -68,6 +84,7 @@ public sealed record GraphLayout
         XAxisArea = xAxisArea;
         YAxisArea = yAxisArea;
         LegendArea = legendArea;
+        StatisticsPanelArea = statisticsPanelArea;
     }
 
     public SKRect Canvas { get; }
@@ -86,6 +103,9 @@ public sealed record GraphLayout
 
     // Right of the plot area. Empty when the model has no legend.
     public SKRect LegendArea { get; }
+
+    // Right of the plot area, below the legend when there is one. Empty when the model has no statistics panel.
+    public SKRect StatisticsPanelArea { get; }
 
     public bool HasPlotArea => PlotArea.Width > 0 && PlotArea.Height > 0;
 }

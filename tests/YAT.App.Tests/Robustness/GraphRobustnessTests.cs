@@ -52,6 +52,56 @@ public sealed class GraphRobustnessNamedTests
         Assert.True(upper ? box.UpperWhisker < box.ThirdQuartile : box.LowerWhisker > box.FirstQuartile);
     }
 
+    // Task #035: the statistics panel of an exactly constant decimal is exactly 0 wide where a group has two or more
+    // observations, and has no standard deviation for the group of one.
+    [Theory]
+    [InlineData(RobustnessGraph.Histogram)]
+    [InlineData(RobustnessGraph.ProbabilityPlot)]
+    [InlineData(RobustnessGraph.EmpiricalCdf)]
+    public void AConstantDecimalHasAStatisticsPanelOfExactlyNoSpread(RobustnessGraph graph)
+    {
+        var built = GraphRobustnessInvariants.Exercise(RobustnessCorpus.Named("constant-decimal-grouped"), graph, GraphThemes.Light);
+
+        var panel = built.Frame!.StatisticsPanel!;
+        Assert.Equal(["A", "B", "single"], panel.Rows.Select(row => row.Label));
+        Assert.Equal([0d, 0d, null], panel.Rows.Select(row => row.StandardDeviation));
+    }
+
+    // The panel invariants are not vacuous: a panel that disagrees with its graph is caught.
+    [Fact]
+    public void AStatisticsPanelThatDisagreesWithItsGraphIsCaught()
+    {
+        var built = GraphRobustnessInvariants.Exercise(RobustnessCorpus.Named("uneven-groups"), RobustnessGraph.Histogram, null);
+        var panel = built.Frame!.StatisticsPanel!;
+        var first = panel.Rows[0];
+
+        GraphStatisticsPanel Tampered(GraphStatisticsRow row) =>
+            new(panel.Title, panel.GroupHeader, [row, .. panel.Rows.Skip(1)]);
+
+        GraphStatisticsRow Row(string label, int count, double mean, double? spread) =>
+            new(label, first.SeriesIndex, count, mean, spread, count.ToString(System.Globalization.CultureInfo.InvariantCulture), first.MeanText, first.StandardDeviationText);
+
+        GraphStatisticsPanel?[] wrong =
+        [
+            null,
+            Tampered(Row("renamed", first.Count, first.Mean, first.StandardDeviation)),
+            Tampered(Row(first.Label, first.Count + 1, first.Mean, first.StandardDeviation)),
+            Tampered(Row(first.Label, first.Count, first.Mean + 1e6, first.StandardDeviation)),
+            Tampered(Row(first.Label, first.Count, first.Mean, 1)),
+            new GraphStatisticsPanel(panel.Title, panel.GroupHeader, [.. panel.Rows.Reverse()])
+        ];
+
+        foreach (var candidate in wrong)
+        {
+            var tampered = built with { Frame = built.Frame.WithStatisticsPanel(candidate) };
+            Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("tampered", tampered));
+        }
+
+        var scatter = GraphRobustnessInvariants.Exercise(RobustnessCorpus.Named("paired-n-2"), RobustnessGraph.Scatter, null);
+        var withPanel = scatter with { Frame = scatter.Frame!.WithStatisticsPanel(panel) };
+        Assert.ThrowsAny<Exception>(() => GraphRobustnessInvariants.Verify("scatter with a panel", withPanel));
+    }
+
     // A group whose rows all lack a value never reaches the graph data, so it is not drawn - and nothing else breaks.
     [Fact]
     public void AGroupWithoutValuesIsNotDrawnAndBreaksNothing()

@@ -157,4 +157,14 @@ public sealed record GraphRenderModel
     public GraphAxisModel YAxis { get; }
 
     public GraphLegendModel? Legend { get; }
+
+    // The statistics shown beside the plot, or null for none. It is part of the frame, like the legend, so wherever the
+    // frame is drawn - the graph window, a PNG, a presentation - the panel is drawn with it.
+    //
+    // A graph type's own builder produces its frame without a panel; the graph preparation adds it (see
+    // GraphStatisticsPanelBuilder.Attach), so the frame a window shows may carry a panel its render model's frame does
+    // not.
+    public GraphStatisticsPanel? StatisticsPanel { get; init; }
+
+    public GraphRenderModel WithStatisticsPanel(GraphStatisticsPanel? panel) => this with { StatisticsPanel = panel };
 }

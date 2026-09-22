@@ -89,4 +89,38 @@ public class GraphTypeDefinitionsTests
         Assert.Equal(GraphType.Histogram, histogram.GraphType);
         Assert.Null(histogram.FindRole(GraphVariableRole.X));
     }
+
+    // ---- Capabilities ----
+
+    [Theory]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public void SingleVariableGraphsOfferTheStatisticsPanel(GraphType graphType)
+    {
+        var definition = GraphTypeDefinitions.For(graphType);
+
+        Assert.True(definition.Supports(GraphCapability.StatisticsPanel));
+        Assert.Equal([GraphCapability.StatisticsPanel], definition.Capabilities);
+    }
+
+    [Theory]
+    [InlineData(GraphType.ScatterPlot)]
+    [InlineData(GraphType.BoxPlot)]
+    public void ScatterAndBoxPlotsHaveNoStatisticsPanel(GraphType graphType)
+    {
+        var definition = GraphTypeDefinitions.For(graphType);
+
+        Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
+        Assert.Empty(definition.Capabilities);
+    }
+
+    [Fact]
+    public void ADefinitionHasNoCapabilitiesUnlessItDeclaresThem()
+    {
+        var definition = new GraphTypeDefinition(GraphType.Histogram, "Test", GraphTypeDefinitions.For(GraphType.Histogram).Roles);
+
+        Assert.Empty(definition.Capabilities);
+        Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
+    }
 }

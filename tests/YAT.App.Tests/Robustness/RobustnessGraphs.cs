@@ -155,7 +155,7 @@ internal static class RobustnessGraphs
                 var univariate = (UnivariateGraphData)data;
                 var model = new HistogramRenderModelBuilder().Build(
                     univariate, new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return new BuiltGraph(graph, data, model, model?.Frame, model is null ? null : new HistogramRenderer(model));
+                return Built(graph, data, model, model?.Frame, model is null ? null : new HistogramRenderer(model), cancellationToken);
             }
 
             case RobustnessGraph.BoxPlot:
@@ -167,7 +167,7 @@ internal static class RobustnessGraphs
                         [.. multi.Variables.Select(variable => variable.Variable.Name)],
                         multi.Variables.Select(variable => variable.Group?.Column.Name).FirstOrDefault(name => name is not null)),
                     cancellationToken);
-                return new BuiltGraph(graph, data, model, model?.Frame, model is null ? null : new BoxPlotRenderer(model));
+                return Built(graph, data, model, model?.Frame, model is null ? null : new BoxPlotRenderer(model), cancellationToken);
             }
 
             case RobustnessGraph.ProbabilityPlot:
@@ -175,7 +175,7 @@ internal static class RobustnessGraphs
                 var univariate = (UnivariateGraphData)data;
                 var model = new ProbabilityPlotRenderModelBuilder(maximumRenderedPoints).Build(
                     univariate, new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return new BuiltGraph(graph, data, model, model?.Frame, model is null ? null : new ProbabilityPlotRenderer(model));
+                return Built(graph, data, model, model?.Frame, model is null ? null : new ProbabilityPlotRenderer(model), cancellationToken);
             }
 
             case RobustnessGraph.EmpiricalCdf:
@@ -183,7 +183,7 @@ internal static class RobustnessGraphs
                 var univariate = (UnivariateGraphData)data;
                 var model = new EmpiricalCdfRenderModelBuilder(maximumRenderedPoints).Build(
                     univariate, new EmpiricalCdfLabels(univariate.Variable.Name, univariate.Group?.Column.Name), cancellationToken);
-                return new BuiltGraph(graph, data, model, model?.Frame, model is null ? null : new EmpiricalCdfRenderer(model));
+                return Built(graph, data, model, model?.Frame, model is null ? null : new EmpiricalCdfRenderer(model), cancellationToken);
             }
 
             default:
@@ -191,10 +191,25 @@ internal static class RobustnessGraphs
                 var scatter = (ScatterGraphData)data;
                 var model = new ScatterRenderModelBuilder(maximumRenderedPoints).Build(
                     scatter, new ScatterPlotLabels(scatter.X.Name, scatter.Y.Name, scatter.Group?.Column.Name), cancellationToken);
-                return new BuiltGraph(graph, data, model, model?.Frame, model is null ? null : new ScatterRenderer(model));
+                return Built(graph, data, model, model?.Frame, model is null ? null : new ScatterRenderer(model), cancellationToken);
             }
         }
     }
+
+    // The graph as the application prepares it: the builder's frame, with the statistics panel attached the way the
+    // graph preparation attaches it - by the graph type's capability and the default options (statistics shown).
+    private static BuiltGraph Built(
+        RobustnessGraph graph,
+        GraphData data,
+        object? model,
+        GraphRenderModel? frame,
+        IGraphPlotRenderer? plot,
+        CancellationToken cancellationToken) =>
+        new(graph, data, model, frame is null
+            ? null
+            : GraphStatisticsPanelBuilder.Attach(
+                frame, data, GraphTypeDefinitions.For(TypeOf(graph)), GraphPresentationOptions.Default, cancellationToken),
+            plot);
 
     // Draws the graph off screen through the frame renderer the graph window uses.
     public static void Render(BuiltGraph built, GraphTheme theme)

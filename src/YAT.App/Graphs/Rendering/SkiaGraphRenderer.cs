@@ -59,6 +59,24 @@ public sealed class SkiaGraphRenderer
         DrawAxisTitles(canvas, model, layout, theme, fill, axisTitleFont);
         DrawTitle(canvas, model, layout, theme, fill, titleFont);
         DrawLegend(canvas, model, layout, theme, fill, stroke, tickFont);
+        DrawStatisticsPanel(canvas, model, layout, theme, fill, stroke, tickFont);
+    }
+
+    // The layout Render uses for this model on this canvas, measured with the theme's fonts: where the legend and the
+    // statistics panel end up, for tests that look at what was drawn there.
+    internal static GraphLayout Layout(GraphRenderModel model, SKRect bounds, GraphTheme theme)
+    {
+        using var titleFont = Font(theme.TitleFontSize);
+        using var axisTitleFont = Font(theme.AxisTitleFontSize);
+        using var tickFont = Font(theme.TickLabelFontSize);
+        return GraphLayoutCalculator.Calculate(bounds, model, Measure(model, titleFont, axisTitleFont, tickFont));
+    }
+
+    // The height of one line of the statistics panel in this theme.
+    internal static float StatisticsRowHeight(GraphTheme theme)
+    {
+        using var tickFont = Font(theme.TickLabelFontSize);
+        return Math.Max(LineHeight(tickFont), LegendSwatchSize);
     }
 
     // The renderer measures the text it is about to draw and hands the sizes to the layout, so the layout needs no font
@@ -74,7 +92,9 @@ public sealed class SkiaGraphRenderer
             TickLabelHeight = LineHeight(tickFont),
             YTickLabelWidth = WidestLabel(model.YAxis, tickFont),
             XTickLabelOverflow = WidestLabel(model.XAxis, tickFont) / 2f,
-            LegendWidth = LegendWidth(model.Legend, tickFont)
+            LegendWidth = LegendWidth(model.Legend, tickFont),
+            LegendHeight = model.Legend is null ? 0f : LegendBoxHeight(model.Legend, tickFont),
+            StatisticsPanelWidth = model.StatisticsPanel is null ? 0f : StatisticsPanelWidth(model.StatisticsPanel, tickFont)
         };
     }
 
@@ -252,14 +272,11 @@ public sealed class SkiaGraphRenderer
 
         var fontMetrics = font.Metrics;
         var rowHeight = Math.Max(LineHeight(font), LegendSwatchSize);
-        var rows = model.Legend.Entries.Count + (string.IsNullOrWhiteSpace(model.Legend.Title) ? 0 : 1);
 
         // The box keeps to its rows instead of filling the reserved area, which stays as tall as the plot so that a
         // legend with many series still has somewhere to go.
         var box = layout.LegendArea;
-        box.Bottom = Math.Min(
-            box.Top + (LegendPadding * 2f) + (rows * rowHeight) + (Math.Max(rows - 1, 0) * LegendEntrySpacing),
-            layout.LegendArea.Bottom);
+        box.Bottom = Math.Min(box.Top + LegendBoxHeight(model.Legend, font), layout.LegendArea.Bottom);
 
         stroke.Color = theme.LegendBorder;
         stroke.StrokeWidth = 1f;
@@ -302,6 +319,246 @@ public sealed class SkiaGraphRenderer
         canvas.RestoreToCount(restore);
     }
 
+    // ---- Statistics panel ----
+    //
+    // The statistics beside the plot, in a box styled like the legend. Ungrouped, it is a title and three rows - Mean,
+    // StDev, N - with the value right-aligned. Grouped, it is a table: a header with the grouping column's name and the
+    // statistic names, then one row per group with the group's colour swatch, its label on the left and its numbers on
+    // the right. Every text was decided when the model was built; this only places it.
+    //
+    // Nothing scrolls and no font shrinks: a label that does not fit the panel's width ends in an ellipsis, and when
+    // not every group fits the panel's height, the last row that does says how many more there are.
+
+    private const float StatisticsMaximumWidth = 280f;
+    private const float StatisticsColumnGap = 10f;
+    private const float StatisticsMinimumLabelWidth = 24f;
+
+    private static readonly string[] StatisticsNames = ["Mean", "StDev", "N"];
+
+    // The width the panel's content asks for, capped at its maximum width.
+    private static float StatisticsPanelWidth(GraphStatisticsPanel panel, SKFont font)
+    {
+        var width = font.MeasureText(panel.Title);
+        if (panel.IsGrouped)
+        {
+            var (labelWidth, numberWidths) = StatisticsColumns(panel, font);
+            width = Math.Max(width, LegendSwatchSize + LegendEntrySpacing + labelWidth + numberWidths.Sum(column => StatisticsColumnGap + column));
+        }
+        else
+        {
+            var row = panel.Rows[0];
+            var labels = StatisticsNames.Max(name => font.MeasureText(name));
+            var values = UngroupedValues(row).Max(value => font.MeasureText(value));
+            width = Math.Max(width, labels + StatisticsColumnGap + values);
+        }
+
+        return Math.Min(width + (LegendPadding * 2f), StatisticsMaximumWidth);
+    }
+
+    // The label column and the three number columns of a grouped panel, each as wide as its widest text.
+    private static (float Label, float[] Numbers) StatisticsColumns(GraphStatisticsPanel panel, SKFont font)
+    {
+        var label = font.MeasureText(panel.GroupHeader ?? string.Empty);
+        var numbers = StatisticsNames.Select(name => font.MeasureText(name)).ToArray();
+        foreach (var row in panel.Rows)
+        {
+            label = Math.Max(label, font.MeasureText(row.Label));
+            numbers[0] = Math.Max(numbers[0], font.MeasureText(row.MeanText));
+            numbers[1] = Math.Max(numbers[1], font.MeasureText(row.StandardDeviationText));
+            numbers[2] = Math.Max(numbers[2], font.MeasureText(row.CountText));
+        }
+
+        return (label, numbers);
+    }
+
+    private static string[] UngroupedValues(GraphStatisticsRow row) => [row.MeanText, row.StandardDeviationText, row.CountText];
+
+    private static void DrawStatisticsPanel(
+        SKCanvas canvas,
+        GraphRenderModel model,
+        GraphLayout layout,
+        GraphTheme theme,
+        SKPaint fill,
+        SKPaint stroke,
+        SKFont font)
+    {
+        var panel = model.StatisticsPanel;
+        var area = layout.StatisticsPanelArea;
+        if (panel is null || area.IsEmpty || area.Height <= 0)
+        {
+            return;
+        }
+
+        var rowHeight = Math.Max(LineHeight(font), LegendSwatchSize);
+        var fontMetrics = font.Metrics;
+
+        var headerLines = panel.IsGrouped ? 2 : 1;
+        var dataLines = panel.IsGrouped ? panel.Rows.Count : StatisticsNames.Length;
+        var (shownData, _) = FitStatisticsLines(panel, area.Height, rowHeight);
+        var overflow = shownData < dataLines;
+        var lines = headerLines + shownData;
+
+        var box = area;
+        box.Bottom = Math.Min(box.Top + (LegendPadding * 2f) + (lines * rowHeight) + (Math.Max(lines - 1, 0) * LegendEntrySpacing), area.Bottom);
+
+        stroke.Color = theme.LegendBorder;
+        stroke.StrokeWidth = 1f;
+        canvas.DrawRect(box, stroke);
+
+        var restore = canvas.Save();
+        canvas.ClipRect(box);
+
+        var left = box.Left + LegendPadding;
+        var right = box.Right - LegendPadding;
+        var top = box.Top + LegendPadding;
+
+        fill.Color = theme.Text;
+        canvas.DrawText(Ellipsize(panel.Title, font, right - left), left, top - fontMetrics.Ascent, SKTextAlign.Left, font, fill);
+        top += rowHeight + LegendEntrySpacing;
+
+        if (panel.IsGrouped)
+        {
+            DrawStatisticsTable(canvas, panel, theme, fill, font, left, right, top, rowHeight, shownData, overflow);
+        }
+        else
+        {
+            var values = UngroupedValues(panel.Rows[0]);
+            for (var line = 0; line < shownData; line++)
+            {
+                var baseline = CenteredBaseline(top + (rowHeight / 2f), fontMetrics);
+                if (overflow && line == shownData - 1)
+                {
+                    DrawMore(canvas, theme, fill, font, left, baseline, dataLines - line);
+                    break;
+                }
+
+                fill.Color = theme.SecondaryText;
+                canvas.DrawText(StatisticsNames[line], left, baseline, SKTextAlign.Left, font, fill);
+                fill.Color = theme.Text;
+                canvas.DrawText(values[line], right, baseline, SKTextAlign.Right, font, fill);
+                top += rowHeight + LegendEntrySpacing;
+            }
+        }
+
+        canvas.RestoreToCount(restore);
+    }
+
+    // How many data lines of the panel fit a panel area this tall - the "… k more" line included when there is one -
+    // and how many rows that line stands in for (0 when everything fits). The lines are the title, the header of a
+    // table, then one per group or, ungrouped, one per statistic.
+    internal static (int Lines, int More) FitStatisticsLines(GraphStatisticsPanel panel, float height, float rowHeight)
+    {
+        var headerLines = panel.IsGrouped ? 2 : 1;
+        var dataLines = panel.IsGrouped ? panel.Rows.Count : StatisticsNames.Length;
+
+        // As many data lines as the height allows; if some do not fit, the last one that does becomes "… k more".
+        var available = height - (LegendPadding * 2f) + LegendEntrySpacing;
+        var fitting = Math.Max(0, (int)Math.Floor(available / (rowHeight + LegendEntrySpacing)) - headerLines);
+        var lines = Math.Min(dataLines, fitting);
+        return (lines, lines > 0 && lines < dataLines ? dataLines - lines + 1 : 0);
+    }
+
+    private static void DrawStatisticsTable(
+        SKCanvas canvas,
+        GraphStatisticsPanel panel,
+        GraphTheme theme,
+        SKPaint fill,
+        SKFont font,
+        float left,
+        float right,
+        float top,
+        float rowHeight,
+        int shownRows,
+        bool overflow)
+    {
+        var fontMetrics = font.Metrics;
+        var (_, numberWidths) = StatisticsColumns(panel, font);
+
+        // The numbers keep their widths, right-aligned from the right edge; the group labels take what is left and
+        // end in an ellipsis when that is not enough.
+        var numberRights = new float[numberWidths.Length];
+        var edge = right;
+        for (var column = numberWidths.Length - 1; column >= 0; column--)
+        {
+            numberRights[column] = edge;
+            edge -= numberWidths[column] + StatisticsColumnGap;
+        }
+
+        var labelLeft = left + LegendSwatchSize + LegendEntrySpacing;
+        // edge is now the left of the first number column, less its gap: the labels may reach it.
+        var labelWidth = Math.Max(edge - labelLeft, StatisticsMinimumLabelWidth);
+
+        // Header: the grouping column's name over the labels, the statistic names over the numbers.
+        var baseline = CenteredBaseline(top + (rowHeight / 2f), fontMetrics);
+        fill.Color = theme.Text;
+        canvas.DrawText(Ellipsize(panel.GroupHeader ?? string.Empty, font, labelWidth), labelLeft, baseline, SKTextAlign.Left, font, fill);
+        for (var column = 0; column < StatisticsNames.Length; column++)
+        {
+            canvas.DrawText(StatisticsNames[column], numberRights[column], baseline, SKTextAlign.Right, font, fill);
+        }
+
+        top += rowHeight + LegendEntrySpacing;
+
+        for (var index = 0; index < shownRows; index++)
+        {
+            var centerY = top + (rowHeight / 2f);
+            baseline = CenteredBaseline(centerY, fontMetrics);
+
+            if (overflow && index == shownRows - 1)
+            {
+                DrawMore(canvas, theme, fill, font, left, baseline, panel.Rows.Count - index);
+                break;
+            }
+
+            var row = panel.Rows[index];
+            if (row.SeriesIndex is { } series)
+            {
+                fill.Color = theme.SeriesColor(series);
+                canvas.DrawRect(
+                    new SKRect(left, centerY - (LegendSwatchSize / 2f), left + LegendSwatchSize, centerY + (LegendSwatchSize / 2f)),
+                    fill);
+            }
+
+            fill.Color = theme.SecondaryText;
+            canvas.DrawText(Ellipsize(row.Label, font, labelWidth), labelLeft, baseline, SKTextAlign.Left, font, fill);
+
+            fill.Color = theme.Text;
+            canvas.DrawText(row.MeanText, numberRights[0], baseline, SKTextAlign.Right, font, fill);
+            canvas.DrawText(row.StandardDeviationText, numberRights[1], baseline, SKTextAlign.Right, font, fill);
+            canvas.DrawText(row.CountText, numberRights[2], baseline, SKTextAlign.Right, font, fill);
+
+            top += rowHeight + LegendEntrySpacing;
+        }
+    }
+
+    // The line that stands in for the rows that do not fit.
+    private static void DrawMore(SKCanvas canvas, GraphTheme theme, SKPaint fill, SKFont font, float left, float baseline, int hidden)
+    {
+        fill.Color = theme.SecondaryText;
+        canvas.DrawText($"… {hidden} more", left, baseline, SKTextAlign.Left, font, fill);
+    }
+
+    // The text as it fits in width: whole, or cut short with an ellipsis.
+    internal static string Ellipsize(string text, SKFont font, float width)
+    {
+        if (font.MeasureText(text) <= width)
+        {
+            return text;
+        }
+
+        const string Ellipsis = "…";
+        for (var length = text.Length - 1; length > 0; length--)
+        {
+            var candidate = text[..length] + Ellipsis;
+            if (font.MeasureText(candidate) <= width)
+            {
+                return candidate;
+            }
+        }
+
+        return font.MeasureText(Ellipsis) <= width ? Ellipsis : string.Empty;
+    }
+
     private static bool IsVisible(float position, float lower, float upper) =>
         float.IsFinite(position) && position >= lower - EdgeTolerance && position <= upper + EdgeTolerance;
 
@@ -325,6 +582,14 @@ public sealed class SkiaGraphRenderer
         }
 
         return widest;
+    }
+
+    // The height of the legend box with all of its rows: padding, the title if any, and one row per entry.
+    private static float LegendBoxHeight(GraphLegendModel legend, SKFont font)
+    {
+        var rowHeight = Math.Max(LineHeight(font), LegendSwatchSize);
+        var rows = legend.Entries.Count + (string.IsNullOrWhiteSpace(legend.Title) ? 0 : 1);
+        return (LegendPadding * 2f) + (rows * rowHeight) + (Math.Max(rows - 1, 0) * LegendEntrySpacing);
     }
 
     private static float LegendWidth(GraphLegendModel? legend, SKFont font)
