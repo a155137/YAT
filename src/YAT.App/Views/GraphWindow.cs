@@ -1,5 +1,7 @@
+using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.Input;
 using YAT.app.Graphs.Export;
 using YAT.app.Graphs.Rendering;
@@ -10,11 +12,10 @@ namespace YAT.app.Views;
 // graph stays on screen while the user keeps working. Resizing, maximising and restoring only change the area the graph
 // is laid out in.
 //
-// Its File menu copies the graph image to the clipboard (also Ctrl+C, in this window only) and exports the graph. The
-// window keeps what the graph is made of - the frame and its plot renderer - so a copy or an export can draw it again off
-// screen instead of copying what happens to be on the screen. How an export is put
-// together is not its business: it asks the factory it was given for the workflow, with itself as the owner of the
-// dialogs.
+// Its File menu copies the graph image to the clipboard (also Ctrl+C, in this window only, and right-click on the graph)
+// and exports the graph. The window keeps what the graph is made of - the frame and its plot renderer - so a copy or an
+// export can draw it again off screen instead of copying what happens to be on the screen. How an export is put together
+// is not its business: it asks the factory it was given for the workflow, with itself as the owner of the dialogs.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
@@ -41,7 +42,8 @@ internal sealed class GraphWindow : Window
         _canvas = new GraphCanvas { Model = model, Plot = plot };
         _export = exports.Create(this);
 
-        // One command for the menu item and the shortcut. It is not run again while a copy is still in progress.
+        // One command for the menu item, the shortcut and the right-click menu. It is not run again while a copy is still
+        // in progress.
         _copyImage = new AsyncRelayCommand(() => _export.CopyImageAsync(Snapshot()));
         KeyBindings.Add(new KeyBinding { Gesture = CopyImageGesture, Command = _copyImage });
 
@@ -54,12 +56,28 @@ internal sealed class GraphWindow : Window
 
         var menu = new Menu { Items = { FileMenu() } };
         DockPanel.SetDock(menu, Dock.Top);
-        Content = new DockPanel { Children = { menu, _canvas } };
+        var graphArea = GraphArea(_canvas, new ContextMenu { Items = { CopyImageItem(_copyImage) } });
+        Content = new DockPanel { Children = { menu, graphArea } };
     }
+
+    // The graph area as the user right-clicks it. The canvas draws through a custom operation that is not hit-tested,
+    // so a transparent host takes the click; it adds no size and draws nothing. Wherever the click lands, the menu acts
+    // on the whole graph.
+    internal static Border GraphArea(GraphCanvas canvas, ContextMenu contextMenu) => new()
+    {
+        Background = Brushes.Transparent,
+        Child = canvas,
+        ContextMenu = contextMenu
+    };
+
+    // The one Copy Image item, made for File > Copy Image and for the right-click menu alike: both run the command that
+    // Ctrl+C runs.
+    internal static MenuItem CopyImageItem(ICommand copyImage) =>
+        new() { Header = "_Copy Image", Command = copyImage, InputGesture = CopyImageGesture };
 
     private MenuItem FileMenu()
     {
-        var copy = new MenuItem { Header = "_Copy Image", Command = _copyImage, InputGesture = CopyImageGesture };
+        var copy = CopyImageItem(_copyImage);
 
         var png = new MenuItem { Header = "Export _PNG..." };
         png.Click += async (_, _) => await _export.ExportPngAsync(Snapshot());
