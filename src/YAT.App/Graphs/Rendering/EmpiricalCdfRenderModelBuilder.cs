@@ -136,9 +136,9 @@ public sealed class EmpiricalCdfRenderModelBuilder
         return new PreparedSeries(buffer.Label, [.. steps], values.Length);
     }
 
-    // The steps a series draws: all of them when it may, otherwise evenly spread ones that keep the first and the last.
-    // A thinned-out distribution is still a step function - the renderer never joins two steps diagonally - and it
-    // still ends at a hundred percent.
+    // The steps a series draws: all of them when it may, otherwise evenly spread ones that keep the first and the last
+    // (just the last, when only one step may be drawn). A thinned-out distribution is still a step function - the
+    // renderer never joins two steps diagonally - and it always ends at a hundred percent.
     private static ReadOnlyMemory<EmpiricalCdfPoint> Sample(
         EmpiricalCdfPoint[] points,
         int quota,
@@ -147,6 +147,14 @@ public sealed class EmpiricalCdfRenderModelBuilder
         if (quota >= points.Length)
         {
             return points;
+        }
+
+        // A single step is the final one. DisplaySampling keeps the first point when it may keep only one, which is
+        // right for a scatter of points but not for a distribution: an empirical CDF ends at a hundred percent, and a
+        // curve cut down to its first step would stop short of it.
+        if (quota == 1)
+        {
+            return new[] { points[^1] };
         }
 
         var sampled = new EmpiricalCdfPoint[quota];

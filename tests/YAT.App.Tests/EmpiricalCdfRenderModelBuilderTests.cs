@@ -364,6 +364,85 @@ public class EmpiricalCdfRenderModelBuilderTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new EmpiricalCdfRenderModelBuilder(0));
     }
 
+    // ---- Hotfix #034.2A: a sampled distribution still ends at 100 % ----
+
+    // A budget of one step per series: the one step kept is the last, because a distribution ends at 100 %.
+    [Fact]
+    public void ASeriesDrawingOneStepKeepsItsFinalStep()
+    {
+        var model = Build(Data([10, 20]), maximumRenderedPoints: 1);
+
+        var point = Assert.Single(Assert.Single(model.Series).Points.ToArray());
+        Assert.Equal(20, point.Value);
+        Assert.Equal(100, point.CumulativePercent);
+        Assert.Equal(1, model.RenderedPointCount);
+    }
+
+    // With a few steps to spend, the sample still starts at the first step and ends at the final one.
+    [Fact]
+    public void ASampledSeriesOfSeveralStepsEndsAt100Percent()
+    {
+        var model = Build(Data([.. Enumerable.Range(1, 10).Select(value => (double)value)]), maximumRenderedPoints: 3);
+
+        var points = Assert.Single(model.Series).Points.ToArray();
+        Assert.Equal(3, points.Length);
+        Assert.Equal(1, points[0].Value);
+        Assert.Equal(10, points[^1].Value);
+        Assert.Equal(100, points[^1].CumulativePercent);
+    }
+
+    // Two groups over a small budget: the small group's share is a single step, and that step is its 100 %.
+    [Fact]
+    public void ASmallGroupGivenOneStepStillEndsAt100Percent()
+    {
+        double[] values = [.. Enumerable.Range(0, 50).Select(value => (double)value), 10, 20];
+        string?[] groups = [.. Enumerable.Repeat("A", 50), "B", "B"];
+
+        var model = Build(Data(values, Text(groups)), maximumRenderedPoints: 10);
+
+        var small = SeriesOf(model, "B").Points.ToArray();
+        Assert.Equal([(20d, 100d)], small.Select(point => (point.Value, point.CumulativePercent)));
+        Assert.Equal(100, SeriesOf(model, "A").Points.Span[^1].CumulativePercent);
+        Assert.True(model.RenderedPointCount <= 10);
+    }
+
+    // The case the robustness harness found, at the production display budget: a small group next to a group with
+    // more distinct values than the budget. The small group used to draw one step at 50 % and stop there.
+    [Fact]
+    public void ASmallGroupBesideAMillionDistinctValuesEndsAt100PercentAtTheDefaultBudget()
+    {
+        const int Large = 1_000_000;
+        var values = new double[Large + 2];
+        var groups = new string?[Large + 2];
+        for (var index = 0; index < Large; index++)
+        {
+            values[index] = index;
+            groups[index] = "A";
+        }
+
+        (values[Large], groups[Large]) = (10, "B");
+        (values[Large + 1], groups[Large + 1]) = (20, "B");
+
+        var model = Build(Data(values, Text(groups)));
+
+        var small = SeriesOf(model, "B");
+        Assert.Equal(2, small.UniquePointCount);
+        Assert.Equal(100, small.Points.Span[^1].CumulativePercent);
+        Assert.Equal(100, SeriesOf(model, "A").Points.Span[^1].CumulativePercent);
+        Assert.True(model.RenderedPointCount <= DisplaySampling.DefaultMaximumRenderedPoints);
+    }
+
+    // A distribution the budget does not touch is drawn step for step, exactly as before.
+    [Fact]
+    public void AnUnsampledDistributionIsUnchanged()
+    {
+        var model = Build(Data([2, 1, 2, 3]));
+
+        var points = Assert.Single(model.Series).Points.ToArray();
+        Assert.Equal([(1d, 25d), (2d, 75d), (3d, 100d)], points.Select(point => (point.Value, point.CumulativePercent)));
+        Assert.False(model.WasSampled);
+    }
+
     private sealed class PercentComparer : IEqualityComparer<double>
     {
         public bool Equals(double first, double second) => Math.Abs(first - second) < Tolerance;
