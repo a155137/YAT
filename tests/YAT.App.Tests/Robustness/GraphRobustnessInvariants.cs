@@ -1,0 +1,612 @@
+using System.Globalization;
+using System.Text;
+using YAT.Analytics.Statistics;
+using YAT.Application.Graphs;
+using YAT.app.Graphs.Rendering;
+
+namespace YAT.App.Tests.Robustness;
+
+// What must hold for every valid dataset a graph is given, checked on the render model the graph's own builder made.
+//
+// Only two kinds of rule belong here:
+//   * mathematical invariants - true of the statistic whatever the implementation (Q1 <= median <= Q3, an empirical
+//     CDF ends at 100 %);
+//   * implementation invariants - promises the current graph code makes on purpose (the histogram never samples, so
+//     its counts add up).
+// Visual expectations (what a graph should look like) do not belong here. Task #034.1 is why this matters: "the
+// whiskers enclose the box" looked like an invariant, was written into the model as one, and is false for
+// interpolated quartiles. Every rule below says which kind it is.
+internal static class GraphRobustnessInvariants
+{
+    // The one rule sampling has to keep: statistics are computed from every observation. The sampled build only gets
+    // as many points as there are series, so that every series still draws one - DisplaySampling deliberately stops
+    // representing every group when the budget is smaller than that, which is presentation policy, not statistics.
+    public static int SamplingBudget(RobustnessGraph graph, GraphData data) => graph switch
+    {
+        RobustnessGraph.BoxPlot => 1,
+        RobustnessGraph.Scatter => Math.Max(1, ExpectedSeries(((ScatterGraphData)data).Group, ((ScatterGraphData)data).XValues.Span).Count),
+        _ => Math.Max(1, ExpectedSeries(((UnivariateGraphData)data).Group, ((UnivariateGraphData)data).Values.Span).Count)
+    };
+
+    // Runs one case through one graph at builder level (and, if asked, through the renderer): build, check every
+    // invariant, build again and compare, build with a spent display budget and compare the statistics.
+    public static BuiltGraph Exercise(RobustnessCase robustnessCase, RobustnessGraph graph, GraphTheme? renderTheme, bool repeat = true)
+    {
+        var data = RobustnessGraphs.DataFor(graph, robustnessCase);
+        return Exercise(robustnessCase.Describe(RobustnessGraphs.Name(graph)), graph, data, renderTheme, repeat);
+    }
+
+    public static BuiltGraph Exercise(string context, RobustnessGraph graph, GraphData data, GraphTheme? renderTheme, bool repeat = true)
+    {
+        var built = BuildOrFail(context, graph, data);
+        Verify(context, built);
+
+        if (repeat && built.Model is not null)
+        {
+            // Implementation invariant: the same data builds the same graph, points and all.
+            var again = BuildOrFail(context, graph, data);
+            That(Fingerprint(again, statisticsOnly: false) == Fingerprint(built, statisticsOnly: false), context,
+                "building the same data twice must give the same model");
+
+            if (graph != RobustnessGraph.Histogram)
+            {
+                // Sampling must not change statistics (the histogram never samples).
+                var sampled = BuildOrFail(context, graph, data, SamplingBudget(graph, data));
+                Verify(context + " (sampled)", sampled);
+                var expected = Fingerprint(built, statisticsOnly: true);
+                var actual = Fingerprint(sampled, statisticsOnly: true);
+                That(actual == expected, context, $"sampling changed the statistics:\n    default: {expected}\n    sampled: {actual}");
+            }
+        }
+
+        if (renderTheme is not null && built.Model is not null)
+        {
+            try
+            {
+                RobustnessGraphs.Render(built, renderTheme);
+            }
+            catch (Exception exception)
+            {
+                Assert.Fail($"{context}\n  rendering threw: {exception}");
+            }
+        }
+
+        return built;
+    }
+
+    public static BuiltGraph BuildOrFail(string context, RobustnessGraph graph, GraphData data, int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints)
+    {
+        try
+        {
+            return RobustnessGraphs.Build(graph, data, maximumRenderedPoints, TestContext.Current.CancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Assert.Fail($"{context}\n  valid finite input made the builder throw: {exception}");
+            throw;
+        }
+    }
+
+    // ---- Shared invariants ----
+
+    public static void Verify(string context, BuiltGraph built)
+    {
+        // Implementation invariant: a builder has nothing to draw exactly when it was given no observations.
+        var effective = EffectiveCount(built.Data);
+        That((built.Model is null) == (effective == 0), context,
+            $"builder returned {(built.Model is null ? "no model" : "a model")} for {effective} effective observations");
+
+        if (built.Model is null)
+        {
+            return;
+        }
+
+        Frame(context, built.Frame!);
+
+        switch (built.Model)
+        {
+            case HistogramRenderModel histogram:
+                Histogram(context, (UnivariateGraphData)built.Data, histogram);
+                break;
+            case BoxPlotRenderModel boxPlot:
+                BoxPlot(context, (MultiVariableGraphData)built.Data, boxPlot);
+                break;
+            case ProbabilityPlotRenderModel probability:
+                ProbabilityPlot(context, (UnivariateGraphData)built.Data, probability);
+                break;
+            case EmpiricalCdfRenderModel empirical:
+                EmpiricalCdf(context, (UnivariateGraphData)built.Data, empirical);
+                break;
+            case ScatterRenderModel scatter:
+                Scatter(context, (ScatterGraphData)built.Data, scatter);
+                break;
+        }
+    }
+
+    public static int EffectiveCount(GraphData data) => data.Count;
+
+    // Implementation invariant (also enforced by the model constructors, checked again here): both axes are finite,
+    // non-empty ranges with finite ticks.
+    private static void Frame(string context, GraphRenderModel frame)
+    {
+        foreach (var (name, axis) in (ReadOnlySpan<(string, GraphAxisModel)>)[("X", frame.XAxis), ("Y", frame.YAxis)])
+        {
+            var range = axis.Range;
+            That(range.IsValid && double.IsFinite(range.Minimum) && double.IsFinite(range.Maximum) && range.Minimum < range.Maximum,
+                context, $"{name} axis range {range.Minimum:R}..{range.Maximum:R} must be finite and non-empty");
+            That(axis.Ticks.All(tick => double.IsFinite(tick.Value) && tick.Label is not null), context, $"{name} axis ticks must be finite");
+        }
+    }
+
+    // ---- Histogram ----
+
+    private static void Histogram(string context, UnivariateGraphData data, HistogramRenderModel model)
+    {
+        var expected = ExpectedSeries(data.Group, data.Values.Span);
+        That(model.SourceObservationCount == data.Count, context, $"histogram counted {model.SourceObservationCount} of {data.Count} observations");
+        That(model.Series.Select(series => series.Label).SequenceEqual(expected.Select(series => series.Label)), context,
+            "histogram series must be the groups in first-observed order");
+
+        // Implementation invariants: HistogramBinCount keeps the bin count within its limits, and the bins are
+        // equal-width intervals built from one list of edges.
+        That(model.Bins.Count is >= HistogramBinCount.MinimumBinCount and <= HistogramBinCount.MaximumBinCount, context,
+            $"histogram has {model.Bins.Count} bins");
+        for (var index = 1; index < model.Bins.Count; index++)
+        {
+            That(model.Bins[index - 1].UpperEdge == model.Bins[index].LowerEdge, context, $"bins {index - 1} and {index} are not contiguous");
+        }
+
+        var first = model.Bins[0].LowerEdge;
+        var last = model.Bins[^1].UpperEdge;
+        foreach (var value in data.Values.Span)
+        {
+            That(value >= first && value <= last, context, $"observation {value:R} lies outside the bins {first:R}..{last:R}");
+        }
+
+        That(Within(model.Frame.XAxis.Range, first) && Within(model.Frame.XAxis.Range, last), context, "the X axis must cover the bins");
+
+        // Implementation invariant: the histogram never samples, so every observation is counted exactly once.
+        var maximum = 0;
+        for (var index = 0; index < model.Series.Count; index++)
+        {
+            var series = model.Series[index];
+            var sum = series.Counts.Sum();
+            That(sum == series.ObservationCount, context, $"series '{series.Label}' counts add up to {sum}, not {series.ObservationCount}");
+            That(series.ObservationCount == expected[index].Values.Length, context,
+                $"series '{series.Label}' has {series.ObservationCount} observations, the data {expected[index].Values.Length}");
+            maximum = Math.Max(maximum, series.Counts.Count == 0 ? 0 : series.Counts.Max());
+        }
+
+        That(model.MaximumCount == maximum, context, $"maximum count {model.MaximumCount} is not the largest bin count {maximum}");
+        That(Within(model.Frame.YAxis.Range, 0) && Within(model.Frame.YAxis.Range, maximum), context, "the Y axis must cover 0..maximum count");
+    }
+
+    // ---- Box Plot ----
+
+    private static void BoxPlot(string context, MultiVariableGraphData data, BoxPlotRenderModel model)
+    {
+        That(model.SourceObservationCount == data.Count, context, $"box plot used {model.SourceObservationCount} of {data.Count} observations");
+
+        // The categories the data defines: every variable in order, split into its groups in first-observed order; a
+        // variable without observations keeps a slot of its own and draws no box.
+        var grouped = data.Variables.Any(variable => variable.Group is not null);
+        var categories = new List<(string Label, double[] Values)>();
+        foreach (var variable in data.Variables)
+        {
+            var groups = ExpectedSeries(variable.Group, variable.Values.Span);
+            if (groups.Count == 0)
+            {
+                categories.Add((variable.Variable.Name, []));
+                continue;
+            }
+
+            categories.AddRange(groups.Select(group => (grouped ? $"{variable.Variable.Name} / {group.Label}" : variable.Variable.Name, group.Values)));
+        }
+
+        That(model.Categories.SequenceEqual(categories.Select(category => category.Label)), context,
+            $"categories [{string.Join(" | ", model.Categories)}] are not the variables and first-observed groups " +
+            $"[{string.Join(" | ", categories.Select(category => category.Label))}]");
+
+        var seriesByGroup = new Dictionary<string, int>(StringComparer.Ordinal);
+        var outliers = 0;
+        for (var index = 0; index < categories.Count; index++)
+        {
+            var boxes = model.Boxes.Where(box => box.CategoryIndex == index).ToArray();
+            var observations = categories[index].Values;
+            if (observations.Length == 0)
+            {
+                That(boxes.Length == 0, context, $"category '{categories[index].Label}' has no observations but draws a box");
+                continue;
+            }
+
+            That(boxes.Length == 1, context, $"category '{categories[index].Label}' must draw exactly one box");
+            var box = boxes[0];
+            var boxContext = $"{context}\n  box '{box.Label}'";
+            outliers += box.OutlierCount;
+            That(box.ObservationCount == observations.Length, boxContext, $"box has {box.ObservationCount} observations, the data {observations.Length}");
+
+            Box(boxContext, box, observations, model.Frame.YAxis.Range);
+
+            // Implementation invariant (Task #034 §34): a group keeps one colour across variables.
+            if (grouped)
+            {
+                var group = box.Label[(box.Label.IndexOf(" / ", StringComparison.Ordinal) + 3)..];
+                if (seriesByGroup.TryGetValue(group, out var series))
+                {
+                    That(series == box.SeriesIndex, boxContext, $"group '{group}' changes colour between variables");
+                }
+                else
+                {
+                    seriesByGroup.Add(group, box.SeriesIndex);
+                }
+            }
+        }
+
+        That(model.OutlierCount == outliers, context, $"model reports {model.OutlierCount} outliers, its boxes {outliers}");
+    }
+
+    private static void Box(string context, BoxPlotBoxRenderModel box, double[] observations, GraphAxisRange vertical)
+    {
+        var sorted = observations.Order().ToArray();
+
+        // Mathematical invariants. The whiskers are NOT required to enclose the box: with interpolated quartiles a
+        // whisker can end inside it (Task #034.1).
+        That(box.FirstQuartile <= box.Median && box.Median <= box.ThirdQuartile, context,
+            $"Q1 {box.FirstQuartile:R} <= median {box.Median:R} <= Q3 {box.ThirdQuartile:R} must hold");
+        That(box.LowerWhisker <= box.UpperWhisker, context, $"lower whisker {box.LowerWhisker:R} must not exceed upper whisker {box.UpperWhisker:R}");
+        That(WithinTolerance(box.Mean, sorted[0], sorted[^1], sorted.Length), context, $"mean {box.Mean:R} lies outside the data {sorted[0]:R}..{sorted[^1]:R}");
+
+        // Tukey fences, derived here from the box's own quartiles - outliers are defined by the fences, never by where
+        // the whiskers happen to be.
+        var iqr = box.ThirdQuartile - box.FirstQuartile;
+        var lowerFence = box.FirstQuartile - (BoxPlotSummary.FenceMultiplier * iqr);
+        var upperFence = box.ThirdQuartile + (BoxPlotSummary.FenceMultiplier * iqr);
+
+        // A whisker is an actual observation of this box, inside its fence, and the most extreme one there.
+        That(Array.BinarySearch(sorted, box.LowerWhisker) >= 0, context, $"lower whisker {box.LowerWhisker:R} is not an observation of this box");
+        That(Array.BinarySearch(sorted, box.UpperWhisker) >= 0, context, $"upper whisker {box.UpperWhisker:R} is not an observation of this box");
+        That(box.LowerWhisker >= lowerFence, context, $"lower whisker {box.LowerWhisker:R} lies below the lower fence {lowerFence:R}");
+        That(box.UpperWhisker <= upperFence, context, $"upper whisker {box.UpperWhisker:R} lies above the upper fence {upperFence:R}");
+        That(box.LowerWhisker == sorted.First(value => value >= lowerFence), context, "the lower whisker must be the smallest observation inside the lower fence");
+        That(box.UpperWhisker == sorted.Last(value => value <= upperFence), context, "the upper whisker must be the largest observation inside the upper fence");
+
+        var outside = sorted.Count(value => value < lowerFence || value > upperFence);
+        That(box.OutlierCount == outside, context, $"box reports {box.OutlierCount} outliers, the fences {outside}");
+        That(box.Outliers.Length <= box.OutlierCount, context, "a box cannot draw more outliers than it has");
+        foreach (var outlier in box.Outliers.Span)
+        {
+            That(outlier < lowerFence || outlier > upperFence, context, $"drawn outlier {outlier:R} lies inside the fences {lowerFence:R}..{upperFence:R}");
+            That(Array.BinarySearch(sorted, outlier) >= 0, context, $"drawn outlier {outlier:R} is not an observation of this box");
+        }
+
+        // Implementation invariant (Task #034.1 E3): the axis describes the whole model, including every outlier that
+        // was not drawn - which, with the whiskers, means every observation.
+        foreach (var (name, value) in (ReadOnlySpan<(string, double)>)
+                 [("Q1", box.FirstQuartile), ("median", box.Median), ("Q3", box.ThirdQuartile), ("mean", box.Mean),
+                  ("lower whisker", box.LowerWhisker), ("upper whisker", box.UpperWhisker),
+                  ("smallest observation", sorted[0]), ("largest observation", sorted[^1])])
+        {
+            That(Within(vertical, value), context, $"{name} {value:R} lies outside the Y axis {vertical.Minimum:R}..{vertical.Maximum:R}");
+        }
+    }
+
+    // ---- Probability Plot ----
+
+    private static void ProbabilityPlot(string context, UnivariateGraphData data, ProbabilityPlotRenderModel model)
+    {
+        var expected = ExpectedSeries(data.Group, data.Values.Span);
+        That(model.SourceObservationCount == data.Count, context, $"probability plot used {model.SourceObservationCount} of {data.Count} observations");
+        That(model.Series.Select(series => series.Label).SequenceEqual(expected.Select(series => series.Label)), context,
+            "probability plot series must be the groups in first-observed order");
+
+        for (var index = 0; index < model.Series.Count; index++)
+        {
+            var series = model.Series[index];
+            var observations = expected[index].Values.Order().ToArray();
+            var seriesContext = $"{context}\n  series '{series.Label}'";
+            That(series.ObservationCount == observations.Length, seriesContext, $"series has {series.ObservationCount} observations, the data {observations.Length}");
+
+            var points = series.Points.Span;
+            That(points.Length >= 1 && points.Length <= observations.Length, seriesContext, $"series draws {points.Length} of {observations.Length} points");
+
+            for (var point = 0; point < points.Length; point++)
+            {
+                // Mathematical: each point is an observation at its own plotting position; positions rise with rank,
+                // ties included, so values never fall and scores strictly rise.
+                That(double.IsFinite(points[point].Score), seriesContext, $"point {point} has a non-finite score");
+                That(Array.BinarySearch(observations, points[point].Value) >= 0, seriesContext, $"point value {points[point].Value:R} is not an observation");
+                if (point > 0)
+                {
+                    That(points[point].Value >= points[point - 1].Value, seriesContext, $"point {point} value falls");
+                    That(points[point].Score > points[point - 1].Score, seriesContext, $"point {point} score does not rise");
+                }
+
+                // Implementation: both axes are built from every point (the probability axis pads the extreme scores).
+                That(Within(model.Frame.XAxis.Range, points[point].Value), seriesContext, $"value {points[point].Value:R} lies outside the X axis");
+                That(Within(model.Frame.YAxis.Range, points[point].Score), seriesContext, $"score {points[point].Score:R} lies outside the Y axis");
+            }
+
+            // IMPLEMENTATION-SPECIFIC, not a lasting robustness contract: today a fitted line is drawn exactly when the
+            // series has a spread to fit. Future graph options may let the user hide the line; this check then changes
+            // with the option, and nothing else in the harness depends on the line being there.
+            var hasSpread = observations.Length >= 2 && observations[0] != observations[^1];
+            That((series.FittedLine is not null) == hasSpread, seriesContext,
+                $"fitted line is {(series.FittedLine is null ? "missing" : "present")} for a series {(hasSpread ? "with" : "without")} spread");
+        }
+    }
+
+    // ---- Empirical CDF ----
+
+    private static void EmpiricalCdf(string context, UnivariateGraphData data, EmpiricalCdfRenderModel model)
+    {
+        var expected = ExpectedSeries(data.Group, data.Values.Span);
+        That(model.SourceObservationCount == data.Count, context, $"empirical CDF used {model.SourceObservationCount} of {data.Count} observations");
+        That(model.Series.Select(series => series.Label).SequenceEqual(expected.Select(series => series.Label)), context,
+            "empirical CDF series must be the groups in first-observed order");
+
+        for (var index = 0; index < model.Series.Count; index++)
+        {
+            var series = model.Series[index];
+            var observations = expected[index].Values.Order().ToArray();
+            var seriesContext = $"{context}\n  series '{series.Label}'";
+            That(series.ObservationCount == observations.Length, seriesContext, $"series has {series.ObservationCount} observations, the data {observations.Length}");
+            That(series.UniquePointCount == observations.Distinct().Count(), seriesContext, "one step per distinct value");
+
+            var points = series.Points.Span;
+            for (var point = 0; point < points.Length; point++)
+            {
+                var (value, percent) = (points[point].Value, points[point].CumulativePercent);
+
+                // Mathematical: a step sits on an observed value, at the share of the series at or below it.
+                var atOrBelow = UpperBound(observations, value);
+                That(atOrBelow > 0 && observations[atOrBelow - 1] == value, seriesContext, $"step value {value:R} is not an observation");
+                That(percent == atOrBelow * 100d / observations.Length, seriesContext,
+                    $"step at {value:R} is {percent:R} %, the data says {atOrBelow * 100d / observations.Length:R} %");
+
+                if (point > 0)
+                {
+                    That(value > points[point - 1].Value && percent > points[point - 1].CumulativePercent, seriesContext, $"step {point} does not rise");
+                }
+
+                That(Within(model.Frame.XAxis.Range, value), seriesContext, $"value {value:R} lies outside the X axis");
+                That(Within(model.Frame.YAxis.Range, percent), seriesContext, $"{percent:R} % lies outside the Y axis");
+            }
+
+            // Mathematical, and kept by sampling (the last step is always drawn): the distribution ends at 100 %.
+            That(points.Length > 0 && points[^1].CumulativePercent == 100, seriesContext, "the last step must be at 100 %");
+        }
+    }
+
+    // ---- Scatter Plot ----
+
+    private static void Scatter(string context, ScatterGraphData data, ScatterRenderModel model)
+    {
+        var expected = ExpectedSeries(data.Group, data.XValues.Span);
+        That(model.SourcePointCount == data.Count, context, $"scatter plot used {model.SourcePointCount} of {data.Count} points");
+        That(model.RenderedPointCount <= model.SourcePointCount, context, "a scatter plot cannot draw more points than it has");
+        That(model.Series.Sum(series => series.Points.Length) == model.RenderedPointCount, context, "rendered count must match the drawn points");
+        That(model.Series.Select(series => series.Label).SequenceEqual(expected.Select(series => series.Label)), context,
+            "scatter series must be the groups in first-observed order");
+
+        // Implementation invariant: the axes are built from every point, drawn or not.
+        var x = model.Frame.XAxis.Range;
+        var y = model.Frame.YAxis.Range;
+        foreach (var value in data.XValues.Span)
+        {
+            That(Within(x, value), context, $"x {value:R} lies outside the X axis {x.Minimum:R}..{x.Maximum:R}");
+        }
+
+        foreach (var value in data.YValues.Span)
+        {
+            That(Within(y, value), context, $"y {value:R} lies outside the Y axis {y.Minimum:R}..{y.Maximum:R}");
+        }
+
+        foreach (var series in model.Series)
+        {
+            That(series.Points.Length >= 1, context, $"series '{series.Label}' draws no point");
+            foreach (var point in series.Points.Span)
+            {
+                That(double.IsFinite(point.X) && double.IsFinite(point.Y) && Within(x, point.X) && Within(y, point.Y), context,
+                    $"drawn point ({point.X:R}, {point.Y:R}) is not finite or not on the axes");
+            }
+        }
+    }
+
+    // ---- Groups, as the graphs define them ----
+
+    // The observations of each group in first-observed order, labelled the way the graphs label them: text as it is,
+    // numbers with 0.#### in the invariant culture, an empty group cell as "(Missing)". Groups are told apart by their
+    // value, not by their label. Without a group column there is one unnamed series.
+    public static List<(string Label, double[] Values)> ExpectedSeries(GraphGroupData? group, ReadOnlySpan<double> values)
+    {
+        var series = new List<(string Label, List<double> Values)>();
+        var byKey = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        for (var row = 0; row < values.Length; row++)
+        {
+            string key;
+            string label;
+            if (group is null)
+            {
+                key = label = string.Empty;
+            }
+            else if (group.IsMissing(row))
+            {
+                key = "missing";
+                label = "(Missing)";
+            }
+            else if (group is StringGroupData text)
+            {
+                label = text.Values.Span[row]!;
+                key = "text:" + label;
+            }
+            else
+            {
+                var number = ((NumericGroupData)group).Values.Span[row]!.Value;
+                key = "number:" + number.ToString("R", CultureInfo.InvariantCulture);
+                label = number.ToString("0.####", CultureInfo.InvariantCulture);
+            }
+
+            if (!byKey.TryGetValue(key, out var index))
+            {
+                index = series.Count;
+                byKey.Add(key, index);
+                series.Add((label, []));
+            }
+
+            series[index].Values.Add(values[row]);
+        }
+
+        return [.. series.Select(item => (item.Label, item.Values.ToArray()))];
+    }
+
+    // ---- Fingerprints: what two builds are compared by ----
+
+    // Everything a model says, as text. statisticsOnly leaves out what sampling may change - drawn points and
+    // outliers, rendered counts, whether the model was sampled - and keeps observation counts, statistics, axes,
+    // categories, series order and legend.
+    public static string Fingerprint(BuiltGraph built, bool statisticsOnly)
+    {
+        if (built.Model is null)
+        {
+            return "no model";
+        }
+
+        var text = new StringBuilder();
+        Axis(text, "x", built.Frame!.XAxis);
+        Axis(text, "y", built.Frame.YAxis);
+        text.Append(" legend=").Append(built.Frame.Legend is { } legend
+            ? string.Join(",", legend.Entries.Select(entry => $"{entry.Label}#{entry.SeriesIndex}"))
+            : "none");
+
+        switch (built.Model)
+        {
+            case HistogramRenderModel histogram:
+                text.Append(Invariant($" n={histogram.SourceObservationCount} max={histogram.MaximumCount} bins="));
+                text.AppendJoin(",", histogram.Bins.Select(bin => Invariant($"{bin.LowerEdge:R}..{bin.UpperEdge:R}")));
+                foreach (var series in histogram.Series)
+                {
+                    text.Append(Invariant($" [{series.Label}#{series.SeriesIndex} n={series.ObservationCount} counts={string.Join(",", series.Counts)}]"));
+                }
+
+                break;
+
+            case BoxPlotRenderModel boxPlot:
+                text.Append(Invariant($" n={boxPlot.SourceObservationCount} outliers={boxPlot.OutlierCount} categories={string.Join("|", boxPlot.Categories)}"));
+                foreach (var box in boxPlot.Boxes)
+                {
+                    text.Append(Invariant(
+                        $" [{box.Label}@{box.CategoryIndex}#{box.SeriesIndex} n={box.ObservationCount} {box.LowerWhisker:R}/{box.FirstQuartile:R}/{box.Median:R}/{box.ThirdQuartile:R}/{box.UpperWhisker:R} mean={box.Mean:R} outliers={box.OutlierCount}"));
+                    if (!statisticsOnly)
+                    {
+                        text.Append(" drawn=").AppendJoin(",", box.Outliers.ToArray().Select(value => value.ToString("R", CultureInfo.InvariantCulture)));
+                    }
+
+                    text.Append(']');
+                }
+
+                break;
+
+            case ProbabilityPlotRenderModel probability:
+                text.Append(Invariant($" n={probability.SourceObservationCount}"));
+                foreach (var series in probability.Series)
+                {
+                    var line = series.FittedLine is { } fitted
+                        ? Invariant($"{fitted.Mean:R}/{fitted.StandardDeviation:R}/{fitted.FromScore:R}..{fitted.ToScore:R}/{fitted.FromValue:R}..{fitted.ToValue:R}")
+                        : "none";
+                    text.Append(Invariant($" [{series.Label}#{series.SeriesIndex} n={series.ObservationCount} line={line}"));
+                    if (!statisticsOnly)
+                    {
+                        text.Append(" points=").AppendJoin(",", series.Points.ToArray().Select(point => Invariant($"{point.Value:R}:{point.Score:R}")));
+                    }
+
+                    text.Append(']');
+                }
+
+                break;
+
+            case EmpiricalCdfRenderModel empirical:
+                text.Append(Invariant($" n={empirical.SourceObservationCount} unique={empirical.UniquePointCount}"));
+                foreach (var series in empirical.Series)
+                {
+                    text.Append(Invariant($" [{series.Label}#{series.SeriesIndex} n={series.ObservationCount} unique={series.UniquePointCount}"));
+                    if (!statisticsOnly)
+                    {
+                        text.Append(" steps=").AppendJoin(",", series.Points.ToArray().Select(point => Invariant($"{point.Value:R}:{point.CumulativePercent:R}")));
+                    }
+
+                    text.Append(']');
+                }
+
+                break;
+
+            case ScatterRenderModel scatter:
+                text.Append(Invariant($" n={scatter.SourcePointCount}"));
+                foreach (var series in scatter.Series)
+                {
+                    text.Append(Invariant($" [{series.Label}#{series.SeriesIndex}"));
+                    if (!statisticsOnly)
+                    {
+                        text.Append(" points=").AppendJoin(",", series.Points.ToArray().Select(point => Invariant($"{point.X:R}:{point.Y:R}")));
+                    }
+
+                    text.Append(']');
+                }
+
+                break;
+        }
+
+        return text.ToString();
+    }
+
+    private static void Axis(StringBuilder text, string name, GraphAxisModel axis)
+    {
+        text.Append(Invariant($" {name}={axis.Range.Minimum:R}..{axis.Range.Maximum:R} ticks="));
+        text.AppendJoin(",", axis.Ticks.Select(tick => Invariant($"{tick.Value:R}:{tick.Label}")));
+        text.Append(" title=").Append(axis.Title);
+    }
+
+    // ---- Helpers ----
+
+    public static void That(bool condition, string context, string violated)
+    {
+        if (!condition)
+        {
+            Assert.Fail($"{context}\n  violated: {violated}");
+        }
+    }
+
+    private static bool Within(GraphAxisRange range, double value) => value >= range.Minimum && value <= range.Maximum;
+
+    // A computed mean may differ from the exact one by the rounding of its sum: at most about n machine epsilons of the
+    // largest magnitude. "Between the smallest and the largest observation" allows for that and nothing more - the
+    // slack scales with the data, so a tiny range is not swallowed by an absolute tolerance.
+    private static bool WithinTolerance(double value, double minimum, double maximum, int count)
+    {
+        const double MachineEpsilon = 2.220446049250313e-16;
+        var slack = 2 * count * MachineEpsilon * Math.Max(Math.Abs(minimum), Math.Abs(maximum));
+        return value >= minimum - slack && value <= maximum + slack;
+    }
+
+    // The number of sorted values at or below value.
+    private static int UpperBound(double[] sorted, double value)
+    {
+        int low = 0, high = sorted.Length;
+        while (low < high)
+        {
+            var middle = (low + high) / 2;
+            if (sorted[middle] <= value)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
+    }
+
+    private static string Invariant(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
+}
