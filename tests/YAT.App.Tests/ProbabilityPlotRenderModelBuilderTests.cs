@@ -364,6 +364,16 @@ public class ProbabilityPlotRenderModelBuilderTests
             new ProbabilityPlotRenderModelBuilder().Build(Data([1, 2, 3]), Labels, cancellation.Token));
     }
 
+    // Hotfix #034.2B: repeated decimals that are not exact in binary are still constant, so there is no spread to fit
+    // a line to.
+    [Fact]
+    public void RepeatedDecimalsHaveNoFittedLine()
+    {
+        var model = Build(Data([0.1, 0.1, 0.1]));
+
+        Assert.Null(Assert.Single(model.Series).FittedLine);
+    }
+
     // 23
     [Fact]
     public void TheBuilderNeedsDataAndLabels()

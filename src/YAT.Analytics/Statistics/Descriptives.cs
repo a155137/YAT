@@ -32,6 +32,15 @@ public static class Descriptives
             return 0;
         }
 
+        // Identical observations have no spread, exactly. The computation below would not always say so: the mean of
+        // a value that binary cannot represent exactly (0.1, -0.001) is rounded, so identical observations differ from
+        // it by a residue and the result came out near 1e-17 instead of 0. Only exact equality counts here - values
+        // that differ at all, however little, keep their spread.
+        if (AllEqual(values))
+        {
+            return 0;
+        }
+
         var sum = 0d;
         foreach (var value in values)
         {
@@ -49,5 +58,19 @@ public static class Descriptives
 
         var variance = squared / (values.Length - 1);
         return variance > 0 ? Math.Sqrt(variance) : 0;
+    }
+
+    private static bool AllEqual(ReadOnlySpan<double> values)
+    {
+        var first = values[0];
+        foreach (var value in values[1..])
+        {
+            if (value != first)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

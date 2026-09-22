@@ -239,6 +239,15 @@ public class DescriptiveStatisticsBuilderTests
         Assert.Empty(grouped.Rows);
     }
 
+    // Hotfix #034.2B: a column of one repeated decimal reports a standard deviation of 0, not a rounding residue.
+    [Fact]
+    public void ARepeatedDecimalHasAStandardDeviationOfZero()
+    {
+        var table = _builder.Build(Ungrouped(Variable("Reg1", 0.1, 0.1, 0.1)), Token);
+
+        Assert.Equal("0", Cell(table, 0, "StDev"));
+    }
+
     // 14
     [Fact]
     public void BuildingIsCancellable()

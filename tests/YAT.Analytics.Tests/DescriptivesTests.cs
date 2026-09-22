@@ -62,6 +62,31 @@ public class DescriptivesTests
         Assert.Equal(Descriptives.StandardDeviation([0.1, 0.2, 0.3, 0.4]), Descriptives.StandardDeviation(values), 1e-9);
     }
 
+    // ---- Hotfix #034.2B: constant data has no spread, exactly ----
+
+    // Values like 0.1 are not exact in binary, so the computed mean of three of them is not quite 0.1, and the old
+    // deviations from that mean were not quite zero. Identical observations have a standard deviation of exactly 0.
+    [Theory]
+    [InlineData(0.1, 3)]
+    [InlineData(0.1, 10)]
+    [InlineData(-0.001, 904)]
+    [InlineData(100, 5)]
+    public void IdenticalObservationsHaveAStandardDeviationOfExactlyZero(double value, int count)
+    {
+        var values = Enumerable.Repeat(value, count).ToArray();
+
+        Assert.Equal(0d, Descriptives.StandardDeviation(values));
+    }
+
+    // Only identical values are constant: the smallest real variation still has a spread.
+    [Fact]
+    public void TheSmallestRealVariationStillHasASpread()
+    {
+        Assert.True(Descriptives.StandardDeviation([1.0, Math.BitIncrement(1.0)]) > 0);
+        Assert.True(Descriptives.StandardDeviation([0.1, 0.1, Math.BitIncrement(0.1)]) > 0);
+        Assert.True(Descriptives.StandardDeviation([1e-12, 2e-12, 1e-12]) > 0);
+    }
+
     // 6
     [Fact]
     public void TheSameValuesAlwaysGiveTheSameStandardDeviation()
