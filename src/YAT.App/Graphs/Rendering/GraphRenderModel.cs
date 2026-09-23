@@ -88,8 +88,17 @@ public sealed record GraphAxisModel
 
     public IReadOnlyList<GraphAxisTick> Ticks { get; }
 
-    // Null or empty when the axis has no title; the layout then gives the space back to the plot area.
-    public string? Title { get; }
+    // Null or empty when the axis has no title; the layout then gives the space back to the plot area. Private set only
+    // so WithTitle can replace it on a copy.
+    public string? Title { get; private set; }
+
+    // The same axis - range and ticks - under another title, or none.
+    public GraphAxisModel WithTitle(string? title)
+    {
+        var copy = this with { };
+        copy.Title = title;
+        return copy;
+    }
 }
 
 // One entry of a legend. The series index selects the colour from the theme's palette, so the model stays free of
@@ -150,12 +159,13 @@ public sealed record GraphRenderModel
     }
 
     // Null or empty when the graph has no title; the layout then gives the space back to the plot area.
-    public string? Title { get; }
+    public string? Title { get; private set; }
 
-    // Private set only so WithXAxis can replace it on a copy; a model never changes after it is made.
+    // Title and the axes have a private set only so WithTitle, WithXAxis and WithYAxis can replace them on a copy; a
+    // model never changes after it is made.
     public GraphAxisModel XAxis { get; private set; }
 
-    public GraphAxisModel YAxis { get; }
+    public GraphAxisModel YAxis { get; private set; }
 
     public GraphLegendModel? Legend { get; }
 
@@ -192,6 +202,23 @@ public sealed record GraphRenderModel
         ArgumentNullException.ThrowIfNull(xAxis);
         var copy = this with { };
         copy.XAxis = xAxis;
+        return copy;
+    }
+
+    // The same model over another Y axis. Everything else is kept.
+    public GraphRenderModel WithYAxis(GraphAxisModel yAxis)
+    {
+        ArgumentNullException.ThrowIfNull(yAxis);
+        var copy = this with { };
+        copy.YAxis = yAxis;
+        return copy;
+    }
+
+    // The same model under another title, or none. Everything else is kept.
+    public GraphRenderModel WithTitle(string? title)
+    {
+        var copy = this with { };
+        copy.Title = title;
         return copy;
     }
 }

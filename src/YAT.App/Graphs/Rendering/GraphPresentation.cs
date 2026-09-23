@@ -9,11 +9,14 @@ namespace YAT.app.Graphs.Rendering;
 // The order is fixed:
 //
 //     1. the statistics panel, from the graph data (the only step that reads it);
-//     2. the specification lines, which may widen the displayed X axis.
+//     2. the specification lines, which may widen the displayed X axis;
+//     3. the labels, which only rename: the graph title and the axis titles of the finished frame (a widened X axis
+//        included).
 //
-// Neither step depends on the other - the panel reads the data, never the axis, and the lines read the axis, never the
-// panel - so the order only has to be one and the same everywhere. Each step replaces what it put there before, so
-// applying the same configuration to its own result changes nothing.
+// No step depends on another - the panel reads the data, never the axis, the lines read the axis range, never the
+// panel, and the labels read only the three titles, which no other step changes - so the order only has to be one and
+// the same everywhere. Each step replaces what it put there before, so applying the same configuration to its own
+// result changes nothing. With the default configuration's labels (all Auto) the last step returns its frame as is.
 public static class GraphPresentation
 {
     public static GraphRenderModel Apply(
@@ -28,6 +31,7 @@ public static class GraphPresentation
 
         var definition = GraphTypeDefinitions.For(configuration.GraphType);
         var withPanel = GraphStatisticsPanelBuilder.Attach(frame, data, definition, configuration.PresentationOptions, cancellationToken);
-        return GraphSpecificationLinesBuilder.Attach(withPanel, definition, configuration.Specification);
+        var withLines = GraphSpecificationLinesBuilder.Attach(withPanel, definition, configuration.Specification);
+        return GraphLabelsBuilder.Attach(withLines, definition, configuration.LabelOptions);
     }
 }

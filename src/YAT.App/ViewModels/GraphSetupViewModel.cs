@@ -131,6 +131,14 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         BinWidthText = string.Empty;
         BinStartText = string.Empty;
 
+        // Every label starts as the graph type gives it, with nothing typed.
+        SelectedGraphTitleMode = LabelModeChoices[0];
+        SelectedXAxisTitleMode = LabelModeChoices[0];
+        SelectedYAxisTitleMode = LabelModeChoices[0];
+        GraphTitleText = string.Empty;
+        XAxisTitleText = string.Empty;
+        YAxisTitleText = string.Empty;
+
         OnSelectionChanged();
     }
 
@@ -174,6 +182,47 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     public bool IsBinCountEnabled => SelectedBinning?.Value == HistogramBinningMode.Count;
 
     public bool IsBinWidthAndStartEnabled => SelectedBinning?.Value == HistogramBinningMode.WidthAndStart;
+
+    // Where each label can come from, in the order the setup offers them; the first is the default.
+    public IReadOnlyList<SetupChoice<GraphLabelMode>> LabelModeChoices { get; } =
+    [
+        new(GraphLabelMode.Auto, "Auto"),
+        new(GraphLabelMode.Custom, "Custom"),
+        new(GraphLabelMode.Hidden, "Hidden")
+    ];
+
+    // Whether the graph type has a title and axis titles the user may change; the setup shows the labels only when it
+    // does.
+    public bool SupportsLabels => _definition.Supports(GraphCapability.Labels);
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsGraphTitleTextEnabled))]
+    public partial SetupChoice<GraphLabelMode> SelectedGraphTitleMode { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsXAxisTitleTextEnabled))]
+    public partial SetupChoice<GraphLabelMode> SelectedXAxisTitleMode { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsYAxisTitleTextEnabled))]
+    public partial SetupChoice<GraphLabelMode> SelectedYAxisTitleMode { get; set; }
+
+    // The labels as typed. A label's text is read only while it is Custom, and is kept when its mode changes, so
+    // switching away from Custom and back loses nothing.
+    [ObservableProperty]
+    public partial string GraphTitleText { get; set; }
+
+    [ObservableProperty]
+    public partial string XAxisTitleText { get; set; }
+
+    [ObservableProperty]
+    public partial string YAxisTitleText { get; set; }
+
+    public bool IsGraphTitleTextEnabled => SelectedGraphTitleMode?.Value == GraphLabelMode.Custom;
+
+    public bool IsXAxisTitleTextEnabled => SelectedXAxisTitleMode?.Value == GraphLabelMode.Custom;
+
+    public bool IsYAxisTitleTextEnabled => SelectedYAxisTitleMode?.Value == GraphLabelMode.Custom;
 
     public string Title => _definition.DisplayName;
 
@@ -240,8 +289,8 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     // The configuration the dialog describes, and everything that is wrong with it, in the order the dialog reads:
     // the column assignments first, then specification text that is not a number, then specification values that do
-    // not fit together. A value that is not a number is left out of the specification, so it is reported once, as
-    // text, and not again by the rules.
+    // not fit together, then the labels, which the dialog shows last. A value that is not a number is left out of the
+    // specification, so it is reported once, as text, and not again by the rules.
     private (GraphConfiguration Configuration, GraphValidationResult Result) Build()
     {
         var parseErrors = new List<GraphValidationError>();
@@ -264,15 +313,17 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             // Carried whatever the graph type; only one that declares FittedLine reads it.
             ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine),
             HistogramOptions = SupportsHistogramControls ? HistogramOptionsFromFields() : HistogramOptions.Default,
-            Specification = specification
+            Specification = specification,
+            LabelOptions = SupportsLabels ? LabelOptionsFromFields() : GraphLabelOptions.Default
         };
 
         var validation = Validator.Validate(configuration, _columns).Errors;
         IReadOnlyList<GraphValidationError> errors =
         [
-            .. validation.Where(error => error.Field is null),
+            .. validation.Where(error => error.Field is null && error.LabelField is null),
             .. parseErrors,
-            .. validation.Where(error => error.Field is not null)
+            .. validation.Where(error => error.Field is not null),
+            .. validation.Where(error => error.LabelField is not null)
         ];
 
         return (configuration, errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors));
@@ -305,6 +356,18 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             BinStart: mode == HistogramBinningMode.WidthAndStart ? ParseNumber(BinStartText) : null);
     }
 
+    // The labels the fields describe. A label's text goes into the configuration only when the label is Custom, so a
+    // setup whose labels were all left on Auto describes exactly the default labels, whatever was typed on the way.
+    private GraphLabelOptions LabelOptionsFromFields() => new(
+        Label(SelectedGraphTitleMode, GraphTitleText),
+        Label(SelectedXAxisTitleMode, XAxisTitleText),
+        Label(SelectedYAxisTitleMode, YAxisTitleText));
+
+    private static GraphLabelOption Label(SetupChoice<GraphLabelMode> mode, string? text) =>
+        mode.Value == GraphLabelMode.Custom
+            ? GraphLabelOption.Custom(text ?? string.Empty)
+            : new GraphLabelOption(mode.Value);
+
     private static int? ParseCount(string? text) =>
         int.TryParse(text?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) ? count : null;
 
@@ -321,10 +384,23 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     partial void OnBinStartTextChanged(string value) => OnSelectionChanged();
 
+    partial void OnSelectedGraphTitleModeChanged(SetupChoice<GraphLabelMode> value) => OnSelectionChanged();
+
+    partial void OnSelectedXAxisTitleModeChanged(SetupChoice<GraphLabelMode> value) => OnSelectionChanged();
+
+    partial void OnSelectedYAxisTitleModeChanged(SetupChoice<GraphLabelMode> value) => OnSelectionChanged();
+
+    partial void OnGraphTitleTextChanged(string value) => OnSelectionChanged();
+
+    partial void OnXAxisTitleTextChanged(string value) => OnSelectionChanged();
+
+    partial void OnYAxisTitleTextChanged(string value) => OnSelectionChanged();
+
     private void OnSelectionChanged()
     {
-        // The constructor sets the histogram choices after other properties whose change handlers land here.
-        if (SelectedYScale is null || SelectedBinning is null)
+        // The constructor sets the histogram and label choices after other properties whose change handlers land here.
+        if (SelectedYScale is null || SelectedBinning is null
+            || SelectedGraphTitleMode is null || SelectedXAxisTitleMode is null || SelectedYAxisTitleMode is null)
         {
             return;
         }

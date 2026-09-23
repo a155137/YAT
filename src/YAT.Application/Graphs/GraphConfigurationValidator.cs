@@ -47,16 +47,23 @@ public enum GraphValidationReason
     HistogramBinWidthInvalid,
 
     // Width-and-start binning without a finite bin start.
-    HistogramBinStartInvalid
+    HistogramBinStartInvalid,
+
+    // A label is Custom but has no text once it is normalized (see GraphLabelRules). LabelField says which one.
+    LabelTextMissing,
+
+    // A label's mode is not a defined choice. LabelField says which one.
+    LabelModeInvalid
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
-// the specification, Field; the UI turns this into readable text.
+// the specification, Field, and for a problem with a label, LabelField; the UI turns this into readable text.
 public sealed record GraphValidationError(
     GraphValidationReason Reason,
     GraphVariableRole? Role = null,
     Guid? WorksheetColumnId = null,
-    SpecificationField? Field = null);
+    SpecificationField? Field = null,
+    GraphLabelField? LabelField = null);
 
 public sealed record GraphValidationResult(IReadOnlyList<GraphValidationError> Errors)
 {
@@ -151,6 +158,17 @@ public sealed class GraphConfigurationValidator
                 HistogramOptionsProblem.BinStartInvalid => GraphValidationReason.HistogramBinStartInvalid,
                 _ => GraphValidationReason.HistogramOptionsInvalid
             })));
+        }
+
+        // And the labels, only where the graph type has them.
+        if (definition.Supports(GraphCapability.Labels))
+        {
+            var labelProblems = GraphLabelRules.Check(configuration.LabelOptions);
+            errors.AddRange(labelProblems.Select(problem => new GraphValidationError(
+                problem.Kind == GraphLabelProblemKind.CustomTextMissing
+                    ? GraphValidationReason.LabelTextMissing
+                    : GraphValidationReason.LabelModeInvalid,
+                LabelField: problem.Field)));
         }
 
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);

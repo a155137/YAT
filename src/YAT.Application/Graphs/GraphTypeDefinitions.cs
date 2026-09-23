@@ -26,6 +26,9 @@ public static class GraphTypeDefinitions
     private static readonly IReadOnlyList<GraphCapability> HistogramCapabilities =
         [.. DistributionCapabilities, GraphCapability.HistogramControls];
 
+    // Every graph has a title and two axis titles the user may keep, replace or hide.
+    private static readonly IReadOnlyList<GraphCapability> EveryGraph = [GraphCapability.Labels];
+
     private static readonly IReadOnlyList<GraphTypeDefinition> Definitions =
     [
         new(GraphType.ScatterPlot, "Scatter Plot",
@@ -33,32 +36,32 @@ public static class GraphTypeDefinitions
             new(GraphVariableRole.X, "X-axis", IsRequired: true, Numeric),
             new(GraphVariableRole.Y, "Y-axis", IsRequired: true, Numeric),
             GroupRole
-        ]),
+        ]) { Capabilities = EveryGraph },
         // A histogram names its roles the way the people who use it do; the role and the column id are what identify
         // them, so the wording is presentation only.
         new(GraphType.Histogram, "Histogram",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = HistogramCapabilities },
+        ]) { Capabilities = [.. HistogramCapabilities, .. EveryGraph] },
         // The only graph so far that draws several measured variables at once: its variable role takes as many columns
         // as the user selects, and the generic setup and validation follow that flag rather than the graph type.
         new(GraphType.BoxPlot, "Box Plot",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
             GroupRole with { DisplayName = "Categorical variable for grouping" }
-        ]),
+        ]) { Capabilities = EveryGraph },
         // Like a histogram, a probability plot names its roles the way the people who use it do.
         new(GraphType.ProbabilityPlot, "Probability Plot",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = ProbabilityPlotCapabilities },
+        ]) { Capabilities = [.. ProbabilityPlotCapabilities, .. EveryGraph] },
         new(GraphType.EmpiricalCdf, "Empirical CDF",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = DistributionCapabilities }
+        ]) { Capabilities = [.. DistributionCapabilities, .. EveryGraph] }
     ];
 
     // In menu order.

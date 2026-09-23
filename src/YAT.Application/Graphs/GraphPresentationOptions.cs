@@ -17,7 +17,11 @@ public enum GraphCapability
     FittedLine,
 
     // The histogram's own Y scale and bins (see HistogramOptions).
-    HistogramControls
+    HistogramControls,
+
+    // The graph title and the two axis titles, each shown as the graph type gives it, as typed, or not at all (see
+    // GraphLabelOptions).
+    Labels
 }
 
 // How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:

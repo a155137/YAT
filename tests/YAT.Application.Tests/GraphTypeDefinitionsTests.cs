@@ -105,9 +105,9 @@ public class GraphTypeDefinitionsTests
         Assert.Equal(
             graphType switch
             {
-                GraphType.ProbabilityPlot => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine],
-                GraphType.Histogram => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.HistogramControls],
-                _ => (GraphCapability[])[GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines]
+                GraphType.ProbabilityPlot => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine, GraphCapability.Labels],
+                GraphType.Histogram => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.HistogramControls, GraphCapability.Labels],
+                _ => (GraphCapability[])[GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.Labels]
             },
             definition.Capabilities);
     }
@@ -132,6 +132,16 @@ public class GraphTypeDefinitionsTests
     public void OnlyTheHistogramOffersHistogramControls(GraphType graphType, bool supported) =>
         Assert.Equal(supported, GraphTypeDefinitions.For(graphType).Supports(GraphCapability.HistogramControls));
 
+    // Every graph has a title and axis titles the user may keep, replace or hide (Task #040).
+    [Theory]
+    [InlineData(GraphType.ScatterPlot)]
+    [InlineData(GraphType.Histogram)]
+    [InlineData(GraphType.BoxPlot)]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    public void EveryGraphOffersLabels(GraphType graphType) =>
+        Assert.True(GraphTypeDefinitions.For(graphType).Supports(GraphCapability.Labels));
+
     [Theory]
     [InlineData(GraphType.ScatterPlot)]
     [InlineData(GraphType.BoxPlot)]
@@ -141,7 +151,7 @@ public class GraphTypeDefinitionsTests
 
         Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
         Assert.False(definition.Supports(GraphCapability.SpecificationLines));
-        Assert.Empty(definition.Capabilities);
+        Assert.Equal([GraphCapability.Labels], definition.Capabilities);
     }
 
     [Fact]
@@ -153,5 +163,6 @@ public class GraphTypeDefinitionsTests
         Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
         Assert.False(definition.Supports(GraphCapability.SpecificationLines));
         Assert.False(definition.Supports(GraphCapability.FittedLine));
+        Assert.False(definition.Supports(GraphCapability.Labels));
     }
 }

@@ -165,7 +165,7 @@ internal sealed class GraphSetupWindow : Window
         column.Children.Add(Roles(setup));
 
         if (!setup.SupportsStatisticsPanel && !setup.SupportsFittedLine && !setup.SupportsSpecificationLines
-            && !setup.SupportsHistogramControls)
+            && !setup.SupportsHistogramControls && !setup.SupportsLabels)
         {
             Grid.SetColumn(column, 2);
             return column;
@@ -193,6 +193,12 @@ internal sealed class GraphSetupWindow : Window
         {
             options.Children.Add(new TextBlock { Text = "Specification", Margin = new Thickness(0, 6, 0, 0) });
             options.Children.Add(Specification(setup));
+        }
+
+        if (setup.SupportsLabels)
+        {
+            options.Children.Add(new TextBlock { Text = "Labels", Margin = new Thickness(0, 6, 0, 0) });
+            options.Children.Add(Labels(setup));
         }
 
         column.Children.Add(options);
@@ -250,6 +256,55 @@ internal sealed class GraphSetupWindow : Window
         var selector = new ComboBox { ItemsSource = choices, MinWidth = 180, Name = property };
         selector.Bind(SelectingItemsControl.SelectedItemProperty, new Binding(property) { Source = setup, Mode = BindingMode.TwoWay });
         return selector;
+    }
+
+    // The graph title and the axis titles, one fixed row each: where the label comes from, and the text used when it is
+    // Custom. The text box is editable only for Custom and keeps its text when the mode changes.
+    private static Control Labels(GraphSetupViewModel setup)
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto")
+        };
+
+        AddLabelRow(grid, 0, setup, "Graph title", nameof(GraphSetupViewModel.SelectedGraphTitleMode),
+            nameof(GraphSetupViewModel.GraphTitleText), nameof(GraphSetupViewModel.IsGraphTitleTextEnabled));
+        AddLabelRow(grid, 1, setup, "X-axis title", nameof(GraphSetupViewModel.SelectedXAxisTitleMode),
+            nameof(GraphSetupViewModel.XAxisTitleText), nameof(GraphSetupViewModel.IsXAxisTitleTextEnabled));
+        AddLabelRow(grid, 2, setup, "Y-axis title", nameof(GraphSetupViewModel.SelectedYAxisTitleMode),
+            nameof(GraphSetupViewModel.YAxisTitleText), nameof(GraphSetupViewModel.IsYAxisTitleTextEnabled));
+
+        return grid;
+    }
+
+    private static void AddLabelRow(
+        Grid grid,
+        int row,
+        GraphSetupViewModel setup,
+        string label,
+        string modeProperty,
+        string textProperty,
+        string enabledProperty)
+    {
+        var mode = Choice(setup, setup.LabelModeChoices, modeProperty);
+        mode.MinWidth = 110;
+        AddLabelled(grid, row, label, mode);
+
+        var editor = new TextBox
+        {
+            Width = 220,
+            MinHeight = 0,
+            Padding = new Thickness(6, 2),
+            Margin = new Thickness(8, 3, 0, 3),
+            VerticalAlignment = VerticalAlignment.Center,
+            Name = textProperty
+        };
+        editor.Bind(TextBox.TextProperty, new Binding(textProperty) { Source = setup, Mode = BindingMode.TwoWay });
+        editor.Bind(IsEnabledProperty, new Binding(enabledProperty) { Source = setup });
+        Grid.SetRow(editor, row);
+        Grid.SetColumn(editor, 2);
+        grid.Children.Add(editor);
     }
 
     // LSL, Target and USL on one line. Blank fields draw nothing, so there is no separate switch for the lines.

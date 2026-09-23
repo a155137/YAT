@@ -37,9 +37,21 @@ public static class GraphValidationMessages
             GraphValidationReason.HistogramBinWidthInvalid => "Bin width must be a positive number.",
             GraphValidationReason.HistogramBinStartInvalid => "Bin start must be a number.",
             GraphValidationReason.HistogramOptionsInvalid => "Please choose a Y scale and a way to choose the bins.",
+            GraphValidationReason.LabelTextMissing =>
+                $"Enter {LabelName(error.LabelField, article: true)}, or choose Auto or Hidden.",
+            GraphValidationReason.LabelModeInvalid =>
+                $"Please choose Auto, Custom or Hidden for the {LabelName(error.LabelField, article: false)}.",
             _ => "This graph cannot be created with the current settings."
         };
     }
+
+    // The labels as the setup names them: "Graph title", "X-axis title", "Y-axis title".
+    private static string LabelName(GraphLabelField? field, bool article) => field switch
+    {
+        GraphLabelField.XAxisTitle => article ? "an X-axis title" : "X-axis title",
+        GraphLabelField.YAxisTitle => article ? "a Y-axis title" : "Y-axis title",
+        _ => article ? "a graph title" : "graph title"
+    };
 
     // The names the setup labels the specification fields with.
     private static string FieldName(SpecificationField? field) => field switch

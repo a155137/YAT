@@ -26,6 +26,10 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // GraphCapability.HistogramControls ignore it; the data query never reads it.
     public HistogramOptions HistogramOptions { get; init; } = HistogramOptions.Default;
 
+    // Where the graph title and the axis titles come from. Graph types that do not declare GraphCapability.Labels
+    // ignore it; the data query and the graph types' builders never read it. Every label Auto unless the user chose.
+    public GraphLabelOptions LabelOptions { get; init; } = GraphLabelOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

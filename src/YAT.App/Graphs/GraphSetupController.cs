@@ -143,8 +143,9 @@ public sealed class GraphSetupController
         {
             // Preparing up to a million observations is real work: it runs off the UI thread and can be cancelled, so a
             // cancelled request never leaves a half-prepared graph behind.
-            // What the graph shows besides its plot - the statistics panel, the specification lines - is part of that
-            // preparation, applied in one place: the graph type says what it offers, the configuration what is wanted.
+            // What the graph shows besides its plot - the statistics panel, the specification lines, the labels - is
+            // part of that preparation, applied in one place: the graph type says what it offers, the configuration
+            // what is wanted.
             graph = await Task.Run(() => _prepare(data, configuration, cancellationToken) is { } built
                 ? (GraphPresentation.Apply(built.Frame, data, configuration, cancellationToken), built.Plot)
                 : ((GraphRenderModel Frame, IGraphPlotRenderer Plot)?)null, cancellationToken);
