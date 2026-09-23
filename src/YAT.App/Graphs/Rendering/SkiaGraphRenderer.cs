@@ -1,4 +1,5 @@
 using SkiaSharp;
+using YAT.Application.Graphs;
 
 namespace YAT.app.Graphs.Rendering;
 
@@ -260,12 +261,12 @@ public sealed class SkiaGraphRenderer
 
         if (!string.IsNullOrWhiteSpace(model.XAxis.Title))
         {
-            var centerY = layout.XAxisArea.Bottom - (LineHeight(axisTitleFont) / 2f);
+            var center = XAxisTitleCenter(layout, axisTitleFont);
             GraphTextFallback.DrawText(
                 canvas,
                 model.XAxis.Title,
-                layout.PlotArea.MidX,
-                CenteredBaseline(centerY, fontMetrics),
+                center.X,
+                CenteredBaseline(center.Y, fontMetrics),
                 SKTextAlign.Center,
                 axisTitleFont,
                 fill);
@@ -275,9 +276,9 @@ public sealed class SkiaGraphRenderer
         {
             // Turned a quarter turn anticlockwise: the glyphs then grow to the left of the baseline, so the baseline is
             // offset by half the text band to centre the title on the left edge of the Y axis area.
-            var centerX = layout.YAxisArea.Left + (LineHeight(axisTitleFont) / 2f);
+            var center = YAxisTitleCenter(layout, axisTitleFont);
             var restore = canvas.Save();
-            canvas.Translate(centerX - ((fontMetrics.Ascent + fontMetrics.Descent) / 2f), layout.PlotArea.MidY);
+            canvas.Translate(center.X - ((fontMetrics.Ascent + fontMetrics.Descent) / 2f), center.Y);
             canvas.RotateDegrees(-90);
             GraphTextFallback.DrawText(canvas, model.YAxis.Title, 0, 0, SKTextAlign.Center, axisTitleFont, fill);
             canvas.RestoreToCount(restore);
@@ -292,15 +293,83 @@ public sealed class SkiaGraphRenderer
         }
 
         fill.Color = theme.Text;
+        var center = TitleCenter(layout);
         GraphTextFallback.DrawText(
             canvas,
             model.Title,
-            layout.PlotArea.MidX,
-            CenteredBaseline(layout.TitleArea.MidY, titleFont.Metrics),
+            center.X,
+            CenteredBaseline(center.Y, titleFont.Metrics),
             SKTextAlign.Center,
             titleFont,
             fill);
     }
+
+    // ---- Where the titles are ----
+    //
+    // The centre of each title's line, which the drawing above and the label geometry below both read, so the area a
+    // title can be picked in is where it is drawn. The Y axis title is centred on its line before it is turned.
+
+    private static SKPoint TitleCenter(GraphLayout layout) => new(layout.PlotArea.MidX, layout.TitleArea.MidY);
+
+    private static SKPoint XAxisTitleCenter(GraphLayout layout, SKFont axisTitleFont) =>
+        new(layout.PlotArea.MidX, layout.XAxisArea.Bottom - (LineHeight(axisTitleFont) / 2f));
+
+    private static SKPoint YAxisTitleCenter(GraphLayout layout, SKFont axisTitleFont) =>
+        new(layout.YAxisArea.Left + (LineHeight(axisTitleFont) / 2f), layout.PlotArea.MidY);
+
+    // The titles this model shows on a canvas this size, each as the box its line of text takes - as wide as the text
+    // is drawn and as tall as the line, standing on end for the turned Y axis title - with the area of the layout it
+    // belongs to. A title the model does not have, or a canvas too small for a plot, gives none. Geometry only: which
+    // title is under a pointer is GraphLabelHitTest's business.
+    internal static IReadOnlyList<GraphLabelGeometry> LabelGeometry(
+        GraphRenderModel model,
+        SKRect bounds,
+        GraphTheme theme)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(theme);
+
+        if (!IsFinite(bounds) || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return [];
+        }
+
+        using var titleFont = Font(theme.TitleFontSize);
+        using var axisTitleFont = Font(theme.AxisTitleFontSize);
+        using var tickFont = Font(theme.TickLabelFontSize);
+        var layout = Arrange(bounds, model, titleFont, axisTitleFont, tickFont, out _);
+        if (!layout.HasPlotArea)
+        {
+            return [];
+        }
+
+        var labels = new List<GraphLabelGeometry>(3);
+        if (!string.IsNullOrWhiteSpace(model.Title))
+        {
+            var width = GraphTextFallback.MeasureText(titleFont, model.Title);
+            var box = Box(TitleCenter(layout), width, LineHeight(titleFont));
+            labels.Add(new GraphLabelGeometry(GraphLabelField.Title, box, layout.TitleArea));
+        }
+
+        if (!string.IsNullOrWhiteSpace(model.XAxis.Title))
+        {
+            var width = GraphTextFallback.MeasureText(axisTitleFont, model.XAxis.Title);
+            var box = Box(XAxisTitleCenter(layout, axisTitleFont), width, LineHeight(axisTitleFont));
+            labels.Add(new GraphLabelGeometry(GraphLabelField.XAxisTitle, box, layout.XAxisArea));
+        }
+
+        if (!string.IsNullOrWhiteSpace(model.YAxis.Title))
+        {
+            var width = GraphTextFallback.MeasureText(axisTitleFont, model.YAxis.Title);
+            var box = Box(YAxisTitleCenter(layout, axisTitleFont), LineHeight(axisTitleFont), width);
+            labels.Add(new GraphLabelGeometry(GraphLabelField.YAxisTitle, box, layout.YAxisArea));
+        }
+
+        return labels;
+    }
+
+    private static SKRect Box(SKPoint center, float width, float height) =>
+        new(center.X - (width / 2f), center.Y - (height / 2f), center.X + (width / 2f), center.Y + (height / 2f));
 
     // The legend foundation: the reserved area with one row per series, drawn only when the model has series. There is
     // no interaction, and an empty legend is never laid out.

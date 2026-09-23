@@ -27,7 +27,7 @@ public class GraphExportCompositionTests
         var constructor = Assert.Single(GraphWindow.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
 
         Assert.Equal(
-            ["GraphRenderModel", "IGraphPlotRenderer", "IGraphExportWorkflowFactory"],
+            ["GraphPresentationState", "IGraphPlotRenderer", "IGraphExportWorkflowFactory"],
             constructor.GetParameters().Select(parameter => parameter.ParameterType.Name));
     }
 

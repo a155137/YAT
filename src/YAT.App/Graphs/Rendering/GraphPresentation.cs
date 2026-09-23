@@ -17,9 +17,19 @@ namespace YAT.app.Graphs.Rendering;
 // panel, and the labels read only the three titles, which no other step changes - so the order only has to be one and
 // the same everywhere. Each step replaces what it put there before, so applying the same configuration to its own
 // result changes nothing. With the default configuration's labels (all Auto) the last step returns its frame as is.
+//
+// Present keeps the frame as it was before the labels, so a graph window can put other labels on it later without
+// the data (see GraphPresentationState); Apply is the frame it presents.
 public static class GraphPresentation
 {
     public static GraphRenderModel Apply(
+        GraphRenderModel frame,
+        GraphData data,
+        GraphConfiguration configuration,
+        CancellationToken cancellationToken = default) =>
+        Present(frame, data, configuration, cancellationToken).Frame;
+
+    public static GraphPresentationState Present(
         GraphRenderModel frame,
         GraphData data,
         GraphConfiguration configuration,
@@ -32,6 +42,6 @@ public static class GraphPresentation
         var definition = GraphTypeDefinitions.For(configuration.GraphType);
         var withPanel = GraphStatisticsPanelBuilder.Attach(frame, data, definition, configuration.PresentationOptions, cancellationToken);
         var withLines = GraphSpecificationLinesBuilder.Attach(withPanel, definition, configuration.Specification);
-        return GraphLabelsBuilder.Attach(withLines, definition, configuration.LabelOptions);
+        return new GraphPresentationState(withLines, definition, configuration.LabelOptions);
     }
 }

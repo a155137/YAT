@@ -63,7 +63,7 @@ public class GraphLabelsSetupTests
     }
 
     private static SetupChoice<GraphLabelMode> Mode(GraphSetupViewModel setup, GraphLabelMode mode) =>
-        setup.LabelModeChoices.Single(choice => choice.Value == mode);
+        setup.Labels.LabelModeChoices.Single(choice => choice.Value == mode);
 
     // ---- What is offered ----
 
@@ -74,17 +74,17 @@ public class GraphLabelsSetupTests
         var setup = Setup(graphType, assigned: false);
 
         Assert.True(setup.SupportsLabels);
-        Assert.Equal(["Auto", "Custom", "Hidden"], setup.LabelModeChoices.Select(choice => choice.Name));
-        Assert.Equal([GraphLabelMode.Auto, GraphLabelMode.Custom, GraphLabelMode.Hidden], setup.LabelModeChoices.Select(choice => choice.Value));
-        Assert.Equal(GraphLabelMode.Auto, setup.SelectedGraphTitleMode.Value);
-        Assert.Equal(GraphLabelMode.Auto, setup.SelectedXAxisTitleMode.Value);
-        Assert.Equal(GraphLabelMode.Auto, setup.SelectedYAxisTitleMode.Value);
-        Assert.Equal(string.Empty, setup.GraphTitleText);
-        Assert.Equal(string.Empty, setup.XAxisTitleText);
-        Assert.Equal(string.Empty, setup.YAxisTitleText);
-        Assert.False(setup.IsGraphTitleTextEnabled);
-        Assert.False(setup.IsXAxisTitleTextEnabled);
-        Assert.False(setup.IsYAxisTitleTextEnabled);
+        Assert.Equal(["Auto", "Custom", "Hidden"], setup.Labels.LabelModeChoices.Select(choice => choice.Name));
+        Assert.Equal([GraphLabelMode.Auto, GraphLabelMode.Custom, GraphLabelMode.Hidden], setup.Labels.LabelModeChoices.Select(choice => choice.Value));
+        Assert.Equal(GraphLabelMode.Auto, setup.Labels.SelectedGraphTitleMode.Value);
+        Assert.Equal(GraphLabelMode.Auto, setup.Labels.SelectedXAxisTitleMode.Value);
+        Assert.Equal(GraphLabelMode.Auto, setup.Labels.SelectedYAxisTitleMode.Value);
+        Assert.Equal(string.Empty, setup.Labels.GraphTitleText);
+        Assert.Equal(string.Empty, setup.Labels.XAxisTitleText);
+        Assert.Equal(string.Empty, setup.Labels.YAxisTitleText);
+        Assert.False(setup.Labels.IsGraphTitleTextEnabled);
+        Assert.False(setup.Labels.IsXAxisTitleTextEnabled);
+        Assert.False(setup.Labels.IsYAxisTitleTextEnabled);
     }
 
     [Theory]
@@ -104,11 +104,11 @@ public class GraphLabelsSetupTests
     public void TheChosenLabelsReachTheConfiguration(GraphType graphType)
     {
         var setup = Setup(graphType);
-        setup.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
-        setup.GraphTitleText = "  Wafer thickness ";
-        setup.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Hidden);
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
-        setup.YAxisTitleText = "Wafers";
+        setup.Labels.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.GraphTitleText = "  Wafer thickness ";
+        setup.Labels.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Hidden);
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.YAxisTitleText = "Wafers";
 
         Assert.True(setup.CanConfirm);
         Assert.Equal(
@@ -120,22 +120,22 @@ public class GraphLabelsSetupTests
     public void OnlyCustomEnablesAndReadsTheText()
     {
         var setup = Setup(GraphType.Histogram);
-        setup.GraphTitleText = "typed";
-        setup.XAxisTitleText = "   ";
-        setup.YAxisTitleText = "typed";
+        setup.Labels.GraphTitleText = "typed";
+        setup.Labels.XAxisTitleText = "   ";
+        setup.Labels.YAxisTitleText = "typed";
 
         // Auto and Hidden: nothing typed matters, not even blank text.
         Assert.True(setup.CanConfirm);
         Assert.Equal(GraphLabelOptions.Default, setup.Confirm()!.LabelOptions);
 
-        setup.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Hidden);
-        Assert.False(setup.IsXAxisTitleTextEnabled);
+        setup.Labels.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Hidden);
+        Assert.False(setup.Labels.IsXAxisTitleTextEnabled);
         Assert.Equal(GraphLabelOption.Hidden, setup.Confirm()!.LabelOptions.XAxisTitle);
 
-        setup.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
-        Assert.True(setup.IsGraphTitleTextEnabled);
-        Assert.False(setup.IsXAxisTitleTextEnabled);
-        Assert.False(setup.IsYAxisTitleTextEnabled);
+        setup.Labels.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
+        Assert.True(setup.Labels.IsGraphTitleTextEnabled);
+        Assert.False(setup.Labels.IsXAxisTitleTextEnabled);
+        Assert.False(setup.Labels.IsYAxisTitleTextEnabled);
         Assert.Equal(GraphLabelOption.Custom("typed"), setup.Confirm()!.LabelOptions.Title);
     }
 
@@ -143,18 +143,18 @@ public class GraphLabelsSetupTests
     public void SwitchingTheModeKeepsWhatWasTyped()
     {
         var setup = Setup(GraphType.ScatterPlot);
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
-        setup.YAxisTitleText = "Resistance";
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.YAxisTitleText = "Resistance";
 
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Hidden);
-        Assert.Equal("Resistance", setup.YAxisTitleText);
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Hidden);
+        Assert.Equal("Resistance", setup.Labels.YAxisTitleText);
         Assert.Equal(GraphLabelOption.Hidden, setup.Confirm()!.LabelOptions.YAxisTitle);
 
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Auto);
-        Assert.Equal("Resistance", setup.YAxisTitleText);
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Auto);
+        Assert.Equal("Resistance", setup.Labels.YAxisTitleText);
         Assert.Equal(GraphLabelOptions.Default, setup.Confirm()!.LabelOptions);
 
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
         Assert.Equal(GraphLabelOption.Custom("Resistance"), setup.Confirm()!.LabelOptions.YAxisTitle);
     }
 
@@ -170,16 +170,16 @@ public class GraphLabelsSetupTests
         switch (field)
         {
             case GraphLabelField.Title:
-                setup.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
-                setup.GraphTitleText = typed;
+                setup.Labels.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
+                setup.Labels.GraphTitleText = typed;
                 break;
             case GraphLabelField.XAxisTitle:
-                setup.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
-                setup.XAxisTitleText = typed;
+                setup.Labels.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+                setup.Labels.XAxisTitleText = typed;
                 break;
             default:
-                setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
-                setup.YAxisTitleText = typed;
+                setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+                setup.Labels.YAxisTitleText = typed;
                 break;
         }
 
@@ -194,19 +194,19 @@ public class GraphLabelsSetupTests
         var setup = Setup(GraphType.BoxPlot);
         Assert.True(setup.CanConfirm);
 
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
         Assert.False(setup.CanConfirm);
 
-        setup.YAxisTitleText = " ";
+        setup.Labels.YAxisTitleText = " ";
         Assert.False(setup.CanConfirm);
 
-        setup.YAxisTitleText = "Thickness (um)";
+        setup.Labels.YAxisTitleText = "Thickness (um)";
         Assert.True(setup.CanConfirm);
 
-        setup.YAxisTitleText = string.Empty;
+        setup.Labels.YAxisTitleText = string.Empty;
         Assert.False(setup.CanConfirm);
 
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Auto);
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Auto);
         Assert.True(setup.CanConfirm);
     }
 
@@ -215,7 +215,7 @@ public class GraphLabelsSetupTests
     public void LabelProblemsAreReportedAfterTheOthers()
     {
         var setup = Setup(GraphType.Histogram, assigned: false);
-        setup.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
         setup.LowerLimitText = "abc";
 
         Assert.Null(setup.Confirm());
@@ -234,7 +234,7 @@ public class GraphLabelsSetupTests
         Assert.Null(setup.Confirm());
         Assert.Equal("Enter a graph title, or choose Auto or Hidden.", setup.ValidationMessage);
 
-        setup.GraphTitleText = "Wafer thickness";
+        setup.Labels.GraphTitleText = "Wafer thickness";
         Assert.NotNull(setup.Confirm());
         Assert.Null(setup.ValidationMessage);
     }
@@ -246,8 +246,8 @@ public class GraphLabelsSetupTests
         setup.ShowStatistics = false;
         setup.SelectedYScale = setup.YScaleChoices.Single(choice => choice.Value == HistogramYScale.Percent);
         setup.LowerLimitText = "14.8";
-        setup.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
-        setup.XAxisTitleText = "Thickness";
+        setup.Labels.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.XAxisTitleText = "Thickness";
 
         var configuration = setup.Confirm()!;
 
@@ -261,14 +261,14 @@ public class GraphLabelsSetupTests
     public void ANewSetupStartsOnAutoWhateverTheLastOneHad()
     {
         var first = Setup(GraphType.Histogram);
-        first.SelectedGraphTitleMode = Mode(first, GraphLabelMode.Hidden);
-        first.XAxisTitleText = "typed";
+        first.Labels.SelectedGraphTitleMode = Mode(first, GraphLabelMode.Hidden);
+        first.Labels.XAxisTitleText = "typed";
         _ = first.Confirm();
 
         var second = Setup(GraphType.Histogram);
 
-        Assert.Equal(GraphLabelMode.Auto, second.SelectedGraphTitleMode.Value);
-        Assert.Equal(string.Empty, second.XAxisTitleText);
+        Assert.Equal(GraphLabelMode.Auto, second.Labels.SelectedGraphTitleMode.Value);
+        Assert.Equal(string.Empty, second.Labels.XAxisTitleText);
         Assert.Equal(GraphLabelOptions.Default, second.Confirm()!.LabelOptions);
     }
 
@@ -278,23 +278,24 @@ public class GraphLabelsSetupTests
         var setup = Setup(GraphType.EmpiricalCdf);
         var changed = new List<string?>();
         setup.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        setup.Labels.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
-        setup.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
-        setup.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
-        setup.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
-        setup.GraphTitleText = "T";
-        setup.XAxisTitleText = "X";
-        setup.YAxisTitleText = "Y";
+        setup.Labels.SelectedGraphTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.SelectedYAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
+        setup.Labels.GraphTitleText = "T";
+        setup.Labels.XAxisTitleText = "X";
+        setup.Labels.YAxisTitleText = "Y";
 
-        Assert.Contains(nameof(GraphSetupViewModel.SelectedGraphTitleMode), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.SelectedXAxisTitleMode), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.SelectedYAxisTitleMode), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.IsGraphTitleTextEnabled), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.IsXAxisTitleTextEnabled), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.IsYAxisTitleTextEnabled), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.GraphTitleText), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.XAxisTitleText), changed);
-        Assert.Contains(nameof(GraphSetupViewModel.YAxisTitleText), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.SelectedGraphTitleMode), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.SelectedXAxisTitleMode), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.SelectedYAxisTitleMode), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.IsGraphTitleTextEnabled), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.IsXAxisTitleTextEnabled), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.IsYAxisTitleTextEnabled), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.GraphTitleText), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.XAxisTitleText), changed);
+        Assert.Contains(nameof(GraphLabelsEditorViewModel.YAxisTitleText), changed);
         Assert.Contains(nameof(GraphSetupViewModel.CanConfirm), changed);
     }
 

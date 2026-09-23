@@ -5,6 +5,7 @@ using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using Avalonia.Styling;
 using SkiaSharp;
+using YAT.Application.Graphs;
 using YAT.app.Graphs.Rendering;
 
 namespace YAT.app.Views;
@@ -54,6 +55,20 @@ internal sealed class GraphCanvas : Control
     // The theme this graph is being drawn in right now. An export takes it once, so that a theme change while a file is
     // being written cannot change what was exported.
     public GraphTheme CurrentTheme => ThemeFor(ActualThemeVariant);
+
+    // The title of the graph at a point of this control, or null: only a title the graph shows, and only near its text,
+    // laid out exactly as it is drawn at this control's size in its theme (see GraphLabelHitTest).
+    internal GraphLabelField? LabelAt(Point point)
+    {
+        if (Model is not { } model)
+        {
+            return null;
+        }
+
+        var bounds = new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height);
+        var labels = SkiaGraphRenderer.LabelGeometry(model, bounds, CurrentTheme);
+        return GraphLabelHitTest.Find(labels, new SKPoint((float)point.X, (float)point.Y));
+    }
 
     public override void Render(DrawingContext context)
     {

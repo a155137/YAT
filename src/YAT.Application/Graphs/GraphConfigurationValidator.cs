@@ -163,16 +163,22 @@ public sealed class GraphConfigurationValidator
         // And the labels, only where the graph type has them.
         if (definition.Supports(GraphCapability.Labels))
         {
-            var labelProblems = GraphLabelRules.Check(configuration.LabelOptions);
-            errors.AddRange(labelProblems.Select(problem => new GraphValidationError(
-                problem.Kind == GraphLabelProblemKind.CustomTextMissing
-                    ? GraphValidationReason.LabelTextMissing
-                    : GraphValidationReason.LabelModeInvalid,
-                LabelField: problem.Field)));
+            errors.AddRange(LabelErrors(configuration.LabelOptions));
         }
 
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);
     }
+
+    // The shared label rules, as graph validation errors - for a whole configuration here, and for labels edited on
+    // their own after a graph is drawn, so both are refused for the same reasons in the same words.
+    public static IReadOnlyList<GraphValidationError> LabelErrors(GraphLabelOptions options) =>
+    [
+        .. GraphLabelRules.Check(options).Select(problem => new GraphValidationError(
+            problem.Kind == GraphLabelProblemKind.CustomTextMissing
+                ? GraphValidationReason.LabelTextMissing
+                : GraphValidationReason.LabelModeInvalid,
+            LabelField: problem.Field))
+    ];
 
     // The shared specification rules, as graph validation errors.
     private static IEnumerable<GraphValidationError> SpecificationErrors(Specification specification) =>

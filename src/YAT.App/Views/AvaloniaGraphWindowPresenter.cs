@@ -22,9 +22,9 @@ public sealed class AvaloniaGraphWindowPresenter : IGraphWindowPresenter
         _exports = exports;
     }
 
-    public void ShowGraph(GraphRenderModel frame, IGraphPlotRenderer? plot)
+    public void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot)
     {
-        ArgumentNullException.ThrowIfNull(frame);
-        new GraphWindow(frame, plot, _exports).Show(_owner);
+        ArgumentNullException.ThrowIfNull(graph);
+        new GraphWindow(graph, plot, _exports).Show(_owner);
     }
 }

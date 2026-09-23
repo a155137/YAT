@@ -138,17 +138,17 @@ public sealed class GraphSetupController
             return;
         }
 
-        (GraphRenderModel Frame, IGraphPlotRenderer Plot)? graph;
+        (GraphPresentationState Graph, IGraphPlotRenderer Plot)? graph;
         try
         {
             // Preparing up to a million observations is real work: it runs off the UI thread and can be cancelled, so a
             // cancelled request never leaves a half-prepared graph behind.
             // What the graph shows besides its plot - the statistics panel, the specification lines, the labels - is
             // part of that preparation, applied in one place: the graph type says what it offers, the configuration
-            // what is wanted.
+            // what is wanted. The graph window keeps the presentation, so its labels can be changed without the data.
             graph = await Task.Run(() => _prepare(data, configuration, cancellationToken) is { } built
-                ? (GraphPresentation.Apply(built.Frame, data, configuration, cancellationToken), built.Plot)
-                : ((GraphRenderModel Frame, IGraphPlotRenderer Plot)?)null, cancellationToken);
+                ? (GraphPresentation.Present(built.Frame, data, configuration, cancellationToken), built.Plot)
+                : ((GraphPresentationState Graph, IGraphPlotRenderer Plot)?)null, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -178,7 +178,7 @@ public sealed class GraphSetupController
             return;
         }
 
-        _windows.ShowGraph(prepared.Frame, prepared.Plot);
+        _windows.ShowGraph(prepared.Graph, prepared.Plot);
     }
 
     // The graph type's own preparation, which is the only place that turns graph data into something drawable. Null
