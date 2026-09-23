@@ -7,7 +7,7 @@ namespace YAT.App.Tests.Robustness;
 // #040: the graph labels over the whole named corpus, every graph a case applies to, with no specification and with one
 // that widens the X axis. All Auto keeps the very frame; Custom and Hidden change the three strings and nothing else -
 // ranges, ticks, legend, statistics panel and lines stay the frame's own - give Hidden labels' room to the plot, and
-// draw in both themes.
+// draw in both themes, Chinese, Japanese and Korean labels (#040.1) included.
 public sealed class GraphRobustnessLabelTests
 {
     private static readonly GraphLabelOptions AllCustom = new(
@@ -22,6 +22,13 @@ public sealed class GraphRobustnessLabelTests
         GraphLabelOption.Custom(string.Join(" ", Enumerable.Repeat("Very long custom title", 30))),
         GraphLabelOption.Hidden,
         GraphLabelOption.Custom(" Thickness\r\n(um)\t"));
+
+    // #040.1: labels the graph font has no glyphs for - Chinese, Japanese, Korean, full width and a symbol - next to
+    // characters it has, drawn through the fallback fonts.
+    private static readonly GraphLabelOptions Cjk = new(
+        GraphLabelOption.Custom("晶圓厚度 直方圖 / Lot 12"),
+        GraphLabelOption.Custom("PS 感度 (µA) ⌀ ＡＢ"),
+        GraphLabelOption.Custom("片數 ロット 로트"));
 
     public static TheoryData<string> Cases =>
         [.. RobustnessCorpus.Univariate.Concat(RobustnessCorpus.Paired).Select(robustnessCase => robustnessCase.Name)];
@@ -55,7 +62,8 @@ public sealed class GraphRobustnessLabelTests
                          {
                              ("custom", AllCustom, GraphThemes.Light),
                              ("hidden", AllHidden, GraphThemes.Dark),
-                             ("mixed", Mixed, GraphThemes.Light)
+                             ("mixed", Mixed, GraphThemes.Light),
+                             ("cjk", Cjk, GraphThemes.Dark)
                          })
                 {
                     var where = $"{context} labels={labelsName}";

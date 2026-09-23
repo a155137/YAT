@@ -7,6 +7,9 @@ namespace YAT.app.Graphs.Rendering;
 // titles, legend); what goes inside the plot area is drawn by the graph type's own IGraphPlotRenderer.
 //
 // The renderer is stateless, so one instance can draw any model into any canvas.
+//
+// All text is drawn and measured through GraphTextFallback, so characters the graph font lacks come from a system font
+// that has them, and the layout measures the text as it is drawn.
 public sealed class SkiaGraphRenderer
 {
     private const float LegendSwatchSize = 11f;
@@ -221,7 +224,7 @@ public sealed class SkiaGraphRenderer
             }
 
             canvas.DrawLine(x, layout.PlotArea.Bottom, x, layout.PlotArea.Bottom + metrics.TickLength, stroke);
-            canvas.DrawText(tick.Label, x, labelBaseline, SKTextAlign.Center, tickFont, fill);
+            GraphTextFallback.DrawText(canvas, tick.Label, x, labelBaseline, SKTextAlign.Center, tickFont, fill);
         }
 
         foreach (var tick in model.YAxis.Ticks)
@@ -233,7 +236,14 @@ public sealed class SkiaGraphRenderer
             }
 
             canvas.DrawLine(layout.PlotArea.Left - metrics.TickLength, y, layout.PlotArea.Left, y, stroke);
-            canvas.DrawText(tick.Label, labelRight, CenteredBaseline(y, fontMetrics), SKTextAlign.Right, tickFont, fill);
+            GraphTextFallback.DrawText(
+                canvas,
+                tick.Label,
+                labelRight,
+                CenteredBaseline(y, fontMetrics),
+                SKTextAlign.Right,
+                tickFont,
+                fill);
         }
     }
 
@@ -251,7 +261,14 @@ public sealed class SkiaGraphRenderer
         if (!string.IsNullOrWhiteSpace(model.XAxis.Title))
         {
             var centerY = layout.XAxisArea.Bottom - (LineHeight(axisTitleFont) / 2f);
-            canvas.DrawText(model.XAxis.Title, layout.PlotArea.MidX, CenteredBaseline(centerY, fontMetrics), SKTextAlign.Center, axisTitleFont, fill);
+            GraphTextFallback.DrawText(
+                canvas,
+                model.XAxis.Title,
+                layout.PlotArea.MidX,
+                CenteredBaseline(centerY, fontMetrics),
+                SKTextAlign.Center,
+                axisTitleFont,
+                fill);
         }
 
         if (!string.IsNullOrWhiteSpace(model.YAxis.Title))
@@ -262,7 +279,7 @@ public sealed class SkiaGraphRenderer
             var restore = canvas.Save();
             canvas.Translate(centerX - ((fontMetrics.Ascent + fontMetrics.Descent) / 2f), layout.PlotArea.MidY);
             canvas.RotateDegrees(-90);
-            canvas.DrawText(model.YAxis.Title, 0, 0, SKTextAlign.Center, axisTitleFont, fill);
+            GraphTextFallback.DrawText(canvas, model.YAxis.Title, 0, 0, SKTextAlign.Center, axisTitleFont, fill);
             canvas.RestoreToCount(restore);
         }
     }
@@ -275,7 +292,8 @@ public sealed class SkiaGraphRenderer
         }
 
         fill.Color = theme.Text;
-        canvas.DrawText(
+        GraphTextFallback.DrawText(
+            canvas,
             model.Title,
             layout.PlotArea.MidX,
             CenteredBaseline(layout.TitleArea.MidY, titleFont.Metrics),
@@ -321,7 +339,14 @@ public sealed class SkiaGraphRenderer
         if (!string.IsNullOrWhiteSpace(model.Legend.Title))
         {
             fill.Color = theme.Text;
-            canvas.DrawText(model.Legend.Title, left, top - fontMetrics.Ascent, SKTextAlign.Left, font, fill);
+            GraphTextFallback.DrawText(
+                canvas,
+                model.Legend.Title,
+                left,
+                top - fontMetrics.Ascent,
+                SKTextAlign.Left,
+                font,
+                fill);
             top += rowHeight + LegendEntrySpacing;
         }
 
@@ -335,7 +360,8 @@ public sealed class SkiaGraphRenderer
                 fill);
 
             fill.Color = theme.SecondaryText;
-            canvas.DrawText(
+            GraphTextFallback.DrawText(
+                canvas,
                 entry.Label,
                 left + LegendSwatchSize + LegendEntrySpacing,
                 CenteredBaseline(centerY, fontMetrics),
@@ -393,7 +419,7 @@ public sealed class SkiaGraphRenderer
         var placements = new List<ReferenceLabelPlacement>();
         foreach (var candidate in candidates)
         {
-            var width = font.MeasureText(candidate.Line.Label);
+            var width = GraphTextFallback.MeasureText(font, candidate.Line.Label);
             var left = Math.Clamp(candidate.X - (width / 2f), plotArea.Left, Math.Max(plotArea.Left, plotArea.Right - width));
 
             var row = rowEnds.FindIndex(end => end + ReferenceLabelGap <= left);
@@ -489,7 +515,14 @@ public sealed class SkiaGraphRenderer
             foreach (var label in PlaceReferenceLabels(model, layout.PlotArea, font))
             {
                 var bottom = band.Bottom - ReferenceLabelBottomGap - (label.Row * (lineHeight + ReferenceLabelRowSpacing));
-                canvas.DrawText(label.Line.Label, label.Left, bottom - fontMetrics.Descent, SKTextAlign.Left, font, fill);
+                GraphTextFallback.DrawText(
+                    canvas,
+                    label.Line.Label,
+                    label.Left,
+                    bottom - fontMetrics.Descent,
+                    SKTextAlign.Left,
+                    font,
+                    fill);
             }
 
             canvas.RestoreToCount(restore);
@@ -505,7 +538,14 @@ public sealed class SkiaGraphRenderer
             var y = (float)transform.ToScreenY(line.Value);
             if (IsVisible(y, plotArea.Top, plotArea.Bottom))
             {
-                canvas.DrawText(line.Label, plotArea.Right - ReferenceLabelGap, y - ReferenceLabelBottomGap - fontMetrics.Descent, SKTextAlign.Right, font, fill);
+                GraphTextFallback.DrawText(
+                    canvas,
+                    line.Label,
+                    plotArea.Right - ReferenceLabelGap,
+                    y - ReferenceLabelBottomGap - fontMetrics.Descent,
+                    SKTextAlign.Right,
+                    font,
+                    fill);
             }
         }
 
@@ -531,7 +571,7 @@ public sealed class SkiaGraphRenderer
     // The width the panel's content asks for, capped at its maximum width.
     private static float StatisticsPanelWidth(GraphStatisticsPanel panel, SKFont font)
     {
-        var width = font.MeasureText(panel.Title);
+        var width = GraphTextFallback.MeasureText(font, panel.Title);
         if (panel.IsGrouped)
         {
             var (labelWidth, numberWidths) = StatisticsColumns(panel, font);
@@ -540,8 +580,8 @@ public sealed class SkiaGraphRenderer
         else
         {
             var row = panel.Rows[0];
-            var labels = StatisticsNames.Max(name => font.MeasureText(name));
-            var values = UngroupedValues(row).Max(value => font.MeasureText(value));
+            var labels = StatisticsNames.Max(name => GraphTextFallback.MeasureText(font, name));
+            var values = UngroupedValues(row).Max(value => GraphTextFallback.MeasureText(font, value));
             width = Math.Max(width, labels + StatisticsColumnGap + values);
         }
 
@@ -551,14 +591,14 @@ public sealed class SkiaGraphRenderer
     // The label column and the three number columns of a grouped panel, each as wide as its widest text.
     private static (float Label, float[] Numbers) StatisticsColumns(GraphStatisticsPanel panel, SKFont font)
     {
-        var label = font.MeasureText(panel.GroupHeader ?? string.Empty);
-        var numbers = StatisticsNames.Select(name => font.MeasureText(name)).ToArray();
+        var label = GraphTextFallback.MeasureText(font, panel.GroupHeader ?? string.Empty);
+        var numbers = StatisticsNames.Select(name => GraphTextFallback.MeasureText(font, name)).ToArray();
         foreach (var row in panel.Rows)
         {
-            label = Math.Max(label, font.MeasureText(row.Label));
-            numbers[0] = Math.Max(numbers[0], font.MeasureText(row.MeanText));
-            numbers[1] = Math.Max(numbers[1], font.MeasureText(row.StandardDeviationText));
-            numbers[2] = Math.Max(numbers[2], font.MeasureText(row.CountText));
+            label = Math.Max(label, GraphTextFallback.MeasureText(font, row.Label));
+            numbers[0] = Math.Max(numbers[0], GraphTextFallback.MeasureText(font, row.MeanText));
+            numbers[1] = Math.Max(numbers[1], GraphTextFallback.MeasureText(font, row.StandardDeviationText));
+            numbers[2] = Math.Max(numbers[2], GraphTextFallback.MeasureText(font, row.CountText));
         }
 
         return (label, numbers);
@@ -606,7 +646,14 @@ public sealed class SkiaGraphRenderer
         var top = box.Top + LegendPadding;
 
         fill.Color = theme.Text;
-        canvas.DrawText(Ellipsize(panel.Title, font, right - left), left, top - fontMetrics.Ascent, SKTextAlign.Left, font, fill);
+        GraphTextFallback.DrawText(
+            canvas,
+            Ellipsize(panel.Title, font, right - left),
+            left,
+            top - fontMetrics.Ascent,
+            SKTextAlign.Left,
+            font,
+            fill);
         top += rowHeight + LegendEntrySpacing;
 
         if (panel.IsGrouped)
@@ -626,9 +673,9 @@ public sealed class SkiaGraphRenderer
                 }
 
                 fill.Color = theme.SecondaryText;
-                canvas.DrawText(StatisticsNames[line], left, baseline, SKTextAlign.Left, font, fill);
+                GraphTextFallback.DrawText(canvas, StatisticsNames[line], left, baseline, SKTextAlign.Left, font, fill);
                 fill.Color = theme.Text;
-                canvas.DrawText(values[line], right, baseline, SKTextAlign.Right, font, fill);
+                GraphTextFallback.DrawText(canvas, values[line], right, baseline, SKTextAlign.Right, font, fill);
                 top += rowHeight + LegendEntrySpacing;
             }
         }
@@ -684,10 +731,24 @@ public sealed class SkiaGraphRenderer
         // Header: the grouping column's name over the labels, the statistic names over the numbers.
         var baseline = CenteredBaseline(top + (rowHeight / 2f), fontMetrics);
         fill.Color = theme.Text;
-        canvas.DrawText(Ellipsize(panel.GroupHeader ?? string.Empty, font, labelWidth), labelLeft, baseline, SKTextAlign.Left, font, fill);
+        GraphTextFallback.DrawText(
+            canvas,
+            Ellipsize(panel.GroupHeader ?? string.Empty, font, labelWidth),
+            labelLeft,
+            baseline,
+            SKTextAlign.Left,
+            font,
+            fill);
         for (var column = 0; column < StatisticsNames.Length; column++)
         {
-            canvas.DrawText(StatisticsNames[column], numberRights[column], baseline, SKTextAlign.Right, font, fill);
+            GraphTextFallback.DrawText(
+                canvas,
+                StatisticsNames[column],
+                numberRights[column],
+                baseline,
+                SKTextAlign.Right,
+                font,
+                fill);
         }
 
         top += rowHeight + LegendEntrySpacing;
@@ -713,12 +774,26 @@ public sealed class SkiaGraphRenderer
             }
 
             fill.Color = theme.SecondaryText;
-            canvas.DrawText(Ellipsize(row.Label, font, labelWidth), labelLeft, baseline, SKTextAlign.Left, font, fill);
+            GraphTextFallback.DrawText(
+                canvas,
+                Ellipsize(row.Label, font, labelWidth),
+                labelLeft,
+                baseline,
+                SKTextAlign.Left,
+                font,
+                fill);
 
             fill.Color = theme.Text;
-            canvas.DrawText(row.MeanText, numberRights[0], baseline, SKTextAlign.Right, font, fill);
-            canvas.DrawText(row.StandardDeviationText, numberRights[1], baseline, SKTextAlign.Right, font, fill);
-            canvas.DrawText(row.CountText, numberRights[2], baseline, SKTextAlign.Right, font, fill);
+            GraphTextFallback.DrawText(canvas, row.MeanText, numberRights[0], baseline, SKTextAlign.Right, font, fill);
+            GraphTextFallback.DrawText(
+                canvas,
+                row.StandardDeviationText,
+                numberRights[1],
+                baseline,
+                SKTextAlign.Right,
+                font,
+                fill);
+            GraphTextFallback.DrawText(canvas, row.CountText, numberRights[2], baseline, SKTextAlign.Right, font, fill);
 
             top += rowHeight + LegendEntrySpacing;
         }
@@ -728,13 +803,13 @@ public sealed class SkiaGraphRenderer
     private static void DrawMore(SKCanvas canvas, GraphTheme theme, SKPaint fill, SKFont font, float left, float baseline, int hidden)
     {
         fill.Color = theme.SecondaryText;
-        canvas.DrawText($"… {hidden} more", left, baseline, SKTextAlign.Left, font, fill);
+        GraphTextFallback.DrawText(canvas, $"… {hidden} more", left, baseline, SKTextAlign.Left, font, fill);
     }
 
     // The text as it fits in width: whole, or cut short with an ellipsis.
     internal static string Ellipsize(string text, SKFont font, float width)
     {
-        if (font.MeasureText(text) <= width)
+        if (GraphTextFallback.MeasureText(font, text) <= width)
         {
             return text;
         }
@@ -742,14 +817,20 @@ public sealed class SkiaGraphRenderer
         const string Ellipsis = "…";
         for (var length = text.Length - 1; length > 0; length--)
         {
+            // Never between the two halves of a surrogate pair: a character outside the basic plane stays whole.
+            if (char.IsLowSurrogate(text[length]) && char.IsHighSurrogate(text[length - 1]))
+            {
+                continue;
+            }
+
             var candidate = text[..length] + Ellipsis;
-            if (font.MeasureText(candidate) <= width)
+            if (GraphTextFallback.MeasureText(font, candidate) <= width)
             {
                 return candidate;
             }
         }
 
-        return font.MeasureText(Ellipsis) <= width ? Ellipsis : string.Empty;
+        return GraphTextFallback.MeasureText(font, Ellipsis) <= width ? Ellipsis : string.Empty;
     }
 
     private static bool IsVisible(float position, float lower, float upper) =>
@@ -771,7 +852,7 @@ public sealed class SkiaGraphRenderer
         var widest = 0f;
         foreach (var tick in axis.Ticks)
         {
-            widest = Math.Max(widest, font.MeasureText(tick.Label));
+            widest = Math.Max(widest, GraphTextFallback.MeasureText(font, tick.Label));
         }
 
         return widest;
@@ -792,10 +873,11 @@ public sealed class SkiaGraphRenderer
             return 0f;
         }
 
-        var widest = string.IsNullOrWhiteSpace(legend.Title) ? 0f : font.MeasureText(legend.Title);
+        var widest = string.IsNullOrWhiteSpace(legend.Title) ? 0f : GraphTextFallback.MeasureText(font, legend.Title);
         foreach (var entry in legend.Entries)
         {
-            widest = Math.Max(widest, LegendSwatchSize + LegendEntrySpacing + font.MeasureText(entry.Label));
+            var label = GraphTextFallback.MeasureText(font, entry.Label);
+            widest = Math.Max(widest, LegendSwatchSize + LegendEntrySpacing + label);
         }
 
         return Math.Min(widest + (LegendPadding * 2f), LegendMaximumWidth);
