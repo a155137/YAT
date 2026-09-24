@@ -1,6 +1,7 @@
 namespace YAT.Analytics.Statistics;
 
-// The standard normal distribution: the probability of being below a value, and the value a probability is below.
+// The standard normal distribution: its density, the probability of being below a value, and the value a probability
+// is below.
 //
 // Both directions are rational approximations rather than series, so they cost the same on every value and give the
 // same answer on every machine:
@@ -40,6 +41,18 @@ public static class NormalDistribution
     [
         7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00
     ];
+
+    // The density of the standard normal distribution at z: exp(-z^2 / 2) / sqrt(2 pi). Exact rather than approximated,
+    // and never negative; far enough out it is 0, and at an infinite score it is 0.
+    public static double Pdf(double z)
+    {
+        if (double.IsNaN(z))
+        {
+            throw new ArgumentException("A normal score must be a number.", nameof(z));
+        }
+
+        return Math.Exp(-z * z / 2) / SquareRootOfTwoPi;
+    }
 
     // The probability that a standard normal value is at most z.
     public static double Cdf(double z)

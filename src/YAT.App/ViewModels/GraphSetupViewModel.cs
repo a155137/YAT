@@ -127,12 +127,14 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         TargetText = string.Empty;
         UpperLimitText = string.Empty;
 
-        // A histogram starts as it always was: frequency over automatic bins, with nothing typed for the other modes.
+        // A histogram starts as it always was: frequency over automatic bins, with nothing typed for the other modes,
+        // and no normal fit.
         SelectedYScale = YScaleChoices[0];
         SelectedBinning = BinningChoices[0];
         BinCountText = string.Empty;
         BinWidthText = string.Empty;
         BinStartText = string.Empty;
+        ShowNormalFit = HistogramOptions.Default.ShowNormalFit;
 
         // Every label starts as the graph type gives it, with nothing typed; whatever changes in the labels is checked
         // with the rest of the setup.
@@ -228,6 +230,10 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     public bool IsBinCountEnabled => SelectedBinning?.Value == HistogramBinningMode.Count;
 
     public bool IsBinWidthAndStartEnabled => SelectedBinning?.Value == HistogramBinningMode.WidthAndStart;
+
+    // Show normal fit: one of the histogram's own options, so it is offered with them. Unchecked to begin with.
+    [ObservableProperty]
+    public partial bool ShowNormalFit { get; set; }
 
     // Whether the graph type has a title and axis titles the user may change; the setup shows the labels only when it
     // does.
@@ -372,7 +378,8 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             mode,
             BinCount: mode == HistogramBinningMode.Count ? ParseCount(BinCountText) : null,
             BinWidth: mode == HistogramBinningMode.WidthAndStart ? ParseNumber(BinWidthText) : null,
-            BinStart: mode == HistogramBinningMode.WidthAndStart ? ParseNumber(BinStartText) : null);
+            BinStart: mode == HistogramBinningMode.WidthAndStart ? ParseNumber(BinStartText) : null,
+            ShowNormalFit: ShowNormalFit);
     }
 
     private static int? ParseCount(string? text) =>

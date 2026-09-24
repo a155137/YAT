@@ -411,6 +411,95 @@ internal static class GraphRobustnessInvariants
         {
             FixedHistogramGrid(context, model, options);
         }
+
+        HistogramNormalFits(context, model, options, expected);
+    }
+
+    // #042: a series has a normal fit exactly when one was asked for and its observations have one that can be drawn -
+    // two or more of them, a finite mean, a finite spread above zero, a peak a double can hold and sample points the
+    // numbers can tell apart - and the fit is the normal curve of those observations on the bars' scale: the statistics'
+    // own mean and sample standard deviation, N x width (or 100 x width, or 1) times the normal density, sampled at
+    // PointCount increasing points around the mean, and never taller than the Y axis can hold.
+    private static void HistogramNormalFits(
+        string context, HistogramRenderModel model, HistogramOptions options, List<(string Label, double[] Values)> expected)
+    {
+        // The bins' nominal width: the user's on a fixed grid, the range over the count otherwise. Each bin's own width
+        // (its edges' difference) can differ from it in the last bits where the edges are rounded, as far from zero.
+        var width = options.BinningMode == HistogramBinningMode.WidthAndStart
+            ? options.BinWidth!.Value
+            : (model.Bins[^1].UpperEdge - model.Bins[0].LowerEdge) / model.Bins.Count;
+        for (var index = 0; index < model.Series.Count; index++)
+        {
+            var series = model.Series[index];
+            var where = $"series '{series.Label}' normal fit";
+            if (!options.ShowNormalFit)
+            {
+                That(series.NormalFit is null, context, $"{where} is there without being asked for");
+                continue;
+            }
+
+            var values = expected[index].Values;
+            var mean = Descriptives.Mean(values);
+            var standardDeviation = Descriptives.StandardDeviation(values);
+            var factor = options.YScale switch
+            {
+                HistogramYScale.Percent => 100 * width,
+                HistogramYScale.Density => 1,
+                _ => values.Length * width
+            };
+            var peak = factor / (standardDeviation * Math.Sqrt(2 * Math.PI));
+            var drawable = values.Length >= 2 && double.IsFinite(mean) && double.IsFinite(standardDeviation)
+                && standardDeviation > 0 && double.IsFinite(peak) && Distinct(mean, standardDeviation);
+
+            if (!drawable)
+            {
+                That(series.NormalFit is null, context, $"{where} is drawn for observations that have none (N {values.Length}, " +
+                    $"mean {mean:R}, standard deviation {standardDeviation:R})");
+                continue;
+            }
+
+            if (series.NormalFit is not { } fit)
+            {
+                That(false, context, $"{where} is missing (N {values.Length}, mean {mean:R}, standard deviation {standardDeviation:R})");
+                continue;
+            }
+
+            That(fit.Mean == mean && fit.StandardDeviation == standardDeviation, context,
+                $"{where} is of mean {fit.Mean:R} and standard deviation {fit.StandardDeviation:R}, not the statistics' {mean:R} and {standardDeviation:R}");
+            That(fit.Points.Count == HistogramNormalFit.PointCount, context, $"{where} has {fit.Points.Count} points");
+            That(fit.Points[HistogramNormalFit.PointCount / 2].X == mean, context, $"{where} does not sample its mean");
+            That(fit.Points.All(point => double.IsFinite(point.X) && double.IsFinite(point.Height) && point.Height >= 0), context,
+                $"{where} has a point that is not finite and non-negative");
+            That(fit.Points.Zip(fit.Points.Skip(1)).All(pair => pair.Second.X > pair.First.X), context, $"{where} is not in increasing X order");
+            That(Math.Abs(fit.MaximumHeight - peak) <= peak * 1e-9, context, $"{where} peaks at {fit.MaximumHeight:R}, not {peak:R}");
+
+            // The Y axis holds the whole curve - on the frequency scale as far as whole counts can safely go.
+            var reach = options.YScale == HistogramYScale.Frequency
+                ? Math.Min(fit.MaximumHeight, HistogramRenderModelBuilder.MaximumFitCount)
+                : fit.MaximumHeight;
+            That(Within(model.Frame.YAxis.Range, reach), context, $"the Y axis does not reach {where}'s peak {fit.MaximumHeight:R}");
+        }
+    }
+
+    // Whether the sample points of a fit - mean + z x standard deviation for z = -4 .. 4 in steps of 1/25 - are numbers a
+    // double can tell apart.
+    private static bool Distinct(double mean, double standardDeviation)
+    {
+        var previous = double.NegativeInfinity;
+        for (var index = 0; index < HistogramNormalFit.PointCount; index++)
+        {
+            var z = (index - (HistogramNormalFit.PointCount / 2)) * HistogramNormalFit.SampledStandardDeviations
+                / (double)(HistogramNormalFit.PointCount / 2);
+            var x = mean + (z * standardDeviation);
+            if (!double.IsFinite(x) || !(x > previous))
+            {
+                return false;
+            }
+
+            previous = x;
+        }
+
+        return true;
     }
 
     // Mathematical invariants of the Y scales (#039): heights are finite and non-negative; frequency is the count;

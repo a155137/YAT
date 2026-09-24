@@ -208,6 +208,7 @@ internal sealed class GraphSetupWindow : Window
         if (setup.SupportsHistogramControls)
         {
             options.Children.Add(HistogramControls(setup));
+            options.Children.Add(Option(setup, "Show normal fit", nameof(GraphSetupViewModel.ShowNormalFit)));
         }
 
         if (setup.SupportsStatisticsPanel)

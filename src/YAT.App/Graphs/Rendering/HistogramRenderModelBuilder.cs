@@ -44,10 +44,11 @@ public sealed class HistogramRenderModelBuilder
     public HistogramRenderModel? Build(UnivariateGraphData data, HistogramPlotLabels labels, CancellationToken cancellationToken = default) =>
         Build(data, labels, HistogramOptions.Default, cancellationToken);
 
-    // The same, with the histogram's own options: how its bins are chosen and what its bars measure. Neither changes
-    // which observations are counted or how the groups are formed. A width-and-start grid that does not suit the data
-    // (too many bins, or a width the values cannot resolve) is refused with a GraphPreparationException the user is
-    // shown.
+    // The same, with the histogram's own options: how its bins are chosen, what its bars measure and whether each
+    // series has its normal fit drawn over it. None of them changes which observations are counted or how the groups
+    // are formed, and a series without a fit that can be drawn only goes without its curve. A width-and-start grid that
+    // does not suit the data (too many bins, or a width the values cannot resolve) is refused with a
+    // GraphPreparationException the user is shown.
     public HistogramRenderModel? Build(
         UnivariateGraphData data,
         HistogramPlotLabels labels,
@@ -78,6 +79,7 @@ public sealed class HistogramRenderModelBuilder
         var legendEntries = new List<GraphLegendEntry>(partition.Series.Count);
         var maximumCount = 0;
         var maximumHeight = 0d;
+        var maximumFit = 0d;
         for (var index = 0; index < partition.Series.Count; index++)
         {
             var buffer = partition.Series[index];
@@ -86,18 +88,31 @@ public sealed class HistogramRenderModelBuilder
             maximumCount = Math.Max(maximumCount, counts.Length == 0 ? 0 : counts.Max());
             maximumHeight = Math.Max(maximumHeight, heights.Length == 0 ? 0 : heights.Max());
 
-            series.Add(new HistogramSeriesRenderModel(buffer.Label, index, counts, heights));
+            // Each series' own fit, over the bins every series shares. A series that has none is drawn without it.
+            HistogramNormalFit? fit = null;
+            if (options.ShowNormalFit)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                fit = HistogramNormalFit.Fit(buffer.Values.Span, options.YScale, grid.Width);
+                maximumFit = Math.Max(maximumFit, fit?.MaximumHeight ?? 0);
+            }
+
+            series.Add(new HistogramSeriesRenderModel(buffer.Label, index, counts, heights) { NormalFit = fit });
             legendEntries.Add(new GraphLegendEntry(buffer.Label, index));
         }
 
-        // The X axis is the bins themselves, not the data with room around it: a histogram's bars fill their axis.
+        // The X axis is the bins themselves, not the data with room around it: a histogram's bars fill their axis. A
+        // normal fit has no say in it; the plot area clips whatever of a curve lies outside.
         var x = new GraphAxisRange(grid.Edges[0], grid.Edges[^1]);
 
-        // Counts are read on the whole-number axis they always were; a percent or a density on a continuous one.
+        // Counts are read on the whole-number axis they always were; a percent or a density on a continuous one. The Y
+        // axis reaches the tallest bar, or the highest normal fit when a curve rises above every bar - and only then is
+        // it any different from the axis without fits.
         var y = options.YScale switch
         {
-            HistogramYScale.Frequency => AxisOf(GraphAxisTicks.NiceCounts(maximumCount)),
-            _ => AxisOf(GraphAxisTicks.NiceFromZero(maximumHeight))
+            HistogramYScale.Frequency => AxisOf(GraphAxisTicks.NiceCounts(
+                maximumFit > maximumCount ? FitCountReach(maximumFit) : maximumCount)),
+            _ => AxisOf(GraphAxisTicks.NiceFromZero(Math.Max(maximumHeight, maximumFit)))
         };
 
         var frame = new GraphRenderModel(
@@ -116,6 +131,16 @@ public sealed class HistogramRenderModelBuilder
         HistogramYScale.Density => DensityAxisTitle,
         _ => FrequencyAxisTitle
     };
+
+    // The highest count a frequency axis is stretched to for a normal fit: well within what the count axis can step
+    // through in whole numbers without overflowing.
+    internal const int MaximumFitCount = int.MaxValue / 4;
+
+    // The whole-number count a frequency axis has to reach for a normal fit this high. A count axis is built in whole
+    // numbers, so a fit taller than any count a histogram could hold (a series whose spread is far below its bins'
+    // width) is reached only as far as MaximumFitCount, and the plot area clips the rest of its peak.
+    internal static int FitCountReach(double fit) =>
+        fit >= MaximumFitCount ? MaximumFitCount : (int)Math.Ceiling(fit);
 
     private static (GraphAxisRange Range, IReadOnlyList<GraphAxisTick> Ticks) AxisOf(GraphCountAxis axis) => (axis.Range, axis.Ticks);
 

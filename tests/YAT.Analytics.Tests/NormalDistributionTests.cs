@@ -145,4 +145,42 @@ public class NormalDistributionTests
         Assert.Equal(NormalDistribution.InverseCdf(0.0673076923076923), NormalDistribution.InverseCdf(0.0673076923076923));
         Assert.Equal(NormalDistribution.Cdf(1.2345), NormalDistribution.Cdf(1.2345));
     }
+
+    // 11 (#042): the density, at the values every table gives.
+    [Theory]
+    [InlineData(0, 0.3989422804014327)]
+    [InlineData(1, 0.24197072451914337)]
+    [InlineData(-1, 0.24197072451914337)]
+    [InlineData(2, 0.05399096651318806)]
+    [InlineData(3, 0.0044318484119380075)]
+    [InlineData(4, 0.00013383022576488537)]
+    public void TheDensityEveryTableAgreesOn(double score, double expected) =>
+        Assert.Equal(expected, NormalDistribution.Pdf(score), 1e-15);
+
+    // 12
+    [Fact]
+    public void TheDensityIsSymmetricPeaksAtZeroAndHasUnitArea()
+    {
+        var area = 0d;
+        const double Step = 0.001;
+        for (var z = -10d; z < 10; z += Step)
+        {
+            Assert.Equal(NormalDistribution.Pdf(z), NormalDistribution.Pdf(-z));
+            Assert.True(NormalDistribution.Pdf(z) <= NormalDistribution.Pdf(0));
+            area += (NormalDistribution.Pdf(z) + NormalDistribution.Pdf(z + Step)) * Step / 2;
+        }
+
+        Assert.Equal(1, area, 1e-9);
+    }
+
+    // 13
+    [Fact]
+    public void FarOutAndAtInfinityTheDensityIsZeroAndNeverNegative()
+    {
+        Assert.Equal(0, NormalDistribution.Pdf(double.PositiveInfinity));
+        Assert.Equal(0, NormalDistribution.Pdf(double.NegativeInfinity));
+        Assert.Equal(0, NormalDistribution.Pdf(1e200));
+        Assert.True(NormalDistribution.Pdf(38) >= 0);
+        Assert.Throws<ArgumentException>(() => NormalDistribution.Pdf(double.NaN));
+    }
 }

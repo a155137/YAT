@@ -32,7 +32,21 @@ public class HistogramOptionsTests
         Assert.Null(HistogramOptions.Default.BinCount);
         Assert.Null(HistogramOptions.Default.BinWidth);
         Assert.Null(HistogramOptions.Default.BinStart);
+        Assert.False(HistogramOptions.Default.ShowNormalFit);
         Assert.Equal(HistogramOptions.Default, new HistogramOptions());
+    }
+
+    // #042: a normal fit is a choice with no invalid value, on any scale and bins.
+    [Theory]
+    [InlineData(HistogramYScale.Frequency, HistogramBinningMode.Auto)]
+    [InlineData(HistogramYScale.Percent, HistogramBinningMode.Count)]
+    [InlineData(HistogramYScale.Density, HistogramBinningMode.WidthAndStart)]
+    public void ANormalFitIsValidWithAnyScaleAndBins(HistogramYScale scale, HistogramBinningMode mode)
+    {
+        var options = new HistogramOptions(scale, mode, BinCount: 10, BinWidth: 0.5, BinStart: 0, ShowNormalFit: true);
+
+        Assert.Empty(HistogramOptionsRules.Check(options));
+        Assert.NotEqual(options with { ShowNormalFit = false }, options);
     }
 
     [Theory]

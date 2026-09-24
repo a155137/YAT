@@ -438,6 +438,41 @@ public class GraphSetupViewModelTests
             setup.Confirm()!.HistogramOptions);
     }
 
+    // #042
+    [Fact]
+    public void AHistogramStartsWithoutANormalFitAndCarriesTheChoiceIntoItsOptions()
+    {
+        var setup = HistogramSetup();
+        Assert.False(setup.ShowNormalFit);
+        Assert.False(setup.Confirm()!.HistogramOptions.ShowNormalFit);
+
+        setup.SelectedYScale = setup.YScaleChoices.Single(choice => choice.Value == HistogramYScale.Percent);
+        Choose(setup, HistogramBinningMode.Count);
+        setup.BinCountText = "12";
+        setup.ShowNormalFit = true;
+
+        Assert.Equal(
+            new HistogramOptions(HistogramYScale.Percent, HistogramBinningMode.Count, BinCount: 12, ShowNormalFit: true),
+            setup.Confirm()!.HistogramOptions);
+
+        setup.ShowNormalFit = false;
+        Assert.False(setup.Confirm()!.HistogramOptions.ShowNormalFit);
+    }
+
+    // #042: the normal fit is one of the histogram's own options; a graph without them always carries the defaults.
+    [Theory]
+    [InlineData(GraphType.ProbabilityPlot)]
+    [InlineData(GraphType.EmpiricalCdf)]
+    [InlineData(GraphType.BoxPlot)]
+    public void OtherGraphsNeverCarryANormalFit(GraphType graphType)
+    {
+        var setup = Setup(graphType);
+        Assign(setup, GraphVariableRole.Variable, Reg1);
+        setup.ShowNormalFit = true;
+
+        Assert.Equal(HistogramOptions.Default, setup.Confirm()!.HistogramOptions);
+    }
+
     [Fact]
     public void OnlyTheChosenModesFieldsAreEnabledAndRead()
     {

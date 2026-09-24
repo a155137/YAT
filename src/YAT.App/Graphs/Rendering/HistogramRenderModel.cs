@@ -34,7 +34,8 @@ public sealed record HistogramBin
 // How often one group of observations falls into each bin, and how tall its bars are drawn. Counts has one entry per
 // bin of the histogram, in bin order, and is what the histogram is: the observations in each bin. Heights are those
 // counts on the histogram's Y scale (the counts themselves, a percent, or a density) - what the bars are drawn to; they
-// never replace the counts. The series index selects the colour from the theme palette.
+// never replace the counts. The series index selects the colour from the theme palette, for the bars and for the normal
+// fit drawn over them.
 public sealed record HistogramSeriesRenderModel
 {
     // A series drawn on the frequency scale: every bar as tall as its count.
@@ -83,6 +84,10 @@ public sealed record HistogramSeriesRenderModel
 
     // Every observation of this series; the sum of its counts.
     public int ObservationCount { get; }
+
+    // The normal curve of this series' own mean and standard deviation, on the same Y scale as its bars (Task #042).
+    // Null when no fit was asked for, or when this series has none that can be drawn; either way no curve is drawn.
+    public HistogramNormalFit? NormalFit { get; init; }
 }
 
 // A histogram ready to be drawn: the shared graph frame, the bins every series is counted into, and those counts.

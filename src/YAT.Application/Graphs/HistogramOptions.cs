@@ -34,19 +34,23 @@ public enum HistogramBinningMode
 //
 // Only the values the chosen binning mode uses are read: BinCount for Count, BinWidth and BinStart for WidthAndStart.
 // Whether they are usable is decided by HistogramOptionsRules.
+//
+// ShowNormalFit draws over each series the normal curve of its own mean and sample standard deviation, on the bars' Y
+// scale (Task #042). It never changes the bins, the counts or the X axis.
 public sealed record HistogramOptions(
     HistogramYScale YScale = HistogramYScale.Frequency,
     HistogramBinningMode BinningMode = HistogramBinningMode.Auto,
     int? BinCount = null,
     double? BinWidth = null,
-    double? BinStart = null)
+    double? BinStart = null,
+    bool ShowNormalFit = false)
 {
     // The most bins a histogram draws, however they are chosen. The same limit the automatic bin count keeps to.
     public const int MaximumBinCount = 200;
 
     public const int MinimumBinCount = 1;
 
-    // Frequency over automatic bins: the histogram as it always was.
+    // Frequency over automatic bins, without a normal fit: the histogram as it always was.
     public static HistogramOptions Default { get; } = new();
 }
 

@@ -2,8 +2,8 @@ using SkiaSharp;
 
 namespace YAT.app.Graphs.Rendering;
 
-// Draws the bars of a histogram, and nothing else: the frame around them belongs to SkiaGraphRenderer, and what to
-// count was decided by HistogramRenderModelBuilder.
+// Draws the bars of a histogram and the normal fits over them, and nothing else: the frame around them belongs to
+// SkiaGraphRenderer, and what to count and which curves to draw was decided by HistogramRenderModelBuilder.
 //
 // A histogram of one series is drawn solid. A grouped one overlays its series in the same bins - they describe the same
 // axis, so putting them side by side would misplace them - and fills them semi-transparently with an opaque outline, so
@@ -20,6 +20,11 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
 
     // Bars narrower than this touch each other: at that width a gap would be most of the bar.
     private const float MinimumGappedBarWidth = 10f;
+
+    // A normal fit is drawn this wide in its series' colour, on a halo of the plot background this wide.
+    public const float NormalFitWidth = 1.5f;
+
+    public const float NormalFitHaloWidth = 3f;
 
     // Bars narrower than this are drawn without their outline, which would otherwise cover them.
     private const float MinimumOutlinedBarWidth = 4f;
@@ -64,19 +69,104 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
             DrawBars(canvas, series, transform, baseline, fill);
         }
 
-        if (!grouped)
+        if (grouped)
+        {
+            foreach (var series in _model.Series)
+            {
+                outline.Color = theme.SeriesColor(series.SeriesIndex);
+
+                // On a narrow bar the outline would be the whole bar: many bins are read as a shape, not as bars, and
+                // the fills alone carry it.
+                DrawBars(canvas, series, transform, baseline, outline, MinimumOutlinedBarWidth);
+            }
+        }
+
+        DrawNormalFits(canvas, transform, theme);
+    }
+
+    // The normal fits last, over every bar, in series order and each in its series' colour. Each line lies on a halo of
+    // the plot background, so it stays readable where it crosses bars of its own colour - the solid bars of an
+    // ungrouped histogram as much as the overlaid ones of a grouped one. The curves were worked out by the builder;
+    // here they are only drawn, and what lies outside the plot area is clipped.
+    private void DrawNormalFits(SKCanvas canvas, GraphCoordinateTransform transform, GraphTheme theme)
+    {
+        if (_model.Series.All(series => series.NormalFit is null))
         {
             return;
         }
 
+        using var halo = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = NormalFitHaloWidth,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeCap = SKStrokeCap.Round,
+            Color = theme.PlotBackground
+        };
+
+        using var line = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = NormalFitWidth,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeCap = SKStrokeCap.Round
+        };
+
         foreach (var series in _model.Series)
         {
-            outline.Color = theme.SeriesColor(series.SeriesIndex);
+            if (series.NormalFit is not { } fit || Path(fit, transform) is not { } path)
+            {
+                continue;
+            }
 
-            // On a narrow bar the outline would be the whole bar: many bins are read as a shape, not as bars, and the
-            // fills alone carry it.
-            DrawBars(canvas, series, transform, baseline, outline, MinimumOutlinedBarWidth);
+            using (path)
+            {
+                line.Color = theme.SeriesColor(series.SeriesIndex);
+                canvas.DrawPath(path, halo);
+                canvas.DrawPath(path, line);
+            }
         }
+    }
+
+    // The curve through its points on screen, or null when fewer than two of them can be placed. A point the transform
+    // cannot place breaks the curve rather than joining its neighbours across the gap.
+    private static SKPath? Path(HistogramNormalFit fit, GraphCoordinateTransform transform)
+    {
+        var path = new SKPath();
+        var drawn = 0;
+        var joined = false;
+        foreach (var point in fit.Points)
+        {
+            var x = (float)transform.ToScreenX(point.X);
+            var y = (float)transform.ToScreenY(point.Height);
+            if (!float.IsFinite(x) || !float.IsFinite(y))
+            {
+                joined = false;
+                continue;
+            }
+
+            if (joined)
+            {
+                path.LineTo(x, y);
+            }
+            else
+            {
+                path.MoveTo(x, y);
+            }
+
+            joined = true;
+            drawn++;
+        }
+
+        if (drawn < 2)
+        {
+            path.Dispose();
+            return null;
+        }
+
+        return path;
     }
 
     private void DrawBars(
