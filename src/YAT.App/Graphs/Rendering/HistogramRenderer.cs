@@ -5,9 +5,10 @@ namespace YAT.app.Graphs.Rendering;
 // Draws the bars of a histogram and the normal fits over them, and nothing else: the frame around them belongs to
 // SkiaGraphRenderer, and what to count and which curves to draw was decided by HistogramRenderModelBuilder.
 //
-// A histogram of one series is drawn solid. A grouped one overlays its series in the same bins - they describe the same
-// axis, so putting them side by side would misplace them - and fills them semi-transparently with an opaque outline, so
-// a distribution drawn later does not hide the one drawn before it.
+// A histogram of one series is drawn solid, each bar outlined in the theme's neutral bin outline. A grouped one
+// overlays its series in the same bins - they describe the same axis, so putting them side by side would misplace them
+// - and fills them semi-transparently with an outline of their own colour, so a distribution drawn later does not hide
+// the one drawn before it.
 public sealed class HistogramRenderer : IGraphPlotRenderer
 {
     // How much of the fill colour a grouped series keeps. Tuned on screen: dense enough to read one distribution,
@@ -49,7 +50,7 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
         var grouped = _model.Frame.Legend is not null;
 
         // Bars are read as areas, not as shapes: drawn without antialiasing they keep crisp vertical edges at any
-        // window size, and an outline keeps exactly the colour of its series.
+        // window size, and an outline keeps exactly the colour it is given.
         using var fill = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
         using var outline = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
 
@@ -77,6 +78,17 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
 
                 // On a narrow bar the outline would be the whole bar: many bins are read as a shape, not as bars, and
                 // the fills alone carry it.
+                DrawBars(canvas, series, transform, baseline, outline, MinimumOutlinedBarWidth);
+            }
+        }
+        else
+        {
+            // The solid bars of one series are outlined too (Task #046), in the theme's neutral bin outline rather than
+            // the series colour, so every bin's edges show; overlaid series keep their own colour's outline above,
+            // which is what tells their shapes apart. Narrow bars are left unoutlined for the same reason as there.
+            outline.Color = theme.BinOutline;
+            foreach (var series in _model.Series)
+            {
                 DrawBars(canvas, series, transform, baseline, outline, MinimumOutlinedBarWidth);
             }
         }

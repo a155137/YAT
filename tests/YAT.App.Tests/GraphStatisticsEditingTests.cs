@@ -239,27 +239,29 @@ public class GraphStatisticsEditingTests
         Assert.Same(command, item.Command);
     }
 
-    // Copy Image, then the editors each graph type offers, in one order - Edit Statistics last, and only where the
-    // graph type has a panel. Every access key is used once.
+    // Copy Image, then the editors each graph type offers, in one order - Edit Statistics only where the graph type has
+    // a panel, and Edit Appearance (Task #046) last, everywhere. Every access key is used once.
     [Theory]
-    [InlineData(GraphType.ScatterPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend..." })]
-    [InlineData(GraphType.BoxPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend..." })]
-    [InlineData(GraphType.Histogram, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics..." })]
-    [InlineData(GraphType.ProbabilityPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics..." })]
-    [InlineData(GraphType.EmpiricalCdf, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics..." })]
+    [InlineData(GraphType.ScatterPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit A_ppearance..." })]
+    [InlineData(GraphType.BoxPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit A_ppearance..." })]
+    [InlineData(GraphType.Histogram, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics...", "Edit A_ppearance..." })]
+    [InlineData(GraphType.ProbabilityPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics...", "Edit A_ppearance..." })]
+    [InlineData(GraphType.EmpiricalCdf, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics...", "Edit A_ppearance..." })]
     public void TheRightClickMenuOffersTheEditorsInOrder(GraphType type, string[] expected)
     {
-        var commands = Enumerable.Range(0, 5).Select(_ => new CommunityToolkit.Mvvm.Input.RelayCommand(() => { })).ToArray();
+        var commands = Enumerable.Range(0, 6).Select(_ => new CommunityToolkit.Mvvm.Input.RelayCommand(() => { })).ToArray();
 
-        var items = GraphWindow.ContextMenuItems(GraphTypeDefinitions.For(type), commands[0], commands[1], commands[2], commands[3], commands[4]);
+        var items = GraphWindow.ContextMenuItems(GraphTypeDefinitions.For(type), commands[0], commands[1], commands[2], commands[3], commands[4], commands[5]);
 
         Assert.Equal(expected, items.Select(item => item is MenuItem menuItem ? (string)menuItem.Header! : "-"));
         var keys = items.OfType<MenuItem>().Select(item => char.ToUpperInvariant(((string)item.Header!)[((string)item.Header!).IndexOf('_') + 1])).ToList();
         Assert.Equal(keys.Count, keys.Distinct().Count());
         if (type is GraphType.Histogram or GraphType.ProbabilityPlot or GraphType.EmpiricalCdf)
         {
-            Assert.Same(commands[4], ((MenuItem)items[^1]).Command);
+            Assert.Same(commands[4], ((MenuItem)items[^2]).Command);
         }
+
+        Assert.Same(commands[5], ((MenuItem)items[^1]).Command);
     }
 
     // ---- The editor ----

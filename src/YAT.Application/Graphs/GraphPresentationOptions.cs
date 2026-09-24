@@ -34,5 +34,9 @@ public enum GraphCapability
 
     // The legend of a graph of groups or of several variables drawn together: shown or hidden, and on which side of the
     // plot (see GraphLegendOptions).
-    Legend
+    Legend,
+
+    // How the graph looks: its series colours, its grid, and the colours behind and around its plot (see
+    // GraphAppearanceOptions). Drawing only - never the data, the statistics or the axes.
+    Appearance
 }

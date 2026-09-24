@@ -26,7 +26,9 @@ namespace YAT.app.Graphs.Rendering;
 // return their frame as is.
 //
 // Present keeps the frame as it was before the statistics, the legend, the axis ranges and the labels, so a graph
-// window can put others on it later without the data (see GraphPresentationState); Apply is the frame it presents.
+// window can put others on it later without the data (see GraphPresentationState); Apply is the frame it presents. The
+// appearance (Task #046) is kept with them but is no step at all: it changes the theme a frame is drawn in, never a
+// frame.
 public static class GraphPresentation
 {
     public static GraphRenderModel Apply(
@@ -55,6 +57,9 @@ public static class GraphPresentation
             configuration.LabelOptions,
             configuration.AxisRangeOptions,
             configuration.LegendOptions,
-            configuration.StatisticsOptions);
+            configuration.StatisticsOptions,
+            definition.Supports(GraphCapability.Appearance)
+                ? configuration.AppearanceOptions
+                : GraphAppearanceOptions.Default);
     }
 }

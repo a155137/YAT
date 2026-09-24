@@ -27,6 +27,10 @@ public sealed record GraphTheme
     // series, so no palette colour is used. Limits and target differ by dash pattern and width, not by colour.
     public required SKColor Annotation { get; init; }
 
+    // The outline of a histogram's bars (Task #046): a thin neutral line that marks every bin's edges, so a solid
+    // histogram reads as bins rather than one shape. Not a series colour, so it is never mistaken for a series.
+    public required SKColor BinOutline { get; init; }
+
     // Series colours, used by legend entries (and later by the graphs themselves) through their series index.
     public required IReadOnlyList<SKColor> SeriesPalette { get; init; }
 
@@ -39,6 +43,9 @@ public sealed record GraphTheme
     public float AxisThickness { get; init; } = 1.25f;
 
     public float GridThickness { get; init; } = 1f;
+
+    // Whether the grid is drawn at all (Task #046): the themes draw it; an appearance may hide it.
+    public bool ShowGrid { get; init; } = true;
 
     public float SpecificationLimitThickness { get; init; } = 1.5f;
 
@@ -79,6 +86,7 @@ public static class GraphThemes
         SecondaryText = new SKColor(0x50, 0x50, 0x50),
         LegendBorder = new SKColor(0xC8, 0xC8, 0xC8),
         Annotation = new SKColor(0x4F, 0x4F, 0x4F),
+        BinOutline = new SKColor(0x4A, 0x4A, 0x4A),
         SeriesPalette = Palette
     };
 
@@ -92,6 +100,7 @@ public static class GraphThemes
         SecondaryText = new SKColor(0xC6, 0xC6, 0xC6),
         LegendBorder = new SKColor(0x55, 0x55, 0x55),
         Annotation = new SKColor(0xD2, 0xD2, 0xD2),
+        BinOutline = new SKColor(0x14, 0x14, 0x14),
         SeriesPalette = Palette
     };
 }

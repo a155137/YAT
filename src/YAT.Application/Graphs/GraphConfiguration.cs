@@ -41,6 +41,11 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // chose.
     public GraphLegendOptions LegendOptions { get; init; } = GraphLegendOptions.Default;
 
+    // How the graph looks: its series colours, its grid and its backgrounds (Task #046). Graph types that do not
+    // declare GraphCapability.Appearance ignore it; the data query and the graph types' builders never read it. The
+    // graph theme's own look unless the user chose.
+    public GraphAppearanceOptions AppearanceOptions { get; init; } = GraphAppearanceOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

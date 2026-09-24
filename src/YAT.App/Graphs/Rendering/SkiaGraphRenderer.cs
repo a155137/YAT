@@ -156,6 +156,12 @@ public sealed class SkiaGraphRenderer
         GraphTheme theme,
         SKPaint stroke)
     {
+        // A hidden grid (Task #046) is not drawn at all - not drawn in a colour that cannot be seen.
+        if (!theme.ShowGrid)
+        {
+            return;
+        }
+
         stroke.Color = theme.Grid;
         stroke.StrokeWidth = theme.GridThickness;
 

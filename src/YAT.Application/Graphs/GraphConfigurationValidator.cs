@@ -78,7 +78,16 @@ public enum GraphValidationReason
     StatisticsOptionsInvalid,
 
     // The statistics panel is shown (Auto or Show) but no statistic is chosen for it.
-    StatisticsItemsMissing
+    StatisticsItemsMissing,
+
+    // The grid mode is not a defined choice.
+    AppearanceGridModeInvalid,
+
+    // A custom palette without colours, or with more than GraphPalette.MaximumColors.
+    AppearancePaletteInvalid,
+
+    // A colour typed for the appearance is not "#RRGGBB".
+    AppearanceColorInvalid
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
@@ -222,7 +231,34 @@ public sealed class GraphConfigurationValidator
             errors.AddRange(StatisticsErrors(configuration.StatisticsOptions));
         }
 
+        // And the appearance, only where the graph type has one.
+        if (definition.Supports(GraphCapability.Appearance))
+        {
+            errors.AddRange(AppearanceErrors(configuration.AppearanceOptions));
+        }
+
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);
+    }
+
+    // The appearance rules, as graph validation errors - for a whole configuration here, and for an appearance edited
+    // on its own: a defined grid mode, and a custom palette of one to sixteen colours. (A colour itself is always
+    // valid: text that is not "#RRGGBB" never becomes one.)
+    public static IReadOnlyList<GraphValidationError> AppearanceErrors(GraphAppearanceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var errors = new List<GraphValidationError>();
+        if (!Enum.IsDefined(options.GridMode))
+        {
+            errors.Add(new GraphValidationError(GraphValidationReason.AppearanceGridModeInvalid));
+        }
+
+        if (options.Palette is { IsValid: false })
+        {
+            errors.Add(new GraphValidationError(GraphValidationReason.AppearancePaletteInvalid));
+        }
+
+        return errors;
     }
 
     // The statistics options' rules, as graph validation errors - for a whole configuration here, and for the options

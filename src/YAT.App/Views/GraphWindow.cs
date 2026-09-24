@@ -33,8 +33,12 @@ namespace YAT.app.Views;
 //
 // And its statistics panel (Task #045): right-click and choose Edit Statistics... to show or hide it or choose its
 // statistics - offered by the graph types that have a panel, and unavailable for a graph without one. The panel was
-// worked out whole with the graph, so even one hidden from the start is shown without the data. Labels, ranges, the
-// legend and the statistics are edited on the one graph: a change to any of them keeps the others.
+// worked out whole with the graph, so even one hidden from the start is shown without the data.
+//
+// And its appearance (Task #046): right-click and choose Edit Appearance... to change its series colours, its grid and
+// its backgrounds. Those change only the theme the graph is drawn in - the canvas resolves it, and every copy and
+// export takes it from there - never the frame. Labels, ranges, the legend, the statistics and the appearance are
+// edited on the one graph: a change to any of them keeps the others.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
@@ -48,6 +52,7 @@ internal sealed class GraphWindow : Window
     private readonly GraphAxesEditController _axes;
     private readonly GraphLegendEditController _legend;
     private readonly GraphStatisticsEditController _statistics;
+    private readonly GraphAppearanceEditController _appearance;
     private readonly IAsyncRelayCommand _copyImage;
 
     // Ctrl+C copies the graph while this window is active. The binding belongs to this window alone, so the worksheet's
@@ -60,7 +65,7 @@ internal sealed class GraphWindow : Window
         ArgumentNullException.ThrowIfNull(exports);
 
         _plot = plot;
-        _canvas = new GraphCanvas { Model = graph.Frame, Plot = plot };
+        _canvas = new GraphCanvas { Model = graph.Frame, Plot = plot, Appearance = graph.AppearanceOptions };
         _export = exports.Create(this);
         _labels = new GraphLabelEditController(graph, new AvaloniaGraphLabelsDialog(this));
         _labels.GraphChanged += (_, _) => Show(_labels.Graph);
@@ -70,6 +75,8 @@ internal sealed class GraphWindow : Window
         _legend.GraphChanged += (_, _) => Show(_legend.Graph);
         _statistics = new GraphStatisticsEditController(graph, new AvaloniaGraphStatisticsDialog(this));
         _statistics.GraphChanged += (_, _) => Show(_statistics.Graph);
+        _appearance = new GraphAppearanceEditController(graph, new AvaloniaGraphAppearanceDialog(this));
+        _appearance.GraphChanged += (_, _) => Show(_appearance.Graph);
 
         // One command for the menu item, the shortcut and the right-click menu. It is not run again while a copy is still
         // in progress.
@@ -83,6 +90,7 @@ internal sealed class GraphWindow : Window
 
         // Likewise a graph without a statistics panel.
         var editStatistics = new AsyncRelayCommand(() => _statistics.EditAsync(), () => _statistics.CanEdit);
+        var editAppearance = new AsyncRelayCommand(() => _appearance.EditAsync(), () => _appearance.CanEdit);
 
         Title = WindowTitle(graph.Frame);
         Width = DefaultWidth;
@@ -95,7 +103,7 @@ internal sealed class GraphWindow : Window
         DockPanel.SetDock(menu, Dock.Top);
         var contextMenu = new ContextMenu();
         foreach (var item in ContextMenuItems(
-            graph.Definition, _copyImage, editLabels, editAxes, editLegend, editStatistics))
+            graph.Definition, _copyImage, editLabels, editAxes, editLegend, editStatistics, editAppearance))
         {
             contextMenu.Items.Add(item);
         }
@@ -116,14 +124,15 @@ internal sealed class GraphWindow : Window
     };
 
     // The right-click menu of a graph of this type, in order: Copy Image, then the editors the graph type offers -
-    // labels, axes, legend, statistics.
+    // labels, axes, legend, statistics, appearance.
     internal static IReadOnlyList<Control> ContextMenuItems(
         GraphTypeDefinition definition,
         ICommand copyImage,
         ICommand editLabels,
         ICommand editAxes,
         ICommand editLegend,
-        ICommand editStatistics)
+        ICommand editStatistics,
+        ICommand editAppearance)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
@@ -141,6 +150,11 @@ internal sealed class GraphWindow : Window
         if (definition.Supports(GraphCapability.StatisticsPanel))
         {
             items.Add(EditStatisticsItem(editStatistics));
+        }
+
+        if (definition.Supports(GraphCapability.Appearance))
+        {
+            items.Add(EditAppearanceItem(editAppearance));
         }
 
         return items;
@@ -168,6 +182,10 @@ internal sealed class GraphWindow : Window
     internal static MenuItem EditStatisticsItem(ICommand editStatistics) =>
         new() { Header = "Edit _Statistics...", Command = editStatistics };
 
+    // Right-click > Edit Appearance...: the series colours, the grid and the backgrounds - every graph type has them.
+    internal static MenuItem EditAppearanceItem(ICommand editAppearance) =>
+        new() { Header = "Edit A_ppearance...", Command = editAppearance };
+
     // What the window is called after the graph it shows: its title, or "Graph" when it has none.
     internal static string WindowTitle(GraphRenderModel frame) =>
         string.IsNullOrWhiteSpace(frame.Title) ? "Graph" : frame.Title;
@@ -185,15 +203,17 @@ internal sealed class GraphWindow : Window
         await _labels.EditAsync(field);
     }
 
-    // The graph under its new labels, over its new axis ranges, or with its new legend or statistics: drawn at once,
-    // named after its title, and the graph every editor works on from now on.
+    // The graph under its new labels, over its new axis ranges, or with its new legend, statistics or appearance:
+    // drawn at once, named after its title, and the graph every editor works on from now on.
     private void Show(GraphPresentationState graph)
     {
         _labels.Show(graph);
         _axes.Show(graph);
         _legend.Show(graph);
         _statistics.Show(graph);
+        _appearance.Show(graph);
         _canvas.Model = graph.Frame;
+        _canvas.Appearance = graph.AppearanceOptions;
         Title = WindowTitle(graph.Frame);
     }
 

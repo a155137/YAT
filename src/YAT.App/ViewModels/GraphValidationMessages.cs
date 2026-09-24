@@ -55,6 +55,10 @@ public static class GraphValidationMessages
             GraphValidationReason.LegendOptionsInvalid => "Please choose how the legend is shown and where.",
             GraphValidationReason.StatisticsOptionsInvalid => "Please choose how the statistics are shown.",
             GraphValidationReason.StatisticsItemsMissing => "Choose at least one statistic, or hide the statistics.",
+            GraphValidationReason.AppearanceGridModeInvalid => "Please choose how the grid is shown.",
+            GraphValidationReason.AppearancePaletteInvalid =>
+                $"A custom palette has {GraphPalette.MinimumColors} to {GraphPalette.MaximumColors} colors.",
+            GraphValidationReason.AppearanceColorInvalid => "Enter each color as #RRGGBB, for example #1F77B4.",
             _ => "This graph cannot be created with the current settings."
         };
     }

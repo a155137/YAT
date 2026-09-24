@@ -56,6 +56,27 @@ internal sealed class GraphSetupWindow : Window
         };
         cancel.Click += (_, _) => Close(null);
 
+        // The appearance is chosen in a dialog of its own, from a button beside OK and Cancel (Task #046): a row of its
+        // own would make the setup taller than a 1280 x 720 screen allows.
+        var appearance = new Button
+        {
+            Name = "Appearance",
+            Content = "Appearance...",
+            MinWidth = 88,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            IsVisible = setup.SupportsAppearance
+        };
+        appearance.Click += async (_, _) =>
+        {
+            var edited = await GraphAppearanceWindow.ShowAsync(
+                this,
+                new GraphAppearanceEditorViewModel(GraphTypeDefinitions.For(setup.GraphType), setup.Appearance));
+            if (edited is not null)
+            {
+                setup.Appearance = edited;
+            }
+        };
+
         setup.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(GraphSetupViewModel.CanConfirm))
@@ -82,15 +103,30 @@ internal sealed class GraphSetupWindow : Window
                     Children = { AvailableColumns(setup), RightColumn(setup) }
                 },
                 _validation,
-                new StackPanel
+                new DockPanel
                 {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 8,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Children = { _confirm, cancel }
+                    LastChildFill = false,
+                    Children =
+                    {
+                        appearance,
+                        Docked(
+                            new StackPanel
+                            {
+                                Orientation = Orientation.Horizontal,
+                                Spacing = 8,
+                                Children = { _confirm, cancel }
+                            },
+                            Dock.Right)
+                    }
                 }
             }
         };
+    }
+
+    private static Control Docked(Control control, Dock dock)
+    {
+        DockPanel.SetDock(control, dock);
+        return control;
     }
 
     // Shows the dialog and returns what was confirmed - the configuration and how its variables are drawn - or null

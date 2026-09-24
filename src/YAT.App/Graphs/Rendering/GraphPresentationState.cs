@@ -14,6 +14,10 @@ namespace YAT.app.Graphs.Rendering;
 // frame. Nothing is read, queried, built or computed again - no data, no statistics, no specification, no bins, no
 // fitted lines - and Auto finds the graph type's own panel, legend, ranges and titles there however they were set
 // before.
+//
+// It also keeps how the graph looks (Task #046), which is not a presentation step at all: the appearance never touches
+// a frame. It is the theme the frame is drawn in that it changes (GraphAppearance.Resolve, where the graph is drawn and
+// exported), so WithAppearance keeps the very frames it had and changes nothing but the appearance kept with them.
 public sealed class GraphPresentationState
 {
     public GraphPresentationState(
@@ -22,7 +26,8 @@ public sealed class GraphPresentationState
         GraphLabelOptions labelOptions,
         GraphAxisRangeOptions? axisRangeOptions = null,
         GraphLegendOptions? legendOptions = null,
-        GraphStatisticsOptions? statisticsOptions = null)
+        GraphStatisticsOptions? statisticsOptions = null,
+        GraphAppearanceOptions? appearanceOptions = null)
     {
         ArgumentNullException.ThrowIfNull(baseFrame);
         ArgumentNullException.ThrowIfNull(definition);
@@ -34,6 +39,7 @@ public sealed class GraphPresentationState
         AxisRangeOptions = axisRangeOptions ?? GraphAxisRangeOptions.Default;
         LegendOptions = legendOptions ?? GraphLegendOptions.Default;
         StatisticsOptions = statisticsOptions ?? GraphStatisticsOptions.Default;
+        AppearanceOptions = Checked(appearanceOptions ?? GraphAppearanceOptions.Default);
         var withStatistics = GraphStatisticsPresentationBuilder.Attach(baseFrame, definition, StatisticsOptions);
         var withLegend = GraphLegendPresentationBuilder.Attach(withStatistics, definition, LegendOptions);
         UnlabelledFrame = GraphAxisViewportBuilder.Attach(withLegend, definition, AxisRangeOptions);
@@ -58,6 +64,9 @@ public sealed class GraphPresentationState
 
     public GraphStatisticsOptions StatisticsOptions { get; }
 
+    // How the graph looks. Not applied to any frame: the theme the frame is drawn in is resolved with it.
+    public GraphAppearanceOptions AppearanceOptions { get; }
+
     // The frame with the statistics, the legend, the axis ranges and the labels resolved: what is drawn, copied and
     // exported.
     public GraphRenderModel Frame { get; }
@@ -65,20 +74,47 @@ public sealed class GraphPresentationState
     // The same graph under other labels, over the same axis ranges. Options the label rules refuse are refused here
     // too.
     public GraphPresentationState WithLabels(GraphLabelOptions labelOptions) =>
-        new(BaseFrame, Definition, labelOptions, AxisRangeOptions, LegendOptions, StatisticsOptions);
+        new(BaseFrame, Definition, labelOptions, AxisRangeOptions, LegendOptions, StatisticsOptions, AppearanceOptions);
 
     // The same graph over other axis ranges, under the same labels. Ranges the rules refuse, or that do not fit the
     // automatic ends of this graph (GraphAxisViewportBuilder.Conflicts), are refused here too.
     public GraphPresentationState WithAxisRanges(GraphAxisRangeOptions axisRangeOptions) =>
-        new(BaseFrame, Definition, LabelOptions, axisRangeOptions, LegendOptions, StatisticsOptions);
+        new(BaseFrame, Definition, LabelOptions, axisRangeOptions, LegendOptions, StatisticsOptions, AppearanceOptions);
 
     // The same graph with its legend shown, hidden or moved, over the same axis ranges and under the same labels.
     public GraphPresentationState WithLegend(GraphLegendOptions legendOptions) =>
-        new(BaseFrame, Definition, LabelOptions, AxisRangeOptions, legendOptions, StatisticsOptions);
+        new(BaseFrame, Definition, LabelOptions, AxisRangeOptions, legendOptions, StatisticsOptions, AppearanceOptions);
 
     // The same graph with its statistics panel shown or hidden, or showing other statistics - the panel worked out
     // with the graph, never again - over the same axis ranges and under the same labels and legend. Options the
     // statistics rules refuse are refused here too.
     public GraphPresentationState WithStatistics(GraphStatisticsOptions statisticsOptions) =>
-        new(BaseFrame, Definition, LabelOptions, AxisRangeOptions, LegendOptions, statisticsOptions);
+        new(BaseFrame, Definition, LabelOptions, AxisRangeOptions, LegendOptions, statisticsOptions, AppearanceOptions);
+
+    // The same graph - the very same frames, nothing presented again - to be drawn with another appearance. An
+    // appearance the rules refuse is refused here too.
+    public GraphPresentationState WithAppearance(GraphAppearanceOptions appearanceOptions) =>
+        new(this, Checked(appearanceOptions));
+
+    private GraphPresentationState(GraphPresentationState graph, GraphAppearanceOptions appearanceOptions)
+    {
+        BaseFrame = graph.BaseFrame;
+        Definition = graph.Definition;
+        LabelOptions = graph.LabelOptions;
+        AxisRangeOptions = graph.AxisRangeOptions;
+        LegendOptions = graph.LegendOptions;
+        StatisticsOptions = graph.StatisticsOptions;
+        UnlabelledFrame = graph.UnlabelledFrame;
+        Frame = graph.Frame;
+        AppearanceOptions = appearanceOptions;
+    }
+
+    private static GraphAppearanceOptions Checked(GraphAppearanceOptions appearanceOptions)
+    {
+        ArgumentNullException.ThrowIfNull(appearanceOptions);
+        return appearanceOptions.IsValid
+            ? appearanceOptions
+            : throw new ArgumentException(
+                "The appearance is not valid; validate the configuration first.", nameof(appearanceOptions));
+    }
 }
