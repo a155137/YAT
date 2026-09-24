@@ -152,13 +152,15 @@ public class GraphConfigurationValidatorTests
     [Fact]
     public void ARoleAssignedTwiceIsRejected()
     {
-        var configuration = new GraphConfiguration(GraphType.Histogram, WorksheetId,
+        // A role that takes one column: the scatter plot's X axis (from Task #041 a histogram's variables take several).
+        var configuration = new GraphConfiguration(GraphType.ScatterPlot, WorksheetId,
         [
-            new GraphColumnAssignment(GraphVariableRole.Variable, Reg1.Id),
-            new GraphColumnAssignment(GraphVariableRole.Variable, Reg2.Id)
+            new GraphColumnAssignment(GraphVariableRole.X, Reg1.Id),
+            new GraphColumnAssignment(GraphVariableRole.X, Reg2.Id),
+            new GraphColumnAssignment(GraphVariableRole.Y, Reg1.Id)
         ]);
 
-        AssertSingleError(Validate(configuration), GraphValidationReason.DuplicateRole, GraphVariableRole.Variable);
+        AssertSingleError(Validate(configuration), GraphValidationReason.DuplicateRole, GraphVariableRole.X);
     }
 
     [Fact]

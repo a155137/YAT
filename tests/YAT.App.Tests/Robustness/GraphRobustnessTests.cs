@@ -633,6 +633,13 @@ internal static class GraphRobustnessPipeline
                 break;
         }
 
+        // From Task #041 the distribution graphs read their variables as the box plot does, one slice each; a graph of
+        // one variable is drawn from its slice, as the graph preparation draws it.
+        if (graph != RobustnessGraph.BoxPlot && data is MultiVariableGraphData { Variables.Count: 1 } single)
+        {
+            data = single.Variables[0];
+        }
+
         var built = GraphRobustnessInvariants.Exercise(context, graph, data, renderTheme ?? GraphThemes.Light);
         if (exportPng)
         {

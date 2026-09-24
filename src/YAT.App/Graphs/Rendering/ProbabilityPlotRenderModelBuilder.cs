@@ -131,7 +131,7 @@ public sealed class ProbabilityPlotRenderModelBuilder
 
         var frame = new GraphRenderModel(
             $"Normal Probability Plot of {labels.Variable}",
-            new GraphAxisModel(horizontal, GraphAxisTicks.Nice(horizontal), labels.Variable),
+            new GraphAxisModel(horizontal, GraphAxisTicks.Nice(horizontal), labels.AxisTitle ?? labels.Variable),
             vertical,
             // A plot without a group column is one unnamed series, and one series needs no legend.
             data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));

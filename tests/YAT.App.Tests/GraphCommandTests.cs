@@ -12,7 +12,7 @@ namespace YAT.App.Tests;
 
 // The Graph menu over a real project: the setup is built from the active worksheet's stored column metadata, and a
 // confirmed setup produces a validated configuration and opens a graph window.
-public class GraphCommandTests
+public partial class GraphCommandTests
 {
     private static readonly DateTimeOffset Now = new(2026, 5, 1, 12, 0, 0, TimeSpan.Zero);
 
@@ -89,7 +89,7 @@ public class GraphCommandTests
         foreach (var role in setup.Roles.Where(role => role.IsRequired))
         {
             var option = role.Options.FirstOrDefault(candidate => !candidate.IsNone && !used.Contains(candidate.WorksheetColumnId!.Value));
-            role.SelectedOption = option;
+            role.Choose(option);
             if (option is not null)
             {
                 used.Add(option.WorksheetColumnId!.Value);
@@ -105,7 +105,7 @@ public class GraphCommandTests
         foreach (var (roleName, columnName) in assignments)
         {
             var role = setup.Roles.Single(candidate => candidate.DisplayName == roleName);
-            role.SelectedOption = role.Options.Single(option => !option.IsNone && option.Name == columnName);
+            role.Choose(role.Options.Single(option => !option.IsNone && option.Name == columnName));
         }
 
         return setup.Confirm();

@@ -1,3 +1,4 @@
+using YAT.App.Tests.TestDoubles;
 using YAT.Application.Graphs;
 using YAT.app.ViewModels;
 using YAT.Domain.Entities;
@@ -59,7 +60,7 @@ public class GraphLabelsSetupTests
     private static void Assign(GraphSetupViewModel setup, GraphVariableRole role, WorksheetColumn column)
     {
         var roleViewModel = Role(setup, role);
-        roleViewModel.SelectedOption = Assert.Single(roleViewModel.Options, option => option.WorksheetColumnId == column.Id);
+        roleViewModel.Choose(Assert.Single(roleViewModel.Options, option => option.WorksheetColumnId == column.Id));
     }
 
     private static SetupChoice<GraphLabelMode> Mode(GraphSetupViewModel setup, GraphLabelMode mode) =>

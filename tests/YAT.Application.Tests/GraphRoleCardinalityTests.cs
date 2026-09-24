@@ -30,34 +30,37 @@ public class GraphRoleCardinalityTests
     private static GraphConfiguration Configuration(GraphType graphType, params (GraphVariableRole Role, WorksheetColumn Column)[] assignments) =>
         new(graphType, WorksheetId, [.. assignments.Select(item => new GraphColumnAssignment(item.Role, item.Column.Id))]);
 
-    // 0
+    // 0: from Task #041 the variables of every graph but the scatter plot are picked several at a time; axes and groups
+    // take one column.
     [Fact]
-    public void OnlyTheBoxPlotsVariableRoleTakesSeveralColumns()
+    public void EveryVariableRoleTakesSeveralColumns()
     {
         foreach (var definition in GraphTypeDefinitions.All)
         {
             foreach (var role in definition.Roles)
             {
-                var expected = definition.GraphType == GraphType.BoxPlot && role.Role == GraphVariableRole.Variable;
+                var expected = role.Role == GraphVariableRole.Variable;
                 Assert.Equal(expected, role.AllowsMultiple);
             }
         }
     }
 
-    // 1
+    // 1: a distribution graph takes one variable as it always did, or several - but one column only once.
     [Theory]
     [InlineData(GraphType.Histogram)]
     [InlineData(GraphType.ProbabilityPlot)]
     [InlineData(GraphType.EmpiricalCdf)]
-    public void ASingleVariableGraphStillTakesExactlyOneVariable(GraphType graphType)
+    public void ADistributionGraphTakesOneOrSeveralVariables(GraphType graphType)
     {
         Assert.True(Validator.Validate(Configuration(graphType, (GraphVariableRole.Variable, Reg1)), Columns).IsValid);
+        Assert.True(Validator.Validate(
+            Configuration(graphType, (GraphVariableRole.Variable, Reg1), (GraphVariableRole.Variable, Reg2)), Columns).IsValid);
 
-        var two = Validator.Validate(
-            Configuration(graphType, (GraphVariableRole.Variable, Reg1), (GraphVariableRole.Variable, Reg2)), Columns);
+        var twice = Validator.Validate(
+            Configuration(graphType, (GraphVariableRole.Variable, Reg1), (GraphVariableRole.Variable, Reg1)), Columns);
 
-        var error = Assert.Single(two.Errors);
-        Assert.Equal(GraphValidationReason.DuplicateRole, error.Reason);
+        var error = Assert.Single(twice.Errors);
+        Assert.Equal(GraphValidationReason.DuplicateColumn, error.Reason);
         Assert.Equal(GraphVariableRole.Variable, error.Role);
     }
 

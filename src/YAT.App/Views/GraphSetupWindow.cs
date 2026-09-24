@@ -93,9 +93,10 @@ internal sealed class GraphSetupWindow : Window
         };
     }
 
-    // Shows the dialog and returns the confirmed configuration, or null when it was cancelled.
-    public static Task<GraphConfiguration?> ShowAsync(Window owner, GraphSetupViewModel setup) =>
-        new GraphSetupWindow(setup).ShowDialog<GraphConfiguration?>(owner);
+    // Shows the dialog and returns what was confirmed - the configuration and how its variables are drawn - or null
+    // when it was cancelled.
+    public static Task<GraphSetupRequest?> ShowAsync(Window owner, GraphSetupViewModel setup) =>
+        new GraphSetupWindow(setup).ShowDialog<GraphSetupRequest?>(owner);
 
     private static Control AvailableColumns(GraphSetupViewModel setup)
     {
@@ -115,7 +116,8 @@ internal sealed class GraphSetupWindow : Window
 
     // One grid for every role, so the selectors line up under each other whatever the roles are called: the label
     // column takes the width of the longest label ("Categorical variable for grouping" is a good deal longer than
-    // "X-axis"), and the selectors share what is left.
+    // "X-axis"), and the selectors share what is left. Where the graph type can draw several variables together or
+    // separately, that choice follows the role the variables are picked in.
     private static Control Roles(GraphSetupViewModel setup)
     {
         var panel = new Grid
@@ -124,41 +126,69 @@ internal sealed class GraphSetupWindow : Window
             VerticalAlignment = VerticalAlignment.Top
         };
 
-        for (var index = 0; index < setup.Roles.Count; index++)
-        {
-            panel.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        }
-
         var row = 0;
         foreach (var role in setup.Roles)
         {
             // A role that takes several columns is picked from a list; one that takes a single column keeps its
             // selector. Which of the two is read from the role, so no graph type is named here.
             var selector = role.AllowsMultiple ? MultipleSelector(role) : SingleSelector(role);
+            AddRoleRow(panel, row++, role.DisplayName, selector);
 
-            var label = new TextBlock
+            if (role.AllowsMultiple && setup.SupportsVariableLayout)
             {
-                Text = role.DisplayName,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 5, 12, 5)
-            };
-
-            Grid.SetRow(label, row);
-            Grid.SetColumn(label, 0);
-            panel.Children.Add(label);
-
-            selector.Margin = new Thickness(0, 5);
-            Grid.SetRow(selector, row);
-            Grid.SetColumn(selector, 1);
-            panel.Children.Add(selector);
-            row++;
+                AddRoleRow(panel, row++, "Display", Display(setup));
+            }
         }
 
         return panel;
     }
 
+    private static void AddRoleRow(Grid panel, int row, string text, Control selector)
+    {
+        panel.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+        var label = new TextBlock
+        {
+            Text = text,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 5, 12, 5)
+        };
+
+        Grid.SetRow(label, row);
+        Grid.SetColumn(label, 0);
+        panel.Children.Add(label);
+
+        selector.Margin = new Thickness(0, 5);
+        Grid.SetRow(selector, row);
+        Grid.SetColumn(selector, 1);
+        panel.Children.Add(selector);
+    }
+
+    // Together or Separate: one graph with every variable, or a graph for each. It only does something with two or
+    // more variables selected, so until then it is shown but not available.
+    private static Control Display(GraphSetupViewModel setup)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        foreach (var (text, property) in new[]
+                 {
+                     ("Together", nameof(GraphSetupViewModel.IsTogether)),
+                     ("Separate", nameof(GraphSetupViewModel.IsSeparate))
+                 })
+        {
+            var choice = new RadioButton { Content = text, GroupName = "Display", Name = property };
+            choice.Bind(ToggleButton.IsCheckedProperty, new Binding(property) { Source = setup, Mode = BindingMode.TwoWay });
+            choice.Bind(IsEnabledProperty, new Binding(nameof(GraphSetupViewModel.IsLayoutEnabled)) { Source = setup });
+            row.Children.Add(choice);
+        }
+
+        return row;
+    }
+
     // The roles, then the options the graph type offers. An option the graph type does not have is left out entirely
     // rather than shown disabled; which options exist is read from the graph type's capabilities.
+    //
+    // The histogram has the most options, so they stand in two columns - its own bins and statistics beside the
+    // specification and the labels - to keep the dialog within a 1280 x 720 screen.
     private static Control RightColumn(GraphSetupViewModel setup)
     {
         var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
@@ -173,6 +203,7 @@ internal sealed class GraphSetupWindow : Window
 
         var options = new StackPanel { Spacing = 4 };
         options.Children.Add(new TextBlock { Text = "Options", FontWeight = FontWeight.SemiBold });
+        var second = setup.SupportsHistogramControls ? new StackPanel { Spacing = 4 } : options;
 
         if (setup.SupportsHistogramControls)
         {
@@ -191,17 +222,29 @@ internal sealed class GraphSetupWindow : Window
 
         if (setup.SupportsSpecificationLines)
         {
-            options.Children.Add(new TextBlock { Text = "Specification", Margin = new Thickness(0, 6, 0, 0) });
-            options.Children.Add(Specification(setup));
+            second.Children.Add(new TextBlock { Text = "Specification", Margin = new Thickness(0, 6, 0, 0) });
+            second.Children.Add(Specification(setup));
         }
 
         if (setup.SupportsLabels)
         {
-            options.Children.Add(new TextBlock { Text = "Labels", Margin = new Thickness(0, 6, 0, 0) });
-            options.Children.Add(GraphLabelsEditor.Create(setup.Labels));
+            second.Children.Add(new TextBlock { Text = "Labels", Margin = new Thickness(0, 6, 0, 0) });
+            second.Children.Add(GraphLabelsEditor.Create(setup.Labels));
         }
 
-        column.Children.Add(options);
+        if (ReferenceEquals(second, options))
+        {
+            column.Children.Add(options);
+        }
+        else
+        {
+            var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,24,Auto") };
+            Grid.SetColumn(second, 2);
+            columns.Children.Add(options);
+            columns.Children.Add(second);
+            column.Children.Add(columns);
+        }
+
         Grid.SetColumn(column, 2);
         return column;
     }
@@ -374,9 +417,9 @@ internal sealed class GraphSetupWindow : Window
 
     private void Confirm()
     {
-        if (_setup.Confirm() is { } configuration)
+        if (_setup.ConfirmRequest() is { } request)
         {
-            Close(configuration);
+            Close(request);
         }
     }
 }

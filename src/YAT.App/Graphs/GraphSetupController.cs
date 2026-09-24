@@ -9,7 +9,8 @@ using YAT.Domain.Entities;
 namespace YAT.app.Graphs;
 
 // The Graph menu commands: read the active worksheet's column metadata through the current session, show the graph
-// setup for the chosen graph type, and turn the configuration the user confirmed into a graph window.
+// setup for the chosen graph type, and turn what the user confirmed into graph windows: one, or - for several variables
+// drawn separately (Task #041) - one for each variable.
 //
 // It owns the order of the steps, not the work: the data comes from the session, the render model from the graph type's
 // own builder, and the window from the presenter. It never touches a repository or a raw data store.
@@ -21,6 +22,9 @@ public sealed class GraphSetupController
     private const string NotImplementedMessage = "This graph type is not implemented yet.";
     private const string NoDataMessage = "This graph has no data to plot.";
     public const string PreparationFailedMessage = "This graph could not be drawn.";
+
+    // What the user is told about the graphs of a request that could not be drawn, one line each after this.
+    public const string PartialFailureHeading = "These graphs could not be drawn:";
 
     private readonly IGraphSetupDialogs _dialogs;
     private readonly IGraphWindowPresenter _windows;
@@ -91,23 +95,30 @@ public sealed class GraphSetupController
             return null;
         }
 
-        var configuration = await _dialogs.ShowSetupAsync(
+        var request = await _dialogs.ShowSetupAsync(
             new GraphSetupViewModel(GraphTypeDefinitions.For(graphType), worksheet, columns));
 
-        if (configuration is not null)
+        if (request is not null)
         {
-            LastConfiguration = configuration;
-            await ShowGraphAsync(configuration, session, cancellationToken);
+            LastConfiguration = request.Configuration;
+            await ShowGraphsAsync(request, session, cancellationToken);
         }
 
-        return configuration;
+        return request?.Configuration;
     }
 
-    // Reads the graph's observations through the session, prepares them and opens the window. A graph window appears
-    // only for a graph that can actually be drawn: nothing is shown for a cancelled request, a failed read or a
-    // configuration that leaves no observations.
-    private async Task ShowGraphAsync(GraphConfiguration configuration, MainWindowSession session, CancellationToken cancellationToken)
+    // Reads the graphs' observations through the session - once, however many graphs they make - prepares them and
+    // opens their windows. A graph window appears only for a graph that can actually be drawn: nothing is shown for a
+    // cancelled request or a failed read, and a graph whose preparation leaves nothing to draw or fails is reported
+    // instead of shown. When several graphs were asked for, the others still open, and the ones that could not be drawn
+    // are reported together in one message.
+    private async Task ShowGraphsAsync(
+        GraphSetupRequest request,
+        MainWindowSession session,
+        CancellationToken cancellationToken)
     {
+        var configuration = request.Configuration;
+
         // Every graph type this version knows is drawn; the guard is what a graph type added to the enum without a
         // builder would meet.
         if (configuration.GraphType is not (GraphType.ScatterPlot or GraphType.Histogram
@@ -138,47 +149,145 @@ public sealed class GraphSetupController
             return;
         }
 
-        (GraphPresentationState Graph, IGraphPlotRenderer Plot)? graph;
+        IReadOnlyList<PreparedGraph> graphs;
         try
         {
             // Preparing up to a million observations is real work: it runs off the UI thread and can be cancelled, so a
-            // cancelled request never leaves a half-prepared graph behind.
-            // What the graph shows besides its plot - the statistics panel, the specification lines, the labels - is
-            // part of that preparation, applied in one place: the graph type says what it offers, the configuration
-            // what is wanted. The graph window keeps the presentation, so its labels can be changed without the data.
-            graph = await Task.Run(() => _prepare(data, configuration, cancellationToken) is { } built
-                ? (GraphPresentation.Present(built.Frame, data, configuration, cancellationToken), built.Plot)
-                : ((GraphPresentationState Graph, IGraphPlotRenderer Plot)?)null, cancellationToken);
+            // cancelled request never leaves a half-prepared graph behind - and never some of its graphs.
+            graphs = await Task.Run(() => PrepareAll(request, data, cancellationToken), cancellationToken);
         }
         catch (OperationCanceledException)
         {
             return;
         }
-        catch (GraphPreparationException exception)
-        {
-            // An expected refusal the user can act on (a histogram bin width that does not suit the data): its message
-            // is written for the user. No window opens, and nothing went wrong that needs tracing.
-            await _dialogs.ShowErrorAsync(exception.Message);
-            return;
-        }
         catch (Exception exception)
         {
-            // Preparation is computation over data that was read successfully, so a failure here is a defect in one
-            // graph type's preparation - not a reason to end the application. The boundary is only this call: the user
-            // is told the graph could not be drawn, no window opens, and the exception itself is not swallowed but
-            // written to the trace output the application already logs to.
+            // Each graph is contained on its own (PrepareOne); this is the boundary for what the request shares, such
+            // as drawing its variables together. The user is told, nothing opens, and the exception is traced.
             Trace.TraceError($"Preparing a {configuration.GraphType} graph failed: {exception}");
             await _dialogs.ShowErrorAsync(PreparationFailedMessage);
             return;
         }
 
-        if (graph is not { } prepared)
+        var cascade = 0;
+        foreach (var graph in graphs.Where(graph => graph.Presentation is not null))
         {
-            await _dialogs.ShowErrorAsync(NoDataMessage);
-            return;
+            _windows.ShowGraph(graph.Presentation!, graph.Plot, cascade++);
         }
 
-        _windows.ShowGraph(prepared.Graph, prepared.Plot);
+        var failures = graphs.Where(graph => graph.Failure is not null).ToList();
+        if (failures.Count == 1 && graphs.Count == 1)
+        {
+            // One graph asked for: its own message, as it always was.
+            await _dialogs.ShowErrorAsync(failures[0].Failure!);
+        }
+        else if (failures.Count > 0)
+        {
+            await _dialogs.ShowErrorAsync(PartialFailureMessage(failures));
+        }
+    }
+
+    private static string PartialFailureMessage(IEnumerable<PreparedGraph> failures) =>
+        string.Join(
+            Environment.NewLine,
+            [PartialFailureHeading, .. failures.Select(failure => $"{failure.Name}: {failure.Failure}")]);
+
+    // One graph of a request, prepared: what the window shows, or why there is no window.
+    private sealed record PreparedGraph(
+        string Name,
+        GraphPresentationState? Presentation,
+        IGraphPlotRenderer? Plot,
+        string? Failure);
+
+    // The graphs a request asks for, each prepared on its own so that one that fails does not take the others with it.
+    //
+    // A graph type that reads several variables (every one but the scatter plot) gets them in one read. With one
+    // variable, or with several drawn separately, each variable's graph is drawn from that variable's observations
+    // exactly as a single-variable graph always was; drawn together, the variables become one graph of series.
+    private IReadOnlyList<PreparedGraph> PrepareAll(
+        GraphSetupRequest request,
+        GraphData data,
+        CancellationToken cancellationToken)
+    {
+        var configuration = request.Configuration;
+        var separate = request.Layout == GraphVariableLayout.Separate;
+        switch (data)
+        {
+            case MultiVariableGraphData boxPlot
+                when boxPlot.GraphType == GraphType.BoxPlot && separate && boxPlot.Variables.Count > 1:
+                return
+                [
+                    .. boxPlot.Variables.Select(variable => PrepareOne(
+                        variable.Variable.Name,
+                        new MultiVariableGraphData(boxPlot.GraphType, boxPlot.WorksheetId, [variable]),
+                        GraphSetupRequest.ForVariable(configuration, variable.Variable.ColumnId),
+                        cancellationToken))
+                ];
+
+            case MultiVariableGraphData boxPlot when boxPlot.GraphType == GraphType.BoxPlot:
+                return [PrepareOne(configuration.GraphType.ToString(), boxPlot, configuration, cancellationToken)];
+
+            case MultiVariableGraphData { Variables.Count: 1 } single:
+                var only = single.Variables[0];
+                return [PrepareOne(only.Variable.Name, only, configuration, cancellationToken)];
+
+            case MultiVariableGraphData several when separate:
+                return
+                [
+                    .. several.Variables.Select(variable => PrepareOne(
+                        variable.Variable.Name,
+                        variable,
+                        GraphSetupRequest.ForVariable(configuration, variable.Variable.ColumnId),
+                        cancellationToken))
+                ];
+
+            case MultiVariableGraphData several:
+                var together = GraphVariablesTogether.Combine(several, cancellationToken);
+                return [PrepareOne(together.Variable.Name, together, configuration, cancellationToken)];
+
+            default:
+                return [PrepareOne(configuration.GraphType.ToString(), data, configuration, cancellationToken)];
+        }
+    }
+
+    // One graph: its preparation and what the graph shows besides its plot - the statistics panel, the specification
+    // lines, the labels - applied in one place: the graph type says what it offers, the configuration what is wanted.
+    // The graph window keeps the presentation, so its labels can be changed without the data.
+    private PreparedGraph PrepareOne(
+        string name,
+        GraphData data,
+        GraphConfiguration configuration,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_prepare(data, configuration, cancellationToken) is not { } built)
+            {
+                return new PreparedGraph(name, null, null, NoDataMessage);
+            }
+
+            var presentation = GraphPresentation.Present(built.Frame, data, configuration, cancellationToken);
+            return new PreparedGraph(name, presentation, built.Plot, null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (GraphPreparationException exception)
+        {
+            // An expected refusal the user can act on (a histogram bin width that does not suit the data): its message
+            // is written for the user. No window opens for it, and nothing went wrong that needs tracing.
+            return new PreparedGraph(name, null, null, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            // Preparation is computation over data that was read successfully, so a failure here is a defect in one
+            // graph type's preparation - not a reason to end the application. The boundary is only this graph: the user
+            // is told it could not be drawn, no window opens for it, and the exception itself is not swallowed but
+            // written to the trace output the application already logs to.
+            Trace.TraceError($"Preparing a {configuration.GraphType} graph failed: {exception}");
+            return new PreparedGraph(name, null, null, PreparationFailedMessage);
+        }
     }
 
     // The graph type's own preparation, which is the only place that turns graph data into something drawable. Null
@@ -189,6 +298,12 @@ public sealed class GraphSetupController
         GraphConfiguration configuration,
         CancellationToken cancellationToken)
     {
+        // A single-variable graph configured with several variables is those variables drawn together
+        // (GraphVariablesTogether): its X axis is their shared "Data" axis rather than one variable's.
+        var axisTitle = configuration.FindColumnIds(GraphVariableRole.Variable).Count > 1
+            ? GraphVariablesTogether.AxisTitle
+            : null;
+
         switch (data)
         {
             case ScatterGraphData scatter:
@@ -201,7 +316,10 @@ public sealed class GraphSetupController
             case UnivariateGraphData univariate when univariate.GraphType == GraphType.Histogram:
                 var histogramModel = _histogram.Build(
                     univariate,
-                    new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    new HistogramPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name)
+                    {
+                        AxisTitle = axisTitle
+                    },
                     configuration.HistogramOptions,
                     cancellationToken);
                 return histogramModel is null ? null : (histogramModel.Frame, new HistogramRenderer(histogramModel));
@@ -210,7 +328,10 @@ public sealed class GraphSetupController
                 // The graph types with options of their own are given those and nothing else.
                 var probabilityModel = _probabilityPlot.Build(
                     univariate,
-                    new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    new ProbabilityPlotLabels(univariate.Variable.Name, univariate.Group?.Column.Name)
+                    {
+                        AxisTitle = axisTitle
+                    },
                     configuration.ProbabilityPlotOptions,
                     cancellationToken);
                 return probabilityModel is null ? null : (probabilityModel.Frame, new ProbabilityPlotRenderer(probabilityModel));
@@ -227,7 +348,10 @@ public sealed class GraphSetupController
             case UnivariateGraphData univariate when univariate.GraphType == GraphType.EmpiricalCdf:
                 var empiricalCdfModel = _empiricalCdf.Build(
                     univariate,
-                    new EmpiricalCdfLabels(univariate.Variable.Name, univariate.Group?.Column.Name),
+                    new EmpiricalCdfLabels(univariate.Variable.Name, univariate.Group?.Column.Name)
+                    {
+                        AxisTitle = axisTitle
+                    },
                     cancellationToken);
                 return empiricalCdfModel is null ? null : (empiricalCdfModel.Frame, new EmpiricalCdfRenderer(empiricalCdfModel));
 

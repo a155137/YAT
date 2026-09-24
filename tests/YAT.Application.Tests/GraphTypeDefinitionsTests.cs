@@ -105,9 +105,11 @@ public class GraphTypeDefinitionsTests
         Assert.Equal(
             graphType switch
             {
-                GraphType.ProbabilityPlot => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine, GraphCapability.Labels],
-                GraphType.Histogram => [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.HistogramControls, GraphCapability.Labels],
-                _ => (GraphCapability[])[GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.Labels]
+                GraphType.ProbabilityPlot =>
+                    [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine, GraphCapability.Labels, GraphCapability.VariableLayout],
+                GraphType.Histogram =>
+                    [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.HistogramControls, GraphCapability.Labels, GraphCapability.VariableLayout],
+                _ => (GraphCapability[])[GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.Labels, GraphCapability.VariableLayout]
             },
             definition.Capabilities);
     }
@@ -151,7 +153,9 @@ public class GraphTypeDefinitionsTests
 
         Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
         Assert.False(definition.Supports(GraphCapability.SpecificationLines));
-        Assert.Equal([GraphCapability.Labels], definition.Capabilities);
+        Assert.Equal(
+            graphType == GraphType.BoxPlot ? [GraphCapability.Labels, GraphCapability.VariableLayout] : (GraphCapability[])[GraphCapability.Labels],
+            definition.Capabilities);
     }
 
     [Fact]

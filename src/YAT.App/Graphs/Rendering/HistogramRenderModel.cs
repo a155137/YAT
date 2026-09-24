@@ -157,4 +157,9 @@ public sealed record HistogramRenderModel
 
 // The column names a histogram is labelled with. They are passed in rather than read here, so nothing in the
 // presentation layer reaches for worksheet metadata of its own.
-public sealed record HistogramPlotLabels(string Variable, string? GroupColumn = null);
+public sealed record HistogramPlotLabels(string Variable, string? GroupColumn = null)
+{
+    // The X axis title when it is not the variable's name: several variables drawn together are one axis of "Data"
+    // (see GraphVariablesTogether). Null for the variable's name.
+    public string? AxisTitle { get; init; }
+}

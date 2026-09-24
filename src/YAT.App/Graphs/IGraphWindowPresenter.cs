@@ -9,5 +9,7 @@ namespace YAT.app.Graphs;
 // before the labels, so the window can change the labels of the graph it shows without the data.
 public interface IGraphWindowPresenter
 {
-    void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot);
+    // cascade: where the window stands among the windows of one request - 0 for the first (or only) one, which opens
+    // where a graph window always opens; each later one opens a step further down and to the right.
+    void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0);
 }

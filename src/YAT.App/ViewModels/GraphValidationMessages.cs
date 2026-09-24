@@ -27,6 +27,10 @@ public static class GraphValidationMessages
             GraphValidationReason.MissingRequiredRole when error.Role == GraphVariableRole.Variable => "Please select a variable.",
             GraphValidationReason.MissingRequiredRole or GraphValidationReason.IncompatibleDataType =>
                 $"Please select a Numeric column for {roleName}.",
+            GraphValidationReason.TooManyColumns when error.Role == GraphVariableRole.Variable =>
+                $"Select at most {GraphRoleDefinition.MaximumColumns} variables.",
+            GraphValidationReason.TooManyColumns =>
+                $"Select at most {GraphRoleDefinition.MaximumColumns} columns for {roleName}.",
             GraphValidationReason.ColumnNotFound => "The selected column is no longer available.",
             GraphValidationReason.ColumnFromAnotherWorksheet => "The selected column belongs to another worksheet.",
             GraphValidationReason.SpecificationValueNotNumeric => $"{FieldName(error.Field)} must be a number.",

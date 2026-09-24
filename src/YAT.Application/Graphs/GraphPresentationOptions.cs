@@ -21,7 +21,11 @@ public enum GraphCapability
 
     // The graph title and the two axis titles, each shown as the graph type gives it, as typed, or not at all (see
     // GraphLabelOptions).
-    Labels
+    Labels,
+
+    // Several variables drawn together in one graph or each in a graph of its own (see GraphVariableLayout). Only a
+    // graph type whose variable role takes several columns offers it.
+    VariableLayout
 }
 
 // How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:

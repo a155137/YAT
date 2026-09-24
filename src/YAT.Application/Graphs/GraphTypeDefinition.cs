@@ -42,6 +42,9 @@ public sealed record GraphRoleDefinition(
     IReadOnlyList<WorksheetDataType> AllowedDataTypes,
     bool AllowsMultiple = false)
 {
+    // The most columns a role that takes several may be given: enough to compare, few enough to read.
+    public const int MaximumColumns = 10;
+
     public bool Allows(WorksheetDataType dataType) => AllowedDataTypes.Contains(dataType);
 }
 

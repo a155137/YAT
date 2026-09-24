@@ -11,13 +11,17 @@ internal sealed class FakeGraphWindowPresenter : IGraphWindowPresenter
 
     public List<GraphPresentationState> Graphs { get; } = [];
 
+    // Where each shown window stood among the windows of its request.
+    public List<int> Cascades { get; } = [];
+
     public (GraphRenderModel Frame, IGraphPlotRenderer? Plot) Last =>
         Shown.Count > 0 ? Shown[^1] : throw new InvalidOperationException("No graph was shown.");
 
-    public void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot)
+    public void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0)
     {
         ArgumentNullException.ThrowIfNull(graph);
         Graphs.Add(graph);
+        Cascades.Add(cascade);
         Shown.Add((graph.Frame, plot));
     }
 }

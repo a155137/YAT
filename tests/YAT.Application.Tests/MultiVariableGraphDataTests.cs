@@ -222,9 +222,10 @@ public class MultiVariableGraphDataTests
         Assert.Equal(YAT.Application.Exceptions.GraphDataError.ColumnUnavailable, exception.Error);
     }
 
-    // 8
+    // 8: from Task #041 a histogram reads its variables as the box plot does - one slice for one variable, holding
+    // what the single-variable read gave.
     [Fact]
-    public async Task SingleVariableGraphsStillReadTheirOwnShape()
+    public async Task EveryGraphOfVariablesReadsThemOneSliceEach()
     {
         var fixture = new Fixture();
         var reg1 = fixture.Numeric("Reg1", 0, 1, null, 3);
@@ -236,7 +237,9 @@ public class MultiVariableGraphDataTests
                 [new GraphColumnAssignment(GraphVariableRole.Variable, reg1.Id)]),
             Token);
 
-        var univariate = Assert.IsType<UnivariateGraphData>(histogram);
+        var multi = Assert.IsType<MultiVariableGraphData>(histogram);
+        var univariate = Assert.Single(multi.Variables);
         Assert.Equal([1, 3], univariate.Values.ToArray());
+        Assert.Equal(reg1.Id, univariate.Variable.ColumnId);
     }
 }

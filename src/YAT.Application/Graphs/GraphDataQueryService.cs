@@ -34,8 +34,10 @@ public sealed class GraphDataQueryService
         _rawDataStore = rawDataStore;
     }
 
-    // The observations of the configuration's graph: ScatterGraphData for a scatter plot, UnivariateGraphData for the
-    // single-variable graphs. Throws GraphDataException when the configuration cannot be used or the data cannot be read.
+    // The observations of the configuration's graph: ScatterGraphData for a scatter plot, MultiVariableGraphData for a
+    // graph whose variable role takes several columns (every graph that reads measured variables, from Task #041 on,
+    // even with one variable selected), UnivariateGraphData for a variable role that takes one. Throws
+    // GraphDataException when the configuration cannot be used or the data cannot be read.
     public async Task<GraphData> LoadAsync(GraphConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);

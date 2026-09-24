@@ -1,3 +1,4 @@
+using YAT.App.Tests.TestDoubles;
 using YAT.Application.Graphs;
 using YAT.Application.Specifications;
 using YAT.app.ViewModels;
@@ -37,7 +38,7 @@ public class GraphSetupViewModelTests
     private static void Assign(GraphSetupViewModel setup, GraphVariableRole role, WorksheetColumn column)
     {
         var roleViewModel = Role(setup, role);
-        roleViewModel.SelectedOption = Assert.Single(roleViewModel.Options, option => option.WorksheetColumnId == column.Id);
+        roleViewModel.Choose(Assert.Single(roleViewModel.Options, option => option.WorksheetColumnId == column.Id));
     }
 
     [Fact]

@@ -53,7 +53,11 @@ public enum GraphValidationReason
     LabelTextMissing,
 
     // A label's mode is not a defined choice. LabelField says which one.
-    LabelModeInvalid
+    LabelModeInvalid,
+
+    // A role that takes several columns was given more than GraphRoleDefinition.MaximumColumns of them. Role says
+    // which one.
+    TooManyColumns
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
@@ -131,6 +135,16 @@ public sealed class GraphConfigurationValidator
             if (!roleDefinition.Allows(column.DataType))
             {
                 errors.Add(new GraphValidationError(GraphValidationReason.IncompatibleDataType, assignment.Role, column.Id));
+            }
+        }
+
+        // A role that takes several columns takes at most GraphRoleDefinition.MaximumColumns of them.
+        foreach (var role in definition.Roles.Where(role => role.AllowsMultiple))
+        {
+            var count = configuration.Assignments.Count(assignment => assignment.Role == role.Role);
+            if (count > GraphRoleDefinition.MaximumColumns)
+            {
+                errors.Add(new GraphValidationError(GraphValidationReason.TooManyColumns, role.Role));
             }
         }
 

@@ -93,7 +93,7 @@ public sealed class EmpiricalCdfRenderModelBuilder
 
         var frame = new GraphRenderModel(
             $"Empirical CDF of {labels.Variable}",
-            new GraphAxisModel(horizontal, GraphAxisTicks.Nice(horizontal), labels.Variable),
+            new GraphAxisModel(horizontal, GraphAxisTicks.Nice(horizontal), labels.AxisTitle ?? labels.Variable),
             PercentAxis.Axis(),
             // A plot without a group column is one unnamed series, and one series needs no legend.
             data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));

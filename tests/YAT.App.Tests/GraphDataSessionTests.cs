@@ -15,6 +15,11 @@ public class GraphDataSessionTests
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
+    // From Task #041 a graph of measured variables reads them one slice each (MultiVariableGraphData); a single
+    // variable's slice holds what the single-variable read gave before.
+    private static UnivariateGraphData OneVariable(GraphData data) =>
+        Assert.Single(Assert.IsType<MultiVariableGraphData>(data).Variables);
+
     private sealed class Runtime : IDisposable
     {
         public Runtime()
@@ -114,7 +119,7 @@ public class GraphDataSessionTests
         await runtime.PasteAsync("Reg1\n5\n\n7\n");
         var configuration = await runtime.ConfigurationAsync(graphType, (GraphVariableRole.Variable, "Reg1"));
 
-        var data = Assert.IsType<UnivariateGraphData>(await runtime.Session.LoadGraphDataAsync(configuration, Token));
+        var data = OneVariable(await runtime.Session.LoadGraphDataAsync(configuration, Token));
 
         Assert.Equal([5, 7], data.Values.ToArray());
         Assert.Equal(graphType, data.GraphType);
@@ -133,7 +138,7 @@ public class GraphDataSessionTests
 
         // Save As: the new session reads the saved project's data.
         var savedConfiguration = await runtime.ConfigurationAsync(GraphType.Histogram, (GraphVariableRole.Variable, "Reg1"));
-        var savedData = Assert.IsType<UnivariateGraphData>(await runtime.Session.LoadGraphDataAsync(savedConfiguration, Token));
+        var savedData = OneVariable(await runtime.Session.LoadGraphDataAsync(savedConfiguration, Token));
         Assert.Equal([1, 2], savedData.Values.ToArray());
 
         // New: another project, its own worksheet and data.
@@ -141,7 +146,7 @@ public class GraphDataSessionTests
         await runtime.Project.GridLoadTask;
         await runtime.PasteAsync("Reg1\n7\n8\n9\n");
         var newConfiguration = await runtime.ConfigurationAsync(GraphType.Histogram, (GraphVariableRole.Variable, "Reg1"));
-        var newData = Assert.IsType<UnivariateGraphData>(await runtime.Session.LoadGraphDataAsync(newConfiguration, Token));
+        var newData = OneVariable(await runtime.Session.LoadGraphDataAsync(newConfiguration, Token));
         Assert.Equal([7, 8, 9], newData.Values.ToArray());
 
         // A configuration of the previous project is not part of this one.
@@ -153,7 +158,7 @@ public class GraphDataSessionTests
         runtime.ProjectDialogs.OpenPaths.Enqueue(savedPath);
         Assert.True(await runtime.Lifecycle.OpenProjectAsync());
         await runtime.Project.GridLoadTask;
-        var reopenedData = Assert.IsType<UnivariateGraphData>(await runtime.Session.LoadGraphDataAsync(savedConfiguration, Token));
+        var reopenedData = OneVariable(await runtime.Session.LoadGraphDataAsync(savedConfiguration, Token));
         Assert.Equal([1, 2], reopenedData.Values.ToArray());
     }
 

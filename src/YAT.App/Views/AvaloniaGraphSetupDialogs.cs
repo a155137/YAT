@@ -16,7 +16,8 @@ public sealed class AvaloniaGraphSetupDialogs : IGraphSetupDialogs
         _owner = owner;
     }
 
-    public Task<GraphConfiguration?> ShowSetupAsync(GraphSetupViewModel setup) => GraphSetupWindow.ShowAsync(_owner, setup);
+    public Task<GraphSetupRequest?> ShowSetupAsync(GraphSetupViewModel setup) =>
+        GraphSetupWindow.ShowAsync(_owner, setup);
 
     public Task ShowErrorAsync(string message) => LifecycleMessageWindow.ShowErrorAsync(_owner, message);
 }

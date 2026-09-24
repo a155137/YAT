@@ -119,6 +119,9 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         // The fitted line is shown unless the user turns it off (only offered where the graph type draws one).
         ShowFittedLine = ProbabilityPlotOptions.Default.ShowFittedLine;
 
+        // Several variables are drawn together unless the user asks for a graph of each.
+        Layout = GraphVariableLayout.Together;
+
         // A specification starts empty: nothing is drawn until the user enters a value.
         LowerLimitText = string.Empty;
         TargetText = string.Empty;
@@ -160,6 +163,46 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         new(HistogramBinningMode.Count, "Number of bins"),
         new(HistogramBinningMode.WidthAndStart, "Bin width and start")
     ];
+
+    // Whether the graph type can draw several variables together or each in a graph of its own; the setup offers the
+    // choice only when it can.
+    public bool SupportsVariableLayout => _definition.Supports(GraphCapability.VariableLayout);
+
+    // How several variables are drawn: together in one graph (the default) or each in a graph of its own. It means
+    // something only once two or more variables are selected.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsTogether), nameof(IsSeparate))]
+    public partial GraphVariableLayout Layout { get; set; }
+
+    public bool IsTogether
+    {
+        get => Layout == GraphVariableLayout.Together;
+        set
+        {
+            if (value)
+            {
+                Layout = GraphVariableLayout.Together;
+            }
+        }
+    }
+
+    public bool IsSeparate
+    {
+        get => Layout == GraphVariableLayout.Separate;
+        set
+        {
+            if (value)
+            {
+                Layout = GraphVariableLayout.Separate;
+            }
+        }
+    }
+
+    // Whether the layout choice does anything: only with two or more variables selected.
+    public bool IsLayoutEnabled => SelectedVariableCount >= 2;
+
+    private int SelectedVariableCount =>
+        Roles.Where(role => role.Role == GraphVariableRole.Variable).Sum(role => role.SelectedColumnIds.Count);
 
     // Whether the graph type has the histogram's Y scale and bins; the setup shows them only when it does.
     public bool SupportsHistogramControls => _definition.Supports(GraphCapability.HistogramControls);
@@ -240,6 +283,13 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     // Why the current assignments cannot be confirmed; null when they can.
     [ObservableProperty]
     public partial string? ValidationMessage { get; private set; }
+
+    // What the setup asks for when it is confirmed - the configuration and how its variables are drawn - or null when
+    // the configuration is not valid (ValidationMessage says why).
+    public GraphSetupRequest? ConfirmRequest() =>
+        Confirm() is { } configuration
+            ? new GraphSetupRequest(configuration, SupportsVariableLayout ? Layout : GraphVariableLayout.Together)
+            : null;
 
     // The configuration of the current assignments, or null when they are not valid (ValidationMessage says why).
     public GraphConfiguration? Confirm()
@@ -351,6 +401,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         }
 
         CanConfirm = Build().Result.IsValid;
+        OnPropertyChanged(nameof(IsLayoutEnabled));
         ValidationMessage = null;
     }
 

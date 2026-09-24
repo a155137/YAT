@@ -12,6 +12,18 @@ public class GraphDataQueryServiceTests
 {
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
+    // From Task #041 every graph of measured variables reads them as MultiVariableGraphData, one slice per selected
+    // variable. The one slice of a single variable holds exactly what the single-variable read gave before: the
+    // expectations of the tests below are unchanged.
+    private static UnivariateGraphData OneVariable(GraphData data)
+    {
+        var multi = Assert.IsType<MultiVariableGraphData>(data);
+        var single = Assert.Single(multi.Variables);
+        Assert.Equal(multi.GraphType, single.GraphType);
+        Assert.Equal(multi.WorksheetId, single.WorksheetId);
+        return single;
+    }
+
     private sealed class Fixture
     {
         public Fixture()
@@ -198,7 +210,7 @@ public class GraphDataQueryServiceTests
         var fixture = new Fixture();
         var variable = fixture.Numeric("Reg1", 0, 3, null, 1, 2);
 
-        var data = Assert.IsType<UnivariateGraphData>(
+        var data = OneVariable(
             await fixture.LoadAsync(fixture.Configuration(graphType, (GraphVariableRole.Variable, variable))));
 
         Assert.Equal([3, 1, 2], data.Values.ToArray());
@@ -215,7 +227,7 @@ public class GraphDataQueryServiceTests
         var variable = fixture.Numeric("Reg1", 0, 1, null, 3);
         var group = fixture.Text("Lot", 1, "A", "B", null);
 
-        var data = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(
+        var data = OneVariable(await fixture.LoadAsync(
             fixture.Configuration(GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group))));
 
         Assert.Equal([1, 3], data.Values.ToArray());
@@ -232,8 +244,8 @@ public class GraphDataQueryServiceTests
         var configuration = fixture.Configuration(
             GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
 
-        var shown = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
-        var hidden = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(
+        var shown = OneVariable(await fixture.LoadAsync(configuration));
+        var hidden = OneVariable(await fixture.LoadAsync(
             configuration with { PresentationOptions = new GraphPresentationOptions(ShowStatistics: false) }));
 
         Assert.Equal(shown.Values.ToArray(), hidden.Values.ToArray());
@@ -250,8 +262,8 @@ public class GraphDataQueryServiceTests
         var configuration = fixture.Configuration(
             GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
 
-        var without = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
-        var with = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(
+        var without = OneVariable(await fixture.LoadAsync(configuration));
+        var with = OneVariable(await fixture.LoadAsync(
             configuration with { Specification = new YAT.Application.Specifications.Specification(-100, 2, 100) }));
 
         // A specification far outside the data neither filters nor adds observations: it is not read at all.
@@ -269,8 +281,8 @@ public class GraphDataQueryServiceTests
         var configuration = fixture.Configuration(
             GraphType.ProbabilityPlot, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
 
-        var on = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
-        var off = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(
+        var on = OneVariable(await fixture.LoadAsync(configuration));
+        var off = OneVariable(await fixture.LoadAsync(
             configuration with { ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine: false) }));
 
         Assert.Equal(on.Values.ToArray(), off.Values.ToArray());
@@ -288,8 +300,8 @@ public class GraphDataQueryServiceTests
         var configuration = fixture.Configuration(
             GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group));
 
-        var automatic = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
-        var fixedBins = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration with
+        var automatic = OneVariable(await fixture.LoadAsync(configuration));
+        var fixedBins = OneVariable(await fixture.LoadAsync(configuration with
         {
             HistogramOptions = new HistogramOptions(HistogramYScale.Density, HistogramBinningMode.WidthAndStart, BinWidth: 0.5, BinStart: 100)
         }));
@@ -315,7 +327,7 @@ public class GraphDataQueryServiceTests
 
         var variable = fixture.Numeric("Reg1", 0, values);
 
-        var data = Assert.IsType<UnivariateGraphData>(
+        var data = OneVariable(
             await fixture.LoadAsync(fixture.Configuration(GraphType.EmpiricalCdf, (GraphVariableRole.Variable, variable))));
 
         var expected = values.Where(value => value is not null).Select(value => value!.Value).ToArray();
@@ -362,8 +374,8 @@ public class GraphDataQueryServiceTests
         var variable = fixture.Numeric("Reg1", 0, 1, 2);
         var group = fixture.Column("Lot", WorksheetDataType.String, 1);
 
-        var data = await fixture.LoadAsync(
-            fixture.Configuration(GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group)));
+        var data = OneVariable(await fixture.LoadAsync(
+            fixture.Configuration(GraphType.Histogram, (GraphVariableRole.Variable, variable), (GraphVariableRole.Group, group))));
 
         Assert.Equal(2, data.Count);
         Assert.Equal([null, null], StringGroups(data));
@@ -390,7 +402,7 @@ public class GraphDataQueryServiceTests
             DataType = WorksheetDataType.Numeric
         });
 
-        var data = Assert.IsType<UnivariateGraphData>(await fixture.LoadAsync(configuration));
+        var data = OneVariable(await fixture.LoadAsync(configuration));
 
         Assert.Equal([1, 2, 3], data.Values.ToArray());
         Assert.Equal(variable.Id, data.Variable.ColumnId);
