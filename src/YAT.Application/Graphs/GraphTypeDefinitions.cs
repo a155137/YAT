@@ -26,10 +26,11 @@ public static class GraphTypeDefinitions
     private static readonly IReadOnlyList<GraphCapability> HistogramCapabilities =
         [.. DistributionCapabilities, GraphCapability.HistogramControls];
 
-    // Every graph has a title and two axis titles the user may keep, replace or hide, and axes whose ranges the user
-    // may choose (as far as its axis kinds allow).
+    // Every graph has a title and two axis titles the user may keep, replace or hide, axes whose ranges the user may
+    // choose (as far as its axis kinds allow), and a legend - whenever it has groups or several variables drawn
+    // together - the user may hide or move.
     private static readonly IReadOnlyList<GraphCapability> EveryGraph =
-        [GraphCapability.Labels, GraphCapability.AxisRange];
+        [GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.Legend];
 
     // A graph whose variable role takes several columns draws them together or each in a graph of its own.
     private static readonly IReadOnlyList<GraphCapability> SeveralVariables = [GraphCapability.VariableLayout];

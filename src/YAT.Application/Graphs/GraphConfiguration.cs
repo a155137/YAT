@@ -34,6 +34,11 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // query and the graph types' builders never read it. Both axes Auto unless the user chose.
     public GraphAxisRangeOptions AxisRangeOptions { get; init; } = GraphAxisRangeOptions.Default;
 
+    // Whether the legend is shown and where. Graph types that do not declare GraphCapability.Legend ignore it; the data
+    // query and the graph types' builders never read it. The graph type's own legend, on the right, unless the user
+    // chose.
+    public GraphLegendOptions LegendOptions { get; init; } = GraphLegendOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

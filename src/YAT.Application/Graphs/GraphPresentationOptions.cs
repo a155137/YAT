@@ -29,7 +29,11 @@ public enum GraphCapability
 
     // The range each axis is shown over, chosen automatically or by the user (see GraphAxisRangeOptions). Which axes
     // have one, and what may be typed for them, the graph type's axis kinds say.
-    AxisRange
+    AxisRange,
+
+    // The legend of a graph of groups or of several variables drawn together: shown or hidden, and on which side of the
+    // plot (see GraphLegendOptions).
+    Legend
 }
 
 // How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:

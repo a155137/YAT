@@ -40,6 +40,17 @@ public sealed record GraphLayoutMetrics
     // leaves the layout exactly as it is without them.
     public float ReferenceLabelHeight { get; init; }
 
+    // The legend as measured for arranging it (Task #044): each entry's label in entry order, the title (0 for none),
+    // one row, and the widest "… N more" of this legend. Only read when the legend does not stand where and as it
+    // always did (see GraphLayoutCalculator).
+    public IReadOnlyList<float> LegendLabelWidths { get; init; } = [];
+
+    public float LegendTitleWidth { get; init; }
+
+    public float LegendRowHeight { get; init; }
+
+    public float LegendMoreWidth { get; init; }
+
     // Rejects sizes that would produce meaningless rectangles. Zero is valid and means "this element is not shown".
     internal void EnsureValid()
     {
@@ -55,6 +66,14 @@ public sealed record GraphLayoutMetrics
         Require(LegendHeight, nameof(LegendHeight));
         Require(StatisticsPanelWidth, nameof(StatisticsPanelWidth));
         Require(ReferenceLabelHeight, nameof(ReferenceLabelHeight));
+        Require(LegendTitleWidth, nameof(LegendTitleWidth));
+        Require(LegendRowHeight, nameof(LegendRowHeight));
+        Require(LegendMoreWidth, nameof(LegendMoreWidth));
+        ArgumentNullException.ThrowIfNull(LegendLabelWidths);
+        foreach (var width in LegendLabelWidths)
+        {
+            Require(width, nameof(LegendLabelWidths));
+        }
     }
 
     private static void Require(float value, string name)
@@ -108,10 +127,16 @@ public sealed record GraphLayout
     // Left of the plot area: Y ticks, Y tick labels and the Y axis title.
     public SKRect YAxisArea { get; }
 
-    // Right of the plot area. Empty when the model has no legend.
+    // Where the legend stands: right of the plot area unless the model puts it on another side (Task #044). Empty when
+    // the model has no legend.
     public SKRect LegendArea { get; }
 
-    // Right of the plot area, below the legend when there is one. Empty when the model has no statistics panel.
+    // How the legend's entries are arranged in LegendArea, in its own coordinates - or null for a legend on the right
+    // that its single column holds whole, which is drawn exactly as a legend always was.
+    public GraphLegendArrangement? LegendArrangement { get; init; }
+
+    // Right of the plot area, below the legend when that is on the right too. Empty when the model has no statistics
+    // panel.
     public SKRect StatisticsPanelArea { get; }
 
     // Directly above the plot area and as wide as it: the labels of vertical reference lines, each over its line. Empty

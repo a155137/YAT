@@ -1,3 +1,5 @@
+using YAT.Application.Graphs;
+
 namespace YAT.app.Graphs.Rendering;
 
 // The value range one axis covers. A range is always finite and non-empty: whatever builds a render model (analytics
@@ -192,7 +194,13 @@ public sealed record GraphRenderModel
 
     public GraphAxisModel YAxis { get; private set; }
 
-    public GraphLegendModel? Legend { get; }
+    // Private set only so WithLegend can replace it on a copy.
+    public GraphLegendModel? Legend { get; private set; }
+
+    // Which side of the plot the legend stands on (Task #044): resolved from the user's legend options by the graph
+    // preparation (GraphLegendPresentationBuilder), never by a graph type's builder. The layout reads it; nothing else
+    // does. Right - where a legend always stood - unless the user chose another side.
+    public GraphLegendPosition LegendPosition { get; private set; } = GraphLegendPosition.Right;
 
     // The statistics shown beside the plot, or null for none. It is part of the frame, like the legend, so wherever the
     // frame is drawn - the graph window, a PNG, a presentation - the panel is drawn with it.
@@ -236,6 +244,15 @@ public sealed record GraphRenderModel
         ArgumentNullException.ThrowIfNull(yAxis);
         var copy = this with { };
         copy.YAxis = yAxis;
+        return copy;
+    }
+
+    // The same model with another legend, or none, on the given side. Everything else is kept.
+    public GraphRenderModel WithLegend(GraphLegendModel? legend, GraphLegendPosition position)
+    {
+        var copy = this with { };
+        copy.Legend = legend;
+        copy.LegendPosition = position;
         return copy;
     }
 

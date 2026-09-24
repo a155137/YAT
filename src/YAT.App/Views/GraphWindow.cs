@@ -26,8 +26,11 @@ namespace YAT.app.Views;
 //
 // Its axis ranges can be changed the same way (Task #043): right-click and choose Edit Axes.... Confirmed ranges go
 // onto the frame the graph had before any range or label - its data, bins, fits and statistics untouched - and the
-// window shows, copies and exports the frame over the new ranges. Labels and ranges are edited on the one graph: a
-// change to either keeps the other.
+// window shows, copies and exports the frame over the new ranges.
+//
+// Its legend too (Task #044): right-click and choose Edit Legend... to show, hide or move it - unavailable for a graph
+// without one. The window lays the new frame out again, legend and plot alike, without the data. Labels, ranges and
+// the legend are edited on the one graph: a change to any of them keeps the others.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
@@ -39,6 +42,7 @@ internal sealed class GraphWindow : Window
     private readonly GraphExportController _export;
     private readonly GraphLabelEditController _labels;
     private readonly GraphAxesEditController _axes;
+    private readonly GraphLegendEditController _legend;
     private readonly IAsyncRelayCommand _copyImage;
 
     // Ctrl+C copies the graph while this window is active. The binding belongs to this window alone, so the worksheet's
@@ -57,6 +61,8 @@ internal sealed class GraphWindow : Window
         _labels.GraphChanged += (_, _) => Show(_labels.Graph);
         _axes = new GraphAxesEditController(graph, new AvaloniaGraphAxesDialog(this));
         _axes.GraphChanged += (_, _) => Show(_axes.Graph);
+        _legend = new GraphLegendEditController(graph, new AvaloniaGraphLegendDialog(this));
+        _legend.GraphChanged += (_, _) => Show(_legend.Graph);
 
         // One command for the menu item, the shortcut and the right-click menu. It is not run again while a copy is still
         // in progress.
@@ -64,6 +70,9 @@ internal sealed class GraphWindow : Window
         KeyBindings.Add(new KeyBinding { Gesture = CopyImageGesture, Command = _copyImage });
         var editLabels = new AsyncRelayCommand(() => _labels.EditAsync(focus: null));
         var editAxes = new AsyncRelayCommand(() => _axes.EditAsync());
+
+        // A graph without a legend has none to edit: the item is there, but not available.
+        var editLegend = new AsyncRelayCommand(() => _legend.EditAsync(), () => _legend.CanEdit);
 
         Title = WindowTitle(graph.Frame);
         Width = DefaultWidth;
@@ -81,6 +90,11 @@ internal sealed class GraphWindow : Window
         if (graph.Definition.Supports(GraphCapability.AxisRange))
         {
             contextMenu.Items.Add(EditAxesItem(editAxes));
+        }
+
+        if (graph.Definition.Supports(GraphCapability.Legend))
+        {
+            contextMenu.Items.Add(EditLegendItem(editLegend));
         }
 
         var graphArea = GraphArea(_canvas, contextMenu);
@@ -111,6 +125,10 @@ internal sealed class GraphWindow : Window
     internal static MenuItem EditAxesItem(ICommand editAxes) =>
         new() { Header = "Edit _Axes...", Command = editAxes };
 
+    // Right-click > Edit Legend...: shown, hidden, and on which side - unavailable for a graph without a legend.
+    internal static MenuItem EditLegendItem(ICommand editLegend) =>
+        new() { Header = "Edit Le_gend...", Command = editLegend };
+
     // What the window is called after the graph it shows: its title, or "Graph" when it has none.
     internal static string WindowTitle(GraphRenderModel frame) =>
         string.IsNullOrWhiteSpace(frame.Title) ? "Graph" : frame.Title;
@@ -134,6 +152,7 @@ internal sealed class GraphWindow : Window
     {
         _labels.Show(graph);
         _axes.Show(graph);
+        _legend.Show(graph);
         _canvas.Model = graph.Frame;
         Title = WindowTitle(graph.Frame);
     }

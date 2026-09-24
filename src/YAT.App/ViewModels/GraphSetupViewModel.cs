@@ -147,6 +147,9 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             }
         };
 
+        // The legend starts as the graph type gives it, on the right.
+        Legend = new GraphLegendEditorViewModel();
+
         // Every axis starts Auto, with nothing typed; the ranges are checked with the rest of the setup, too.
         Axes = new GraphAxesEditorViewModel(definition);
         Axes.PropertyChanged += (_, e) =>
@@ -258,6 +261,12 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     // The axis ranges, edited the way the Edit Axes dialog of a drawn graph edits them. Blank is Auto.
     public GraphAxesEditorViewModel Axes { get; }
 
+    // Whether the graph type can have a legend; the setup shows the legend options only when it can.
+    public bool SupportsLegend => _definition.Supports(GraphCapability.Legend);
+
+    // The legend options, edited the way the Edit Legend dialog of a drawn graph edits them.
+    public GraphLegendEditorViewModel Legend { get; }
+
     public string Title => _definition.DisplayName;
 
     // Whether the graph type offers a statistics panel; the setup shows the option only when it does.
@@ -356,7 +365,8 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             HistogramOptions = SupportsHistogramControls ? HistogramOptionsFromFields() : HistogramOptions.Default,
             Specification = specification,
             LabelOptions = SupportsLabels ? Labels.Options : GraphLabelOptions.Default,
-            AxisRangeOptions = SupportsAxisRanges ? Axes.Options : GraphAxisRangeOptions.Default
+            AxisRangeOptions = SupportsAxisRanges ? Axes.Options : GraphAxisRangeOptions.Default,
+            LegendOptions = SupportsLegend ? Legend.Options : GraphLegendOptions.Default
         };
 
         var validation = Validator.Validate(configuration, _columns).Errors;

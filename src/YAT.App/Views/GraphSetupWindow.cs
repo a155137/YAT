@@ -187,16 +187,17 @@ internal sealed class GraphSetupWindow : Window
     // The roles, then the options the graph type offers. An option the graph type does not have is left out entirely
     // rather than shown disabled; which options exist is read from the graph type's capabilities.
     //
-    // A graph type with options of its own shows them in two columns - its own bins, statistics and fitted line on the
-    // left, the specification, the labels and the axis ranges on the right - to keep the dialog within a 1280 x 720
-    // screen; one without (a scatter plot, a box plot) shows the right-hand ones alone.
+    // A graph type with options of its own shows them in two columns - its own bins, statistics, fitted line and legend
+    // on the left, the specification, the labels and the axis ranges on the right - to keep the dialog within a
+    // 1280 x 720 screen; one without (a scatter plot, a box plot) shows the right-hand ones alone, the legend last.
     private static Control RightColumn(GraphSetupViewModel setup)
     {
         var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
         column.Children.Add(Roles(setup));
 
         if (!setup.SupportsStatisticsPanel && !setup.SupportsFittedLine && !setup.SupportsSpecificationLines
-            && !setup.SupportsHistogramControls && !setup.SupportsLabels && !setup.SupportsAxisRanges)
+            && !setup.SupportsHistogramControls && !setup.SupportsLabels && !setup.SupportsAxisRanges
+            && !setup.SupportsLegend)
         {
             Grid.SetColumn(column, 2);
             return column;
@@ -224,6 +225,13 @@ internal sealed class GraphSetupWindow : Window
             options.Children.Add(Option(setup, "Show fitted line", nameof(GraphSetupViewModel.ShowFittedLine)));
         }
 
+        // The legend closes the graph type's own options on the left - or, without them, the options on their own.
+        var legend = setup.SupportsLegend ? Legend(setup) : null;
+        if (legend is not null && hasOwnOptions)
+        {
+            options.Children.Add(legend);
+        }
+
         if (setup.SupportsSpecificationLines)
         {
             second.Children.Add(new TextBlock { Text = "Specification", Margin = new Thickness(0, 6, 0, 0) });
@@ -242,6 +250,11 @@ internal sealed class GraphSetupWindow : Window
             second.Children.Add(GraphAxesEditor.Create(setup.Axes));
         }
 
+        if (legend is not null && !hasOwnOptions)
+        {
+            second.Children.Add(legend);
+        }
+
         if (ReferenceEquals(second, options))
         {
             column.Children.Add(options);
@@ -258,6 +271,17 @@ internal sealed class GraphSetupWindow : Window
         Grid.SetColumn(column, 2);
         return column;
     }
+
+    // The legend options under their heading.
+    private static Control Legend(GraphSetupViewModel setup) => new StackPanel
+    {
+        Spacing = 4,
+        Children =
+        {
+            new TextBlock { Text = "Legend", Margin = new Thickness(0, 6, 0, 0) },
+            GraphLegendEditor.Create(setup.Legend)
+        }
+    };
 
     // One on/off option, named after the view model property it edits.
     private static CheckBox Option(GraphSetupViewModel setup, string text, string property)

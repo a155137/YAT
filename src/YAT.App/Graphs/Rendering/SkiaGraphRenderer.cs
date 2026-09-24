@@ -1,3 +1,4 @@
+using System.Globalization;
 using SkiaSharp;
 using YAT.Application.Graphs;
 
@@ -119,6 +120,15 @@ public sealed class SkiaGraphRenderer
     {
         var hasAxisTitle = !string.IsNullOrWhiteSpace(model.XAxis.Title) || !string.IsNullOrWhiteSpace(model.YAxis.Title);
 
+        // The legend's text is measured once here, for the width it has always been given and for arranging it.
+        var legend = model.Legend;
+        var legendLabels = legend is null
+            ? []
+            : legend.Entries.Select(entry => GraphTextFallback.MeasureText(tickFont, entry.Label)).ToArray();
+        var legendTitle = legend is null || string.IsNullOrWhiteSpace(legend.Title)
+            ? 0f
+            : GraphTextFallback.MeasureText(tickFont, legend.Title);
+
         return new GraphLayoutMetrics
         {
             TitleHeight = string.IsNullOrWhiteSpace(model.Title) ? 0f : LineHeight(titleFont),
@@ -126,8 +136,14 @@ public sealed class SkiaGraphRenderer
             TickLabelHeight = LineHeight(tickFont),
             YTickLabelWidth = WidestLabel(model.YAxis, tickFont),
             XTickLabelOverflow = WidestLabel(model.XAxis, tickFont) / 2f,
-            LegendWidth = LegendWidth(model.Legend, tickFont),
-            LegendHeight = model.Legend is null ? 0f : LegendBoxHeight(model.Legend, tickFont),
+            LegendWidth = LegendWidth(legend, legendTitle, legendLabels),
+            LegendHeight = legend is null ? 0f : LegendBoxHeight(legend, tickFont),
+            LegendLabelWidths = legendLabels,
+            LegendTitleWidth = legendTitle,
+            LegendRowHeight = legend is null ? 0f : Math.Max(LineHeight(tickFont), LegendSwatchSize),
+            LegendMoreWidth = legend is null
+                ? 0f
+                : GraphTextFallback.MeasureText(tickFont, MoreText(legend.Entries.Count, digitsOnly: true)),
             StatisticsPanelWidth = model.StatisticsPanel is null ? 0f : StatisticsPanelWidth(model.StatisticsPanel, tickFont)
         };
     }
@@ -387,6 +403,13 @@ public sealed class SkiaGraphRenderer
             return;
         }
 
+        // A legend on another side, or too big for the single column it always had, as the layout arranged it.
+        if (layout.LegendArrangement is { } arrangement)
+        {
+            DrawArrangedLegend(canvas, model.Legend, layout.LegendArea, arrangement, theme, fill, stroke, font);
+            return;
+        }
+
         var fontMetrics = font.Metrics;
         var rowHeight = Math.Max(LineHeight(font), LegendSwatchSize);
 
@@ -443,6 +466,84 @@ public sealed class SkiaGraphRenderer
 
         canvas.RestoreToCount(restore);
     }
+
+    // A legend as GraphLegendLayout arranged it (Task #044): its box, the title across its top or leading its first
+    // row, and each cell - a swatch and a label, or "… N more" for the entries that did not fit. A label longer than
+    // its cell is cut short with an ellipsis rather than cut through a glyph; colours, labels and their order are the
+    // legend's own.
+    private static void DrawArrangedLegend(
+        SKCanvas canvas,
+        GraphLegendModel legend,
+        SKRect box,
+        GraphLegendArrangement arrangement,
+        GraphTheme theme,
+        SKPaint fill,
+        SKPaint stroke,
+        SKFont font)
+    {
+        var fontMetrics = font.Metrics;
+
+        stroke.Color = theme.LegendBorder;
+        stroke.StrokeWidth = 1f;
+        canvas.DrawRect(box, stroke);
+
+        var restore = canvas.Save();
+        canvas.ClipRect(box);
+
+        if (arrangement.TitleWidth > 0 && !string.IsNullOrWhiteSpace(legend.Title))
+        {
+            fill.Color = theme.Text;
+            GraphTextFallback.DrawText(
+                canvas,
+                Ellipsize(legend.Title, font, arrangement.TitleWidth),
+                box.Left + GraphLegendLayout.Padding,
+                box.Top + GraphLegendLayout.Padding - fontMetrics.Ascent,
+                SKTextAlign.Left,
+                font,
+                fill);
+        }
+
+        foreach (var cell in arrangement.Cells)
+        {
+            var bounds = cell.Bounds;
+            bounds.Offset(box.Left, box.Top);
+            var baseline = CenteredBaseline(bounds.MidY, fontMetrics);
+
+            if (cell.IsMore)
+            {
+                fill.Color = theme.SecondaryText;
+                var more = Ellipsize(MoreText(arrangement.HiddenCount), font, cell.LabelWidth);
+                GraphTextFallback.DrawText(canvas, more, bounds.Left, baseline, SKTextAlign.Left, font, fill);
+                continue;
+            }
+
+            var entry = legend.Entries[cell.EntryIndex];
+            fill.Color = theme.SeriesColor(entry.SeriesIndex);
+            var half = LegendSwatchSize / 2f;
+            canvas.DrawRect(
+                new SKRect(bounds.Left, bounds.MidY - half, bounds.Left + LegendSwatchSize, bounds.MidY + half),
+                fill);
+
+            fill.Color = theme.SecondaryText;
+            GraphTextFallback.DrawText(
+                canvas,
+                Ellipsize(entry.Label, font, cell.LabelWidth),
+                bounds.Left + LegendSwatchSize + LegendEntrySpacing,
+                baseline,
+                SKTextAlign.Left,
+                font,
+                fill);
+        }
+
+        canvas.RestoreToCount(restore);
+    }
+
+    // "… 12 more": what stands for the entries of a legend that did not fit. With digitsOnly, the widest it can be for
+    // a legend of this many entries (every digit a 0), to measure the room it needs.
+    internal static string MoreText(int hidden, bool digitsOnly = false) =>
+        digitsOnly
+            ? $"… {new string('0', hidden.ToString(CultureInfo.InvariantCulture).Length)} more"
+            : $"… {hidden.ToString(CultureInfo.InvariantCulture)} more";
 
     // ---- Reference lines ----
     //
@@ -935,17 +1036,18 @@ public sealed class SkiaGraphRenderer
         return (LegendPadding * 2f) + (rows * rowHeight) + (Math.Max(rows - 1, 0) * LegendEntrySpacing);
     }
 
-    private static float LegendWidth(GraphLegendModel? legend, SKFont font)
+    // The width of the legend box as a legend has always been given it: its widest line, padded, and never more than
+    // LegendMaximumWidth. titleWidth is 0 for a legend without a title.
+    private static float LegendWidth(GraphLegendModel? legend, float titleWidth, IReadOnlyList<float> labelWidths)
     {
         if (legend is null)
         {
             return 0f;
         }
 
-        var widest = string.IsNullOrWhiteSpace(legend.Title) ? 0f : GraphTextFallback.MeasureText(font, legend.Title);
-        foreach (var entry in legend.Entries)
+        var widest = titleWidth;
+        foreach (var label in labelWidths)
         {
-            var label = GraphTextFallback.MeasureText(font, entry.Label);
             widest = Math.Max(widest, LegendSwatchSize + LegendEntrySpacing + label);
         }
 

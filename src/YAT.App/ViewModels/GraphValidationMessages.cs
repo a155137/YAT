@@ -52,6 +52,7 @@ public static class GraphValidationMessages
             GraphValidationReason.AxisRangeNotIncreasing =>
                 $"{AxisName(error.Axis)} minimum must be below the {AxisName(error.Axis)} maximum.",
             GraphValidationReason.AxisRangeTooNarrow => $"The {AxisName(error.Axis)} range is too narrow to be shown.",
+            GraphValidationReason.LegendOptionsInvalid => "Please choose how the legend is shown and where.",
             _ => "This graph cannot be created with the current settings."
         };
     }

@@ -10,18 +10,20 @@ namespace YAT.app.Graphs.Rendering;
 //
 //     1. the statistics panel, from the graph data (the only step that reads it);
 //     2. the specification lines, which may widen the displayed X axis;
-//     3. the axis ranges the user chose (Task #043): a viewport over what the steps before made the axes reach;
-//     4. the labels, which only rename: the graph title and the axis titles of the finished frame (a widened X axis
+//     3. the legend options (Task #044): whether the graph type's legend is shown, and on which side of the plot;
+//     4. the axis ranges the user chose (Task #043): a viewport over what the steps before made the axes reach;
+//     5. the labels, which only rename: the graph title and the axis titles of the finished frame (a widened X axis
 //        included).
 //
 // No step depends on another - the panel reads the data, never the axis, the lines read the axis range, never the
-// panel, the axis ranges replace ranges and ticks only, and the labels read only the three titles, which no other step
-// changes - so the order only has to be one and the same everywhere. Each step replaces what it put there before, so
-// applying the same configuration to its own result changes nothing. With the default configuration's axis ranges and
-// labels (all Auto) the last two steps return their frame as is.
+// panel, the legend options keep or drop the legend and set its side only, the axis ranges replace ranges and ticks
+// only, and the labels read only the three titles, which no other step changes - so the order only has to be one and
+// the same everywhere. Each step replaces what it put there before, so applying the same configuration to its own
+// result changes nothing. With the default configuration's legend, axis ranges and labels (all Auto, the legend on the
+// right) the last three steps return their frame as is.
 //
-// Present keeps the frame as it was before the axis ranges and the labels, so a graph window can put others on it
-// later without the data (see GraphPresentationState); Apply is the frame it presents.
+// Present keeps the frame as it was before the legend, the axis ranges and the labels, so a graph window can put
+// others on it later without the data (see GraphPresentationState); Apply is the frame it presents.
 public static class GraphPresentation
 {
     public static GraphRenderModel Apply(
@@ -45,6 +47,10 @@ public static class GraphPresentation
         var withPanel = GraphStatisticsPanelBuilder.Attach(frame, data, definition, configuration.PresentationOptions, cancellationToken);
         var withLines = GraphSpecificationLinesBuilder.Attach(withPanel, definition, configuration.Specification);
         return new GraphPresentationState(
-            withLines, definition, configuration.LabelOptions, configuration.AxisRangeOptions);
+            withLines,
+            definition,
+            configuration.LabelOptions,
+            configuration.AxisRangeOptions,
+            configuration.LegendOptions);
     }
 }

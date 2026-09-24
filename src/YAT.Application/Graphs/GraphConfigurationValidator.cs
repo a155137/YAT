@@ -69,7 +69,10 @@ public enum GraphValidationReason
     AxisRangeNotIncreasing,
 
     // An axis range too narrow for its ends to be told apart. Axis says which one.
-    AxisRangeTooNarrow
+    AxisRangeTooNarrow,
+
+    // The legend's mode or position is not a defined choice.
+    LegendOptionsInvalid
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
@@ -199,6 +202,12 @@ public sealed class GraphConfigurationValidator
         if (definition.Supports(GraphCapability.AxisRange))
         {
             errors.AddRange(AxisRangeErrors(configuration.AxisRangeOptions, definition));
+        }
+
+        // And the legend, only where the graph type has one.
+        if (definition.Supports(GraphCapability.Legend) && !configuration.LegendOptions.IsValid)
+        {
+            errors.Add(new GraphValidationError(GraphValidationReason.LegendOptionsInvalid));
         }
 
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);
