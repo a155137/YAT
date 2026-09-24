@@ -150,6 +150,10 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         // The appearance starts as the graph theme draws it; it is chosen in a dialog of its own (Appearance...).
         Appearance = GraphAppearanceOptions.Default;
 
+        // The boxes start as they have always been drawn; their options are chosen in a dialog of their own
+        // (Box Plot Options...).
+        BoxPlot = BoxPlotOptions.Default;
+
         // The statistics panel starts as the graph type gives it, with every statistic; a shown panel without any
         // statistic is checked with the rest of the setup.
         Statistics = new GraphStatisticsEditorViewModel(definition);
@@ -294,6 +298,15 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     [ObservableProperty]
     public partial GraphAppearanceOptions Appearance { get; set; }
 
+    // Whether the graph type draws boxes with options of their own; the setup offers Box Plot Options... only when it
+    // does.
+    public bool SupportsBoxPlotControls => _definition.Supports(GraphCapability.BoxPlotControls);
+
+    // The box plot options confirmed in the setup's Box Plot Options... dialog - the same dialog a drawn box plot's Edit
+    // Box Plot... opens. Boxes as they have always been drawn until then.
+    [ObservableProperty]
+    public partial BoxPlotOptions BoxPlot { get; set; }
+
     // Whether the graph type draws a fitted line the user may hide; the setup shows the option only when it does.
     public bool SupportsFittedLine => _definition.Supports(GraphCapability.FittedLine);
 
@@ -378,6 +391,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         {
             StatisticsOptions = SupportsStatisticsPanel ? Statistics.Options : GraphStatisticsOptions.Default,
             AppearanceOptions = SupportsAppearance ? Appearance : GraphAppearanceOptions.Default,
+            BoxPlotOptions = SupportsBoxPlotControls ? BoxPlot : BoxPlotOptions.Default,
 
             // Carried whatever the graph type; only one that declares FittedLine reads it.
             ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine),
@@ -437,6 +451,8 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         SpecificationLimitParser.TryParse(text, out var value) ? value : null;
 
     partial void OnAppearanceChanged(GraphAppearanceOptions value) => OnSelectionChanged();
+
+    partial void OnBoxPlotChanged(BoxPlotOptions value) => OnSelectionChanged();
 
     partial void OnSelectedYScaleChanged(SetupChoice<HistogramYScale> value) => OnSelectionChanged();
 

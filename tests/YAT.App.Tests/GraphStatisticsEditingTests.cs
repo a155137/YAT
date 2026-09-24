@@ -240,18 +240,19 @@ public class GraphStatisticsEditingTests
     }
 
     // Copy Image, then the editors each graph type offers, in one order - Edit Statistics only where the graph type has
-    // a panel, and Edit Appearance (Task #046) last, everywhere. Every access key is used once.
+    // a panel, Edit Box Plot (Task #047) only for a box plot, and Edit Appearance (Task #046) last, everywhere. Every access
+    // key is used once.
     [Theory]
     [InlineData(GraphType.ScatterPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit A_ppearance..." })]
-    [InlineData(GraphType.BoxPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit A_ppearance..." })]
+    [InlineData(GraphType.BoxPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Box Plot...", "Edit A_ppearance..." })]
     [InlineData(GraphType.Histogram, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics...", "Edit A_ppearance..." })]
     [InlineData(GraphType.ProbabilityPlot, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics...", "Edit A_ppearance..." })]
     [InlineData(GraphType.EmpiricalCdf, new[] { "_Copy Image", "-", "_Edit Labels...", "Edit _Axes...", "Edit Le_gend...", "Edit _Statistics...", "Edit A_ppearance..." })]
     public void TheRightClickMenuOffersTheEditorsInOrder(GraphType type, string[] expected)
     {
-        var commands = Enumerable.Range(0, 6).Select(_ => new CommunityToolkit.Mvvm.Input.RelayCommand(() => { })).ToArray();
+        var commands = Enumerable.Range(0, 7).Select(_ => new CommunityToolkit.Mvvm.Input.RelayCommand(() => { })).ToArray();
 
-        var items = GraphWindow.ContextMenuItems(GraphTypeDefinitions.For(type), commands[0], commands[1], commands[2], commands[3], commands[4], commands[5]);
+        var items = GraphWindow.ContextMenuItems(GraphTypeDefinitions.For(type), commands[0], commands[1], commands[2], commands[3], commands[4], commands[5], commands[6]);
 
         Assert.Equal(expected, items.Select(item => item is MenuItem menuItem ? (string)menuItem.Header! : "-"));
         var keys = items.OfType<MenuItem>().Select(item => char.ToUpperInvariant(((string)item.Header!)[((string)item.Header!).IndexOf('_') + 1])).ToList();
@@ -261,7 +262,12 @@ public class GraphStatisticsEditingTests
             Assert.Same(commands[4], ((MenuItem)items[^2]).Command);
         }
 
-        Assert.Same(commands[5], ((MenuItem)items[^1]).Command);
+        if (type == GraphType.BoxPlot)
+        {
+            Assert.Same(commands[5], ((MenuItem)items[^2]).Command);
+        }
+
+        Assert.Same(commands[6], ((MenuItem)items[^1]).Command);
     }
 
     // ---- The editor ----

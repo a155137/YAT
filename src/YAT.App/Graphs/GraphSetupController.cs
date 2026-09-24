@@ -342,6 +342,7 @@ public sealed class GraphSetupController
                     new BoxPlotLabels(
                         [.. boxPlot.Variables.Select(variable => variable.Variable.Name)],
                         boxPlot.Variables.Select(variable => variable.Group?.Column.Name).FirstOrDefault(name => name is not null)),
+                    configuration.BoxPlotOptions,
                     cancellationToken);
                 return boxPlotModel is null ? null : (boxPlotModel.Frame, new BoxPlotRenderer(boxPlotModel));
 

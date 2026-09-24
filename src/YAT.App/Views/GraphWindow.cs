@@ -39,13 +39,17 @@ namespace YAT.app.Views;
 // its backgrounds. Those change only the theme the graph is drawn in - the canvas resolves it, and every copy and
 // export takes it from there - never the frame. Labels, ranges, the legend, the statistics and the appearance are
 // edited on the one graph: a change to any of them keeps the others.
+//
+// And a box plot's own options (Task #047): right-click and choose Edit Box Plot... to change its box width or to mark
+// its means and outliers or not. Those change only the plot renderer the window draws, copies and exports with - the
+// same boxes under the same presented graph - so they and the graph's other edits keep each other too.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
     private const int DefaultWidth = 760;
     private const int DefaultHeight = 520;
 
-    private readonly IGraphPlotRenderer? _plot;
+    private IGraphPlotRenderer? _plot;
     private readonly GraphCanvas _canvas;
     private readonly GraphExportController _export;
     private readonly GraphLabelEditController _labels;
@@ -53,6 +57,7 @@ internal sealed class GraphWindow : Window
     private readonly GraphLegendEditController _legend;
     private readonly GraphStatisticsEditController _statistics;
     private readonly GraphAppearanceEditController _appearance;
+    private readonly GraphBoxPlotEditController _boxPlot;
     private readonly IAsyncRelayCommand _copyImage;
 
     // Ctrl+C copies the graph while this window is active. The binding belongs to this window alone, so the worksheet's
@@ -78,6 +83,10 @@ internal sealed class GraphWindow : Window
         _appearance = new GraphAppearanceEditController(graph, new AvaloniaGraphAppearanceDialog(this));
         _appearance.GraphChanged += (_, _) => Show(_appearance.Graph);
 
+        // A box plot's own options change the plot it is drawn by, not the presented graph (Task #047).
+        _boxPlot = new GraphBoxPlotEditController(graph.Definition, plot, new AvaloniaGraphBoxPlotDialog(this));
+        _boxPlot.PlotChanged += (_, _) => ShowPlot(_boxPlot.Plot);
+
         // One command for the menu item, the shortcut and the right-click menu. It is not run again while a copy is still
         // in progress.
         _copyImage = new AsyncRelayCommand(() => _export.CopyImageAsync(Snapshot()));
@@ -90,6 +99,7 @@ internal sealed class GraphWindow : Window
 
         // Likewise a graph without a statistics panel.
         var editStatistics = new AsyncRelayCommand(() => _statistics.EditAsync(), () => _statistics.CanEdit);
+        var editBoxPlot = new AsyncRelayCommand(() => _boxPlot.EditAsync(), () => _boxPlot.CanEdit);
         var editAppearance = new AsyncRelayCommand(() => _appearance.EditAsync(), () => _appearance.CanEdit);
 
         Title = WindowTitle(graph.Frame);
@@ -103,7 +113,7 @@ internal sealed class GraphWindow : Window
         DockPanel.SetDock(menu, Dock.Top);
         var contextMenu = new ContextMenu();
         foreach (var item in ContextMenuItems(
-            graph.Definition, _copyImage, editLabels, editAxes, editLegend, editStatistics, editAppearance))
+            graph.Definition, _copyImage, editLabels, editAxes, editLegend, editStatistics, editBoxPlot, editAppearance))
         {
             contextMenu.Items.Add(item);
         }
@@ -124,7 +134,7 @@ internal sealed class GraphWindow : Window
     };
 
     // The right-click menu of a graph of this type, in order: Copy Image, then the editors the graph type offers -
-    // labels, axes, legend, statistics, appearance.
+    // labels, axes, legend, statistics, box plot, appearance.
     internal static IReadOnlyList<Control> ContextMenuItems(
         GraphTypeDefinition definition,
         ICommand copyImage,
@@ -132,6 +142,7 @@ internal sealed class GraphWindow : Window
         ICommand editAxes,
         ICommand editLegend,
         ICommand editStatistics,
+        ICommand editBoxPlot,
         ICommand editAppearance)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -150,6 +161,11 @@ internal sealed class GraphWindow : Window
         if (definition.Supports(GraphCapability.StatisticsPanel))
         {
             items.Add(EditStatisticsItem(editStatistics));
+        }
+
+        if (definition.Supports(GraphCapability.BoxPlotControls))
+        {
+            items.Add(EditBoxPlotItem(editBoxPlot));
         }
 
         if (definition.Supports(GraphCapability.Appearance))
@@ -181,6 +197,10 @@ internal sealed class GraphWindow : Window
     // statistics panel.
     internal static MenuItem EditStatisticsItem(ICommand editStatistics) =>
         new() { Header = "Edit _Statistics...", Command = editStatistics };
+
+    // Right-click > Edit Box Plot...: a box plot's box width, and whether its means and outliers are marked.
+    internal static MenuItem EditBoxPlotItem(ICommand editBoxPlot) =>
+        new() { Header = "Edit _Box Plot...", Command = editBoxPlot };
 
     // Right-click > Edit Appearance...: the series colours, the grid and the backgrounds - every graph type has them.
     internal static MenuItem EditAppearanceItem(ICommand editAppearance) =>
@@ -215,6 +235,14 @@ internal sealed class GraphWindow : Window
         _canvas.Model = graph.Frame;
         _canvas.Appearance = graph.AppearanceOptions;
         Title = WindowTitle(graph.Frame);
+    }
+
+    // The graph's plot drawn by another renderer - a box plot with other options - under the same presented graph:
+    // drawn at once, and what every copy and export draws from now on.
+    private void ShowPlot(IGraphPlotRenderer? plot)
+    {
+        _plot = plot;
+        _canvas.Plot = plot;
     }
 
     private MenuItem FileMenu()

@@ -68,7 +68,7 @@ public static class GraphTypeDefinitions
             GroupRole with { DisplayName = "Categorical variable for grouping" }
         ])
         {
-            Capabilities = [.. EveryGraph, .. SeveralVariables],
+            Capabilities = [.. EveryGraph, .. SeveralVariables, GraphCapability.BoxPlotControls],
 
             // Its X axis is its categories: no range to choose.
             YAxisKind = GraphAxisKind.Numeric

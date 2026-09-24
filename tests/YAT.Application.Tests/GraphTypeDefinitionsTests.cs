@@ -155,7 +155,7 @@ public class GraphTypeDefinitionsTests
         Assert.False(definition.Supports(GraphCapability.SpecificationLines));
         Assert.Equal(
             graphType == GraphType.BoxPlot
-                ? [GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.Legend, GraphCapability.Appearance, GraphCapability.VariableLayout]
+                ? [GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.Legend, GraphCapability.Appearance, GraphCapability.VariableLayout, GraphCapability.BoxPlotControls]
                 : (GraphCapability[])[GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.Legend, GraphCapability.Appearance],
             definition.Capabilities);
     }

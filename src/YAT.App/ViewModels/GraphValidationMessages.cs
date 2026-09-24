@@ -59,6 +59,8 @@ public static class GraphValidationMessages
             GraphValidationReason.AppearancePaletteInvalid =>
                 $"A custom palette has {GraphPalette.MinimumColors} to {GraphPalette.MaximumColors} colors.",
             GraphValidationReason.AppearanceColorInvalid => "Enter each color as #RRGGBB, for example #1F77B4.",
+            GraphValidationReason.BoxPlotWidthInvalid =>
+                $"Box width must be a whole number from {BoxPlotOptions.MinimumBoxWidthPercent} to {BoxPlotOptions.MaximumBoxWidthPercent}.",
             _ => "This graph cannot be created with the current settings."
         };
     }

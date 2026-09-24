@@ -77,6 +77,26 @@ internal sealed class GraphSetupWindow : Window
             }
         };
 
+        // A box plot's own options too (Task #047), from a button beside Appearance...: inline they would make the
+        // setup taller than a 1280 x 720 screen allows.
+        var boxPlot = new Button
+        {
+            Name = "BoxPlotOptions",
+            Content = "Box Plot Options...",
+            MinWidth = 88,
+            Margin = new Thickness(8, 0, 0, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            IsVisible = setup.SupportsBoxPlotControls
+        };
+        boxPlot.Click += async (_, _) =>
+        {
+            var edited = await GraphBoxPlotWindow.ShowAsync(this, new GraphBoxPlotEditorViewModel(setup.BoxPlot));
+            if (edited is not null)
+            {
+                setup.BoxPlot = edited;
+            }
+        };
+
         setup.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(GraphSetupViewModel.CanConfirm))
@@ -105,6 +125,7 @@ internal sealed class GraphSetupWindow : Window
                     Children =
                     {
                         appearance,
+                        boxPlot,
                         Docked(
                             new StackPanel
                             {

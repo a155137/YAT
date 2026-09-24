@@ -1,4 +1,5 @@
 using SkiaSharp;
+using YAT.Application.Graphs;
 
 namespace YAT.app.Graphs.Rendering;
 
@@ -15,12 +16,17 @@ namespace YAT.app.Graphs.Rendering;
 //
 // The X axis is categorical - one unit per category - so the width of a box is a fraction of that unit, kept inside
 // sensible pixel limits so a plot of two boxes does not draw two slabs and a plot of forty still shows them.
+//
+// The model's options (Task #047) choose that fraction - the upper pixel limit following it, so a wider or narrower
+// box shows even where the limit holds, as it does for a handful of boxes - and whether the means and the outliers are
+// marked. Nothing else about a box depends on them: its whiskers and median are drawn as they always are.
 public sealed class BoxPlotRenderer : IGraphPlotRenderer
 {
-    // How much of a category's slot the box body takes.
+    // How much of a category's slot the box body takes at the default box width (BoxPlotOptions.DefaultBoxWidthPercent).
     public const double BoxWidthFraction = 0.6;
 
-    // Pixel limits for the box body's width, whatever the axis says.
+    // Pixel limits for the box body's width, whatever the axis says. The upper one is the default box width's, and
+    // scales with the box width chosen; the lower one holds for every box width.
     public const float MinimumBoxWidth = 5f;
     public const float MaximumBoxWidth = 72f;
 
@@ -71,7 +77,8 @@ public sealed class BoxPlotRenderer : IGraphPlotRenderer
             StrokeWidth = OutlierDiameter
         };
 
-        var halfWidth = BoxHalfWidth(transform);
+        var options = _model.Options;
+        var halfWidth = BoxHalfWidth(transform, options.BoxWidthPercent);
         var capHalfWidth = (float)(halfWidth * CapWidthFraction);
 
         foreach (var box in _model.Boxes)
@@ -116,11 +123,27 @@ public sealed class BoxPlotRenderer : IGraphPlotRenderer
             canvas.DrawLine(body.Left, median, body.Right, median, stroke);
             stroke.StrokeWidth = LineWidth;
 
-            DrawMean(canvas, stroke, centre, (float)transform.ToScreenY(box.Mean));
+            // Unmarked, the mean and the outliers are only not drawn: the box, its whiskers and the axis stay as they are.
+            if (options.ShowMean)
+            {
+                DrawMean(canvas, stroke, centre, (float)transform.ToScreenY(box.Mean));
+            }
 
-            outliers.Color = colour;
-            DrawOutliers(canvas, outliers, transform, centre, box);
+            if (options.ShowOutliers)
+            {
+                outliers.Color = colour;
+                DrawOutliers(canvas, outliers, transform, centre, box);
+            }
         }
+    }
+
+    // The width of a box body in pixels, in a category slot this many pixels wide, at this box width in percent: that
+    // share of the slot, kept between MinimumBoxWidth and MaximumBoxWidth scaled from the default box width.
+    public static float BoxWidth(float slot, int boxWidthPercent)
+    {
+        var fraction = boxWidthPercent / 100.0;
+        var maximum = MaximumBoxWidth * boxWidthPercent / (double)BoxPlotOptions.DefaultBoxWidthPercent;
+        return (float)Math.Clamp(slot * fraction, MinimumBoxWidth, maximum);
     }
 
     // The mean is a cross, so it is never mistaken for the median line or for an outlier dot.
@@ -178,7 +201,7 @@ public sealed class BoxPlotRenderer : IGraphPlotRenderer
     }
 
     // Half the width of a box body in pixels: a fraction of one category slot, kept between the limits above.
-    private static float BoxHalfWidth(GraphCoordinateTransform transform)
+    private static float BoxHalfWidth(GraphCoordinateTransform transform, int boxWidthPercent)
     {
         var slot = (float)(transform.ToScreenX(1) - transform.ToScreenX(0));
         if (!float.IsFinite(slot) || slot <= 0)
@@ -186,6 +209,6 @@ public sealed class BoxPlotRenderer : IGraphPlotRenderer
             return MinimumBoxWidth / 2f;
         }
 
-        return (float)Math.Clamp(slot * BoxWidthFraction, MinimumBoxWidth, MaximumBoxWidth) / 2f;
+        return BoxWidth(slot, boxWidthPercent) / 2f;
     }
 }

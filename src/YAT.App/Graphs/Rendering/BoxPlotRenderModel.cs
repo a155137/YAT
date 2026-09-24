@@ -1,3 +1,5 @@
+using YAT.Application.Graphs;
+
 namespace YAT.app.Graphs.Rendering;
 
 // One box of a box plot, ready to be drawn: where its category sits on the X axis, the five values its shape is made
@@ -171,6 +173,24 @@ public sealed record BoxPlotRenderModel
     public int RenderedOutlierCount { get; }
 
     public bool WasSampled => RenderedOutlierCount < OutlierCount;
+
+    // How the boxes are drawn: their width, and whether their means and outliers are marked (Task #047). Drawing only -
+    // the boxes, the frame and its axes are the same whatever it says - so a drawn box plot takes other options as
+    // this same model with other Options, its boxes and frame untouched.
+    public BoxPlotOptions Options
+    {
+        get;
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (!value.IsValid)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value.BoxWidthPercent, "A box width is 20 to 90 percent.");
+            }
+
+            field = value;
+        }
+    } = BoxPlotOptions.Default;
 }
 
 // The column names a box plot is labelled with. They are passed in rather than read here, so nothing in the

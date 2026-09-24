@@ -41,10 +41,25 @@ public sealed class BoxPlotRenderModelBuilder
 
     // The box plot of these observations, or null when none of them can be plotted. The labels name the worksheet
     // columns; they are given, not looked up.
-    public BoxPlotRenderModel? Build(MultiVariableGraphData data, BoxPlotLabels labels, CancellationToken cancellationToken = default)
+    public BoxPlotRenderModel? Build(MultiVariableGraphData data, BoxPlotLabels labels, CancellationToken cancellationToken = default) =>
+        Build(data, labels, BoxPlotOptions.Default, cancellationToken);
+
+    // The same, drawn with these box plot options (Task #047). The options change nothing that is worked out here -
+    // no box, no category, no axis - they are only kept with the model for the renderer.
+    public BoxPlotRenderModel? Build(
+        MultiVariableGraphData data,
+        BoxPlotLabels labels,
+        BoxPlotOptions options,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(labels);
+        ArgumentNullException.ThrowIfNull(options);
+        if (!options.IsValid)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), options.BoxWidthPercent, "A box width is 20 to 90 percent.");
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         if (labels.Variables.Count != data.Variables.Count)
@@ -164,7 +179,7 @@ public sealed class BoxPlotRenderModelBuilder
             // Without a group column the X axis already names every box, so a legend would repeat it.
             isGrouped && legendEntries.Count > 0 ? new GraphLegendModel(legendEntries, labels.GroupColumn) : null);
 
-        return new BoxPlotRenderModel(frame, categories, boxes, data.Count, outlierCount);
+        return new BoxPlotRenderModel(frame, categories, boxes, data.Count, outlierCount) { Options = options };
     }
 
     // Where a category sits on the X axis: the first is at 1, the second at 2, and each one owns half a unit either

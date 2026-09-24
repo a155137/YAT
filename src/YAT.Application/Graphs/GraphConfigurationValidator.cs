@@ -87,7 +87,11 @@ public enum GraphValidationReason
     AppearancePaletteInvalid,
 
     // A colour typed for the appearance is not "#RRGGBB".
-    AppearanceColorInvalid
+    AppearanceColorInvalid,
+
+    // A box plot's box width is not a whole number from BoxPlotOptions.MinimumBoxWidthPercent to
+    // BoxPlotOptions.MaximumBoxWidthPercent.
+    BoxPlotWidthInvalid
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
@@ -237,6 +241,12 @@ public sealed class GraphConfigurationValidator
             errors.AddRange(AppearanceErrors(configuration.AppearanceOptions));
         }
 
+        // And the box plot's own options, only where the graph type has them.
+        if (definition.Supports(GraphCapability.BoxPlotControls))
+        {
+            errors.AddRange(BoxPlotErrors(configuration.BoxPlotOptions));
+        }
+
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);
     }
 
@@ -259,6 +269,15 @@ public sealed class GraphConfigurationValidator
         }
 
         return errors;
+    }
+
+    // The box plot options' rules, as graph validation errors - for a whole configuration here, and for the options
+    // edited on their own: a box width of 20 to 90 percent.
+    public static IReadOnlyList<GraphValidationError> BoxPlotErrors(BoxPlotOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        return options.IsValid ? [] : [new GraphValidationError(GraphValidationReason.BoxPlotWidthInvalid)];
     }
 
     // The statistics options' rules, as graph validation errors - for a whole configuration here, and for the options

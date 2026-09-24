@@ -38,5 +38,9 @@ public enum GraphCapability
 
     // How the graph looks: its series colours, its grid, and the colours behind and around its plot (see
     // GraphAppearanceOptions). Drawing only - never the data, the statistics or the axes.
-    Appearance
+    Appearance,
+
+    // The box plot's own box width and whether its means and outliers are marked (see BoxPlotOptions). Drawing only -
+    // never the statistics, the whiskers or the axes.
+    BoxPlotControls
 }

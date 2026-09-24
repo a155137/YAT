@@ -46,6 +46,11 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // graph theme's own look unless the user chose.
     public GraphAppearanceOptions AppearanceOptions { get; init; } = GraphAppearanceOptions.Default;
 
+    // How a box plot draws its boxes: their width, and whether their means and outliers are marked (Task #047). Graph
+    // types that do not declare GraphCapability.BoxPlotControls ignore it; the data query never reads it. Boxes as
+    // they have always been drawn unless the user chose.
+    public BoxPlotOptions BoxPlotOptions { get; init; } = BoxPlotOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>
