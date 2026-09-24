@@ -97,11 +97,7 @@ internal sealed class GraphSetupWindow : Window
             Children =
             {
                 new TextBlock { Text = $"Worksheet: {setup.WorksheetName}", Opacity = 0.7 },
-                new Grid
-                {
-                    ColumnDefinitions = new ColumnDefinitions("240,24,*"),
-                    Children = { AvailableColumns(setup), RightColumn(setup) }
-                },
+                RolesAndOptions(setup),
                 _validation,
                 new DockPanel
                 {
@@ -133,22 +129,6 @@ internal sealed class GraphSetupWindow : Window
     // when it was cancelled.
     public static Task<GraphSetupRequest?> ShowAsync(Window owner, GraphSetupViewModel setup) =>
         new GraphSetupWindow(setup).ShowDialog<GraphSetupRequest?>(owner);
-
-    private static Control AvailableColumns(GraphSetupViewModel setup)
-    {
-        var panel = new StackPanel { Spacing = 6 };
-        panel.Children.Add(new TextBlock { Text = "Available Columns", FontWeight = FontWeight.SemiBold });
-        panel.Children.Add(new ListBox
-        {
-            ItemsSource = setup.AvailableColumns,
-            Height = 180,
-            ItemTemplate = ColumnTemplate(),
-            SelectionMode = SelectionMode.Single
-        });
-
-        Grid.SetColumn(panel, 0);
-        return panel;
-    }
 
     // One grid for every role, so the selectors line up under each other whatever the roles are called: the label
     // column takes the width of the longest label ("Categorical variable for grouping" is a good deal longer than
@@ -221,12 +201,13 @@ internal sealed class GraphSetupWindow : Window
     }
 
     // The roles, then the options the graph type offers. An option the graph type does not have is left out entirely
-    // rather than shown disabled; which options exist is read from the graph type's capabilities.
+    // rather than shown disabled; which options exist is read from the graph type's capabilities. The roles' own
+    // selectors are where columns are picked: there is no separate list of the worksheet's columns (Task #046.2).
     //
     // A graph type with options of its own shows them in two columns - its own bins, statistics, fitted line and legend
     // on the left, the specification, the labels and the axis ranges on the right - to keep the dialog within a
     // 1280 x 720 screen; one without (a scatter plot, a box plot) shows the right-hand ones alone, the legend last.
-    private static Control RightColumn(GraphSetupViewModel setup)
+    private static Control RolesAndOptions(GraphSetupViewModel setup)
     {
         var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
         column.Children.Add(Roles(setup));
@@ -235,7 +216,6 @@ internal sealed class GraphSetupWindow : Window
             && !setup.SupportsHistogramControls && !setup.SupportsLabels && !setup.SupportsAxisRanges
             && !setup.SupportsLegend)
         {
-            Grid.SetColumn(column, 2);
             return column;
         }
 
@@ -305,7 +285,6 @@ internal sealed class GraphSetupWindow : Window
             column.Children.Add(columns);
         }
 
-        Grid.SetColumn(column, 2);
         return column;
     }
 
