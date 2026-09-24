@@ -27,8 +27,13 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
 
     public const float NormalFitHaloWidth = 3f;
 
-    // Bars narrower than this are drawn without their outline, which would otherwise cover them.
-    private const float MinimumOutlinedBarWidth = 4f;
+    // The bars of one series narrower than this are drawn without their outline, which would otherwise cover them.
+    private const float MinimumUngroupedOutlinedBarWidth = 4f;
+
+    // Overlaid series outline only their bars wider than this (Task #046.1): from there a 1 px edge on each side still
+    // leaves the semi-transparent fill between them. A bar this narrow or narrower would be all outline - opaque,
+    // hiding the series drawn before it - so it keeps its fill alone.
+    private const float MinimumGroupedOutlinedBarWidth = 2f;
 
     private readonly HistogramRenderModel _model;
 
@@ -76,20 +81,22 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
             {
                 outline.Color = theme.SeriesColor(series.SeriesIndex);
 
-                // On a narrow bar the outline would be the whole bar: many bins are read as a shape, not as bars, and
-                // the fills alone carry it.
-                DrawBars(canvas, series, transform, baseline, outline, MinimumOutlinedBarWidth);
+                // Overlaid semi-transparent fills alone do not show where one bin ends and the next begins, so every
+                // bar wider than MinimumGroupedOutlinedBarWidth is outlined, the narrow ones of dense bins included.
+                DrawBars(canvas, series, transform, baseline, outline, width => width > MinimumGroupedOutlinedBarWidth);
             }
         }
         else
         {
             // The solid bars of one series are outlined too (Task #046), in the theme's neutral bin outline rather than
             // the series colour, so every bin's edges show; overlaid series keep their own colour's outline above,
-            // which is what tells their shapes apart. Narrow bars are left unoutlined for the same reason as there.
+            // which is what tells their shapes apart. Bars narrower than MinimumUngroupedOutlinedBarWidth are left
+            // unoutlined: a solid bar needs no outline to be seen, and on a narrow one the edges of neighbours crowd.
             outline.Color = theme.BinOutline;
             foreach (var series in _model.Series)
             {
-                DrawBars(canvas, series, transform, baseline, outline, MinimumOutlinedBarWidth);
+                DrawBars(
+                    canvas, series, transform, baseline, outline, width => width >= MinimumUngroupedOutlinedBarWidth);
             }
         }
 
@@ -181,13 +188,14 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
         return path;
     }
 
+    // Every bar of the series with something in it and a width on screen - or only those whose width drawn says so.
     private void DrawBars(
         SKCanvas canvas,
         HistogramSeriesRenderModel series,
         GraphCoordinateTransform transform,
         float baseline,
         SKPaint paint,
-        float minimumWidth = 0f)
+        Func<float, bool>? drawn = null)
     {
         for (var index = 0; index < _model.Bins.Count; index++)
         {
@@ -209,7 +217,7 @@ public sealed class HistogramRenderer : IGraphPlotRenderer
             }
 
             var width = right - left;
-            if (width < minimumWidth)
+            if (!(width > 0) || (drawn is not null && !drawn(width)))
             {
                 continue;
             }
