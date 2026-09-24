@@ -52,7 +52,7 @@ public sealed record GraphRoleDefinition(
 // data pipeline all read the roles from here, so the rules live in one place.
 public sealed record GraphTypeDefinition(GraphType GraphType, string DisplayName, IReadOnlyList<GraphRoleDefinition> Roles)
 {
-    // What this graph type can show besides its plot (see GraphPresentationOptions). None unless declared.
+    // What this graph type can show besides its plot (see GraphCapability). None unless declared.
     public IReadOnlyList<GraphCapability> Capabilities { get; init; } = [];
 
     public bool Supports(GraphCapability capability) => Capabilities.Contains(capability);

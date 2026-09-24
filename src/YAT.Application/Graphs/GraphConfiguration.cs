@@ -10,8 +10,10 @@ public sealed record GraphColumnAssignment(GraphVariableRole Role, Guid Workshee
 // roles. Validate it with GraphConfigurationValidator before using it; nothing here reads worksheet values.
 public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, IReadOnlyList<GraphColumnAssignment> Assignments)
 {
-    // How the graph is presented. Configurations that do not say keep the defaults.
-    public GraphPresentationOptions PresentationOptions { get; init; } = GraphPresentationOptions.Default;
+    // Whether the statistics panel is shown and with which statistics (Task #045). Graph types that do not declare
+    // GraphCapability.StatisticsPanel ignore it; the data query never reads it. The graph type's panel with every
+    // statistic unless the user chose.
+    public GraphStatisticsOptions StatisticsOptions { get; init; } = GraphStatisticsOptions.Default;
 
     // The specification the measured variable is held to. It is data about the measurement rather than a presentation
     // option: graph types that declare SpecificationLines draw it, the others ignore it, and the data query never reads

@@ -244,7 +244,7 @@ public class GraphLabelsSetupTests
     public void LabelsAreIndependentOfTheOtherOptions()
     {
         var setup = Setup(GraphType.Histogram);
-        setup.ShowStatistics = false;
+        setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
         setup.SelectedYScale = setup.YScaleChoices.Single(choice => choice.Value == HistogramYScale.Percent);
         setup.LowerLimitText = "14.8";
         setup.Labels.SelectedXAxisTitleMode = Mode(setup, GraphLabelMode.Custom);
@@ -252,7 +252,7 @@ public class GraphLabelsSetupTests
 
         var configuration = setup.Confirm()!;
 
-        Assert.False(configuration.PresentationOptions.ShowStatistics);
+        Assert.Equal(GraphStatisticsMode.Hide, configuration.StatisticsOptions.Mode);
         Assert.Equal(HistogramYScale.Percent, configuration.HistogramOptions.YScale);
         Assert.Equal(14.8, configuration.Specification.LowerLimit);
         Assert.Equal(GraphLabelOption.Custom("Thickness"), configuration.LabelOptions.XAxisTitle);

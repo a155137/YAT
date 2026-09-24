@@ -332,7 +332,7 @@ public class SpecificationLinesRenderingTests
         var model = new HistogramRenderModelBuilder().Build(data, new HistogramPlotLabels("Reg1", "Lot"), Token)!;
         var configuration = new GraphConfiguration(GraphType.Histogram, Guid.NewGuid(), [])
         {
-            PresentationOptions = new GraphPresentationOptions(showStatistics),
+            StatisticsOptions = new GraphStatisticsOptions(showStatistics ? GraphStatisticsMode.Auto : GraphStatisticsMode.Hide),
             Specification = specification
         };
 

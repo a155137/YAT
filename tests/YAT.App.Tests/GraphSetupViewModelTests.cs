@@ -199,7 +199,7 @@ public class GraphSetupViewModelTests
         var setup = Setup(graphType);
 
         Assert.True(setup.SupportsStatisticsPanel);
-        Assert.True(setup.ShowStatistics);
+        Assert.Equal(GraphStatisticsOptions.Default, setup.Statistics.Options);
     }
 
     [Theory]
@@ -216,24 +216,25 @@ public class GraphSetupViewModelTests
         var setup = Setup(GraphType.Histogram);
         Assign(setup, GraphVariableRole.Variable, Reg1);
 
-        Assert.True(setup.Confirm()!.PresentationOptions.ShowStatistics);
+        Assert.Equal(GraphStatisticsOptions.Default, setup.Confirm()!.StatisticsOptions);
 
-        setup.ShowStatistics = false;
+        setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
         var off = setup.Confirm()!;
-        Assert.False(off.PresentationOptions.ShowStatistics);
+        Assert.Equal(GraphStatisticsMode.Hide, off.StatisticsOptions.Mode);
         Assert.Equal([new GraphColumnAssignment(GraphVariableRole.Variable, Reg1.Id)], off.Assignments);
     }
 
     [Fact]
-    public void ShowStatisticsIsObservable()
+    public void TheStatisticsOptionsAreObservable()
     {
         var setup = Setup(GraphType.Histogram);
         var changed = new List<string?>();
-        setup.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        setup.Statistics.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
-        setup.ShowStatistics = false;
+        setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
 
-        Assert.Contains(nameof(GraphSetupViewModel.ShowStatistics), changed);
+        Assert.Contains(nameof(GraphStatisticsEditorViewModel.Options), changed);
+        Assert.Contains(nameof(GraphStatisticsEditorViewModel.AreItemsEnabled), changed);
     }
 
     // ---- Specification (#036) ----
@@ -369,11 +370,11 @@ public class GraphSetupViewModelTests
     public void TheSpecificationAndTheStatisticsOptionAreIndependent()
     {
         var setup = WithSpecification("14.5", "", "15.5");
-        setup.ShowStatistics = false;
+        setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
 
         var configuration = setup.Confirm()!;
 
-        Assert.False(configuration.PresentationOptions.ShowStatistics);
+        Assert.Equal(GraphStatisticsMode.Hide, configuration.StatisticsOptions.Mode);
         Assert.Equal(new Specification(14.5, null, 15.5), configuration.Specification);
     }
 
@@ -556,13 +557,13 @@ public class GraphSetupViewModelTests
     {
         var setup = HistogramSetup();
         setup.SelectedYScale = setup.YScaleChoices.Single(choice => choice.Value == HistogramYScale.Percent);
-        setup.ShowStatistics = false;
+        setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
         setup.LowerLimitText = "14.5";
 
         var configuration = setup.Confirm()!;
 
         Assert.Equal(HistogramYScale.Percent, configuration.HistogramOptions.YScale);
-        Assert.False(configuration.PresentationOptions.ShowStatistics);
+        Assert.Equal(GraphStatisticsMode.Hide, configuration.StatisticsOptions.Mode);
         Assert.Equal(new Specification(14.5, null, null), configuration.Specification);
     }
 
@@ -652,14 +653,14 @@ public class GraphSetupViewModelTests
     {
         var setup = Setup(GraphType.ProbabilityPlot);
         Assign(setup, GraphVariableRole.Variable, Reg1);
-        setup.ShowStatistics = statistics;
+        setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[statistics ? 0 : 2];
         setup.ShowFittedLine = fittedLine;
         setup.LowerLimitText = lower;
         setup.UpperLimitText = upper;
 
         var configuration = setup.Confirm()!;
 
-        Assert.Equal(statistics, configuration.PresentationOptions.ShowStatistics);
+        Assert.Equal(statistics ? GraphStatisticsMode.Auto : GraphStatisticsMode.Hide, configuration.StatisticsOptions.Mode);
         Assert.Equal(fittedLine, configuration.ProbabilityPlotOptions.ShowFittedLine);
         Assert.Equal(lower.Length == 0 ? Specification.None : new Specification(14.5, null, 15.5), configuration.Specification);
     }

@@ -50,7 +50,7 @@ public class SpecificationTests
         };
 
         Assert.Equal(new Specification(1, 2, 3), configuration.Specification);
-        Assert.Equal(GraphPresentationOptions.Default, configuration.PresentationOptions);
+        Assert.Equal(GraphStatisticsOptions.Default, configuration.StatisticsOptions);
     }
 
     // ---- Rules: what is valid ----

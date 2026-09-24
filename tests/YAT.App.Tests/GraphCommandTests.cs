@@ -815,7 +815,7 @@ public partial class GraphCommandTests
 
         await Command(runtime, graphType).ExecuteAsync(null);
 
-        Assert.True(runtime.Graphs.LastConfiguration!.PresentationOptions.ShowStatistics);
+        Assert.Equal(GraphStatisticsOptions.Default, runtime.Graphs.LastConfiguration!.StatisticsOptions);
         var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
         var panel = Assert.IsType<GraphStatisticsPanel>(frame.StatisticsPanel);
         Assert.False(panel.IsGrouped);
@@ -839,13 +839,13 @@ public partial class GraphCommandTests
         await runtime.PasteAsync("Reg1\n1\n2\n3\n4\n");
         runtime.GraphDialogs.Answer = setup =>
         {
-            setup.ShowStatistics = false;
+            setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
             return ConfirmWith(setup, ("Graph variables", "Reg1"));
         };
 
         await Command(runtime, graphType).ExecuteAsync(null);
 
-        Assert.False(runtime.Graphs.LastConfiguration!.PresentationOptions.ShowStatistics);
+        Assert.Equal(GraphStatisticsMode.Hide, runtime.Graphs.LastConfiguration!.StatisticsOptions.Mode);
         var (frame, _) = Assert.Single(runtime.GraphWindows.Shown);
         Assert.Null(frame.StatisticsPanel);
     }
@@ -922,7 +922,7 @@ public partial class GraphCommandTests
         runtime.GraphDialogs.Answer = setup =>
         {
             Assert.False(setup.SupportsStatisticsPanel);
-            setup.ShowStatistics = true;
+            setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[0];
             return ConfirmWithFirstColumns(setup);
         };
 
@@ -941,7 +941,7 @@ public partial class GraphCommandTests
         runtime.GraphDialogs.Answer = setup =>
         {
             Assert.False(setup.SupportsStatisticsPanel);
-            setup.ShowStatistics = true;
+            setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[0];
             return ConfirmWithVariables(setup, "Reg1", "Reg2");
         };
 
@@ -1023,7 +1023,7 @@ public partial class GraphCommandTests
         await runtime.PasteAsync("Reg1\tLot\n1\tA\n2\tB\n3\tC\n4\tA\n5\tB\n6\tC\n");
         runtime.GraphDialogs.Answer = setup =>
         {
-            setup.ShowStatistics = false;
+            setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
             setup.LowerLimitText = "1.5";
             setup.UpperLimitText = "5.5";
             return ConfirmWith(setup, ("Graph variables", "Reg1"), ("Categorical variable for grouping", "Lot"));
@@ -1162,7 +1162,7 @@ public partial class GraphCommandTests
         await runtime.PasteAsync("Reg1\n14.9\n15.0\n15.1\n15.2\n");
         runtime.GraphDialogs.Answer = setup =>
         {
-            setup.ShowStatistics = false;
+            setup.Statistics.SelectedMode = setup.Statistics.ModeChoices[2];
             setup.ShowFittedLine = false;
             setup.LowerLimitText = "14";
             setup.UpperLimitText = "16";

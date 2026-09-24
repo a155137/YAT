@@ -32,21 +32,21 @@ public static class GraphStatisticsPanelBuilder
     // Cancellation is checked every this many observations (a power of two, so the test is a mask).
     private const int CancellationCheckMask = 0xFFFF;
 
-    // The frame to draw for a prepared graph: with the statistics panel when the graph type offers one and the user
-    // wants it, unchanged otherwise. The graph preparation calls this, so every graph gets its panel the same way.
+    // The frame of a prepared graph with its statistics panel when the graph type offers one, unchanged otherwise. The
+    // graph preparation calls this, so every graph gets its panel the same way. The panel is worked out whether or not
+    // it is to be shown (Task #045): whether it is, and with which statistics, is decided afterwards from the frame
+    // alone (GraphStatisticsPresentationBuilder), so a hidden panel can be shown again without the data.
     public static GraphRenderModel Attach(
         GraphRenderModel frame,
         GraphData data,
         GraphTypeDefinition definition,
-        GraphPresentationOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(definition);
-        ArgumentNullException.ThrowIfNull(options);
 
-        if (!definition.Supports(GraphCapability.StatisticsPanel) || !options.ShowStatistics || data is not UnivariateGraphData univariate)
+        if (!definition.Supports(GraphCapability.StatisticsPanel) || data is not UnivariateGraphData univariate)
         {
             return frame;
         }

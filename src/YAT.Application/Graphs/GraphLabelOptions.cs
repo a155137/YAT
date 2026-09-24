@@ -32,7 +32,7 @@ public enum GraphLabelField
     YAxisTitle
 }
 
-// The labels every graph has: its title and the titles of its two axes. Like GraphPresentationOptions these change only
+// The labels every graph has: its title and the titles of its two axes. Like GraphStatisticsOptions these change only
 // what is written around the plot, never the observations, the plot or the axes' ranges, so the graph data query and
 // the graph types' builders never read them. They are applied last, to the finished frame (see GraphPresentation).
 //

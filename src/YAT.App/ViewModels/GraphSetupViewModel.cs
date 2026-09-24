@@ -113,9 +113,6 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             role.SelectedOptions.CollectionChanged += (_, _) => OnSelectionChanged();
         }
 
-        // Statistics are shown unless the user turns them off (only offered where the graph type has the panel).
-        ShowStatistics = GraphPresentationOptions.Default.ShowStatistics;
-
         // The fitted line is shown unless the user turns it off (only offered where the graph type draws one).
         ShowFittedLine = ProbabilityPlotOptions.Default.ShowFittedLine;
 
@@ -149,6 +146,17 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
         // The legend starts as the graph type gives it, on the right.
         Legend = new GraphLegendEditorViewModel();
+
+        // The statistics panel starts as the graph type gives it, with every statistic; a shown panel without any
+        // statistic is checked with the rest of the setup.
+        Statistics = new GraphStatisticsEditorViewModel(definition);
+        Statistics.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(GraphStatisticsEditorViewModel.Options))
+            {
+                OnSelectionChanged();
+            }
+        };
 
         // Every axis starts Auto, with nothing typed; the ranges are checked with the rest of the setup, too.
         Axes = new GraphAxesEditorViewModel(definition);
@@ -269,12 +277,11 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     public string Title => _definition.DisplayName;
 
-    // Whether the graph type offers a statistics panel; the setup shows the option only when it does.
+    // Whether the graph type offers a statistics panel; the setup shows the statistics options only when it does.
     public bool SupportsStatisticsPanel => _definition.Supports(GraphCapability.StatisticsPanel);
 
-    // Show statistics: checked to begin with.
-    [ObservableProperty]
-    public partial bool ShowStatistics { get; set; }
+    // The statistics options, edited the way the Edit Statistics dialog of a drawn graph edits them.
+    public GraphStatisticsEditorViewModel Statistics { get; }
 
     // Whether the graph type draws a fitted line the user may hide; the setup shows the option only when it does.
     public bool SupportsFittedLine => _definition.Supports(GraphCapability.FittedLine);
@@ -358,7 +365,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             .. Roles.SelectMany(role => role.SelectedColumnIds.Select(columnId => new GraphColumnAssignment(role.Role, columnId)))
         ])
         {
-            PresentationOptions = new GraphPresentationOptions(ShowStatistics),
+            StatisticsOptions = SupportsStatisticsPanel ? Statistics.Options : GraphStatisticsOptions.Default,
 
             // Carried whatever the graph type; only one that declares FittedLine reads it.
             ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine),
@@ -431,7 +438,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     {
         // The constructor sets the histogram choices and the labels after other properties whose change handlers land
         // here.
-        if (SelectedYScale is null || SelectedBinning is null || Labels is null || Axes is null)
+        if (SelectedYScale is null || SelectedBinning is null || Labels is null || Axes is null || Statistics is null)
         {
             return;
         }

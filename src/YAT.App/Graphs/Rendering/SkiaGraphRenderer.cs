@@ -724,10 +724,11 @@ public sealed class SkiaGraphRenderer
 
     // ---- Statistics panel ----
     //
-    // The statistics beside the plot, in a box styled like the legend. Ungrouped, it is a title and three rows - Mean,
-    // StDev, N - with the value right-aligned. Grouped, it is a table: a header with the grouping column's name and the
-    // statistic names, then one row per group with the group's colour swatch, its label on the left and its numbers on
-    // the right. Every text was decided when the model was built; this only places it.
+    // The statistics beside the plot, in a box styled like the legend. Ungrouped, it is a title and a row per
+    // statistic - Mean, StDev, N, or those of them the panel shows - with the value right-aligned. Grouped, it is a
+    // table: a header with the grouping column's name and the statistic names, then one row per group with the group's
+    // colour swatch, its label on the left and its numbers on the right. Every text was decided when the model was
+    // built; this only places it.
     //
     // Nothing scrolls and no font shrinks: a label that does not fit the panel's width ends in an ellipsis, and when
     // not every group fits the panel's height, the last row that does says how many more there are.
@@ -736,7 +737,24 @@ public sealed class SkiaGraphRenderer
     private const float StatisticsColumnGap = 10f;
     private const float StatisticsMinimumLabelWidth = 24f;
 
-    private static readonly string[] StatisticsNames = ["Mean", "StDev", "N"];
+    // The name of each statistic, as the panel heads it.
+    private static string StatisticName(GraphStatisticsItem item) => item switch
+    {
+        GraphStatisticsItem.Mean => "Mean",
+        GraphStatisticsItem.StandardDeviation => "StDev",
+        _ => "N"
+    };
+
+    // A row's text for each statistic, as it was decided when the row was built.
+    private static string StatisticText(GraphStatisticsRow row, GraphStatisticsItem item) => item switch
+    {
+        GraphStatisticsItem.Mean => row.MeanText,
+        GraphStatisticsItem.StandardDeviation => row.StandardDeviationText,
+        _ => row.CountText
+    };
+
+    // The names of the statistics the panel shows (Task #045), in the order it shows them.
+    private static string[] StatisticsNames(GraphStatisticsPanel panel) => [.. panel.Items.Select(StatisticName)];
 
     // The width the panel's content asks for, capped at its maximum width.
     private static float StatisticsPanelWidth(GraphStatisticsPanel panel, SKFont font)
@@ -750,31 +768,36 @@ public sealed class SkiaGraphRenderer
         else
         {
             var row = panel.Rows[0];
-            var labels = StatisticsNames.Max(name => GraphTextFallback.MeasureText(font, name));
-            var values = UngroupedValues(row).Max(value => GraphTextFallback.MeasureText(font, value));
+            var labels = StatisticsNames(panel).Max(name => GraphTextFallback.MeasureText(font, name));
+            var values = UngroupedValues(panel, row).Max(value => GraphTextFallback.MeasureText(font, value));
             width = Math.Max(width, labels + StatisticsColumnGap + values);
         }
 
         return Math.Min(width + (LegendPadding * 2f), StatisticsMaximumWidth);
     }
 
-    // The label column and the three number columns of a grouped panel, each as wide as its widest text.
+    // The label column and the number columns of a grouped panel - one per statistic it shows - each as wide as its
+    // widest text.
     private static (float Label, float[] Numbers) StatisticsColumns(GraphStatisticsPanel panel, SKFont font)
     {
         var label = GraphTextFallback.MeasureText(font, panel.GroupHeader ?? string.Empty);
-        var numbers = StatisticsNames.Select(name => GraphTextFallback.MeasureText(font, name)).ToArray();
+        var items = panel.Items;
+        var numbers = StatisticsNames(panel).Select(name => GraphTextFallback.MeasureText(font, name)).ToArray();
         foreach (var row in panel.Rows)
         {
             label = Math.Max(label, GraphTextFallback.MeasureText(font, row.Label));
-            numbers[0] = Math.Max(numbers[0], GraphTextFallback.MeasureText(font, row.MeanText));
-            numbers[1] = Math.Max(numbers[1], GraphTextFallback.MeasureText(font, row.StandardDeviationText));
-            numbers[2] = Math.Max(numbers[2], GraphTextFallback.MeasureText(font, row.CountText));
+            for (var column = 0; column < items.Count; column++)
+            {
+                numbers[column] = Math.Max(
+                    numbers[column], GraphTextFallback.MeasureText(font, StatisticText(row, items[column])));
+            }
         }
 
         return (label, numbers);
     }
 
-    private static string[] UngroupedValues(GraphStatisticsRow row) => [row.MeanText, row.StandardDeviationText, row.CountText];
+    private static string[] UngroupedValues(GraphStatisticsPanel panel, GraphStatisticsRow row) =>
+        [.. panel.Items.Select(item => StatisticText(row, item))];
 
     private static void DrawStatisticsPanel(
         SKCanvas canvas,
@@ -796,7 +819,7 @@ public sealed class SkiaGraphRenderer
         var fontMetrics = font.Metrics;
 
         var headerLines = panel.IsGrouped ? 2 : 1;
-        var dataLines = panel.IsGrouped ? panel.Rows.Count : StatisticsNames.Length;
+        var dataLines = panel.IsGrouped ? panel.Rows.Count : panel.Items.Count;
         var (shownData, _) = FitStatisticsLines(panel, area.Height, rowHeight);
         var overflow = shownData < dataLines;
         var lines = headerLines + shownData;
@@ -832,7 +855,8 @@ public sealed class SkiaGraphRenderer
         }
         else
         {
-            var values = UngroupedValues(panel.Rows[0]);
+            var names = StatisticsNames(panel);
+            var values = UngroupedValues(panel, panel.Rows[0]);
             for (var line = 0; line < shownData; line++)
             {
                 var baseline = CenteredBaseline(top + (rowHeight / 2f), fontMetrics);
@@ -843,7 +867,7 @@ public sealed class SkiaGraphRenderer
                 }
 
                 fill.Color = theme.SecondaryText;
-                GraphTextFallback.DrawText(canvas, StatisticsNames[line], left, baseline, SKTextAlign.Left, font, fill);
+                GraphTextFallback.DrawText(canvas, names[line], left, baseline, SKTextAlign.Left, font, fill);
                 fill.Color = theme.Text;
                 GraphTextFallback.DrawText(canvas, values[line], right, baseline, SKTextAlign.Right, font, fill);
                 top += rowHeight + LegendEntrySpacing;
@@ -859,7 +883,7 @@ public sealed class SkiaGraphRenderer
     internal static (int Lines, int More) FitStatisticsLines(GraphStatisticsPanel panel, float height, float rowHeight)
     {
         var headerLines = panel.IsGrouped ? 2 : 1;
-        var dataLines = panel.IsGrouped ? panel.Rows.Count : StatisticsNames.Length;
+        var dataLines = panel.IsGrouped ? panel.Rows.Count : panel.Items.Count;
 
         // As many data lines as the height allows; if some do not fit, the last one that does becomes "… k more".
         var available = height - (LegendPadding * 2f) + LegendEntrySpacing;
@@ -909,11 +933,12 @@ public sealed class SkiaGraphRenderer
             SKTextAlign.Left,
             font,
             fill);
-        for (var column = 0; column < StatisticsNames.Length; column++)
+        var names = StatisticsNames(panel);
+        for (var column = 0; column < names.Length; column++)
         {
             GraphTextFallback.DrawText(
                 canvas,
-                StatisticsNames[column],
+                names[column],
                 numberRights[column],
                 baseline,
                 SKTextAlign.Right,
@@ -954,16 +979,17 @@ public sealed class SkiaGraphRenderer
                 fill);
 
             fill.Color = theme.Text;
-            GraphTextFallback.DrawText(canvas, row.MeanText, numberRights[0], baseline, SKTextAlign.Right, font, fill);
-            GraphTextFallback.DrawText(
-                canvas,
-                row.StandardDeviationText,
-                numberRights[1],
-                baseline,
-                SKTextAlign.Right,
-                font,
-                fill);
-            GraphTextFallback.DrawText(canvas, row.CountText, numberRights[2], baseline, SKTextAlign.Right, font, fill);
+            for (var column = 0; column < panel.Items.Count; column++)
+            {
+                GraphTextFallback.DrawText(
+                    canvas,
+                    StatisticText(row, panel.Items[column]),
+                    numberRights[column],
+                    baseline,
+                    SKTextAlign.Right,
+                    font,
+                    fill);
+            }
 
             top += rowHeight + LegendEntrySpacing;
         }

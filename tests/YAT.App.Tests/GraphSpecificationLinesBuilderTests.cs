@@ -34,7 +34,7 @@ public class GraphSpecificationLinesBuilderTests
     private static GraphConfiguration Configuration(GraphType graphType, Specification specification, bool showStatistics = true) =>
         new(graphType, Guid.NewGuid(), [])
         {
-            PresentationOptions = new GraphPresentationOptions(showStatistics),
+            StatisticsOptions = new GraphStatisticsOptions(showStatistics ? GraphStatisticsMode.Auto : GraphStatisticsMode.Hide),
             Specification = specification
         };
 
@@ -205,7 +205,7 @@ public class GraphSpecificationLinesBuilderTests
         var applied = GraphPresentation.Apply(frame, data, Configuration(GraphType.Histogram, new Specification(5, 15, 25)), Token);
 
         var expected = GraphSpecificationLinesBuilder.Attach(
-            GraphStatisticsPanelBuilder.Attach(frame, data, HistogramDefinition, GraphPresentationOptions.Default, Token),
+            GraphStatisticsPanelBuilder.Attach(frame, data, HistogramDefinition, Token),
             HistogramDefinition,
             new Specification(5, 15, 25));
         Assert.Equal(expected.StatisticsPanel!.Rows, applied.StatisticsPanel!.Rows);
@@ -220,8 +220,12 @@ public class GraphSpecificationLinesBuilderTests
     {
         var frame = Frame();
 
-        Assert.Same(frame, GraphPresentation.Apply(
-            frame, Data(GraphType.Histogram, [11, 12]), Configuration(GraphType.Histogram, Specification.None, showStatistics: false), Token));
+        // The panel is worked out whatever the options say (Task #045) and hidden again: the frame comes back as it was,
+        // though not as the same instance.
+        var applied = GraphPresentation.Apply(
+            frame, Data(GraphType.Histogram, [11, 12]), Configuration(GraphType.Histogram, Specification.None, showStatistics: false), Token);
+        Assert.Equal(frame, applied);
+        Assert.Null(applied.StatisticsPanel);
     }
 
     [Fact]

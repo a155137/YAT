@@ -29,8 +29,12 @@ namespace YAT.app.Views;
 // window shows, copies and exports the frame over the new ranges.
 //
 // Its legend too (Task #044): right-click and choose Edit Legend... to show, hide or move it - unavailable for a graph
-// without one. The window lays the new frame out again, legend and plot alike, without the data. Labels, ranges and
-// the legend are edited on the one graph: a change to any of them keeps the others.
+// without one. The window lays the new frame out again, legend and plot alike, without the data.
+//
+// And its statistics panel (Task #045): right-click and choose Edit Statistics... to show or hide it or choose its
+// statistics - offered by the graph types that have a panel, and unavailable for a graph without one. The panel was
+// worked out whole with the graph, so even one hidden from the start is shown without the data. Labels, ranges, the
+// legend and the statistics are edited on the one graph: a change to any of them keeps the others.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
@@ -43,6 +47,7 @@ internal sealed class GraphWindow : Window
     private readonly GraphLabelEditController _labels;
     private readonly GraphAxesEditController _axes;
     private readonly GraphLegendEditController _legend;
+    private readonly GraphStatisticsEditController _statistics;
     private readonly IAsyncRelayCommand _copyImage;
 
     // Ctrl+C copies the graph while this window is active. The binding belongs to this window alone, so the worksheet's
@@ -63,6 +68,8 @@ internal sealed class GraphWindow : Window
         _axes.GraphChanged += (_, _) => Show(_axes.Graph);
         _legend = new GraphLegendEditController(graph, new AvaloniaGraphLegendDialog(this));
         _legend.GraphChanged += (_, _) => Show(_legend.Graph);
+        _statistics = new GraphStatisticsEditController(graph, new AvaloniaGraphStatisticsDialog(this));
+        _statistics.GraphChanged += (_, _) => Show(_statistics.Graph);
 
         // One command for the menu item, the shortcut and the right-click menu. It is not run again while a copy is still
         // in progress.
@@ -74,6 +81,9 @@ internal sealed class GraphWindow : Window
         // A graph without a legend has none to edit: the item is there, but not available.
         var editLegend = new AsyncRelayCommand(() => _legend.EditAsync(), () => _legend.CanEdit);
 
+        // Likewise a graph without a statistics panel.
+        var editStatistics = new AsyncRelayCommand(() => _statistics.EditAsync(), () => _statistics.CanEdit);
+
         Title = WindowTitle(graph.Frame);
         Width = DefaultWidth;
         Height = DefaultHeight;
@@ -83,18 +93,11 @@ internal sealed class GraphWindow : Window
 
         var menu = new Menu { Items = { FileMenu() } };
         DockPanel.SetDock(menu, Dock.Top);
-        var contextMenu = new ContextMenu
+        var contextMenu = new ContextMenu();
+        foreach (var item in ContextMenuItems(
+            graph.Definition, _copyImage, editLabels, editAxes, editLegend, editStatistics))
         {
-            Items = { CopyImageItem(_copyImage), new Separator(), EditLabelsItem(editLabels) }
-        };
-        if (graph.Definition.Supports(GraphCapability.AxisRange))
-        {
-            contextMenu.Items.Add(EditAxesItem(editAxes));
-        }
-
-        if (graph.Definition.Supports(GraphCapability.Legend))
-        {
-            contextMenu.Items.Add(EditLegendItem(editLegend));
+            contextMenu.Items.Add(item);
         }
 
         var graphArea = GraphArea(_canvas, contextMenu);
@@ -111,6 +114,37 @@ internal sealed class GraphWindow : Window
         Child = canvas,
         ContextMenu = contextMenu
     };
+
+    // The right-click menu of a graph of this type, in order: Copy Image, then the editors the graph type offers -
+    // labels, axes, legend, statistics.
+    internal static IReadOnlyList<Control> ContextMenuItems(
+        GraphTypeDefinition definition,
+        ICommand copyImage,
+        ICommand editLabels,
+        ICommand editAxes,
+        ICommand editLegend,
+        ICommand editStatistics)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        List<Control> items = [CopyImageItem(copyImage), new Separator(), EditLabelsItem(editLabels)];
+        if (definition.Supports(GraphCapability.AxisRange))
+        {
+            items.Add(EditAxesItem(editAxes));
+        }
+
+        if (definition.Supports(GraphCapability.Legend))
+        {
+            items.Add(EditLegendItem(editLegend));
+        }
+
+        if (definition.Supports(GraphCapability.StatisticsPanel))
+        {
+            items.Add(EditStatisticsItem(editStatistics));
+        }
+
+        return items;
+    }
 
     // The one Copy Image item, made for File > Copy Image and for the right-click menu alike: both run the command that
     // Ctrl+C runs.
@@ -129,6 +163,11 @@ internal sealed class GraphWindow : Window
     internal static MenuItem EditLegendItem(ICommand editLegend) =>
         new() { Header = "Edit Le_gend...", Command = editLegend };
 
+    // Right-click > Edit Statistics...: shown or hidden, and which statistics - unavailable for a graph without a
+    // statistics panel.
+    internal static MenuItem EditStatisticsItem(ICommand editStatistics) =>
+        new() { Header = "Edit _Statistics...", Command = editStatistics };
+
     // What the window is called after the graph it shows: its title, or "Graph" when it has none.
     internal static string WindowTitle(GraphRenderModel frame) =>
         string.IsNullOrWhiteSpace(frame.Title) ? "Graph" : frame.Title;
@@ -146,13 +185,14 @@ internal sealed class GraphWindow : Window
         await _labels.EditAsync(field);
     }
 
-    // The graph under its new labels or over its new axis ranges: drawn at once, named after its title, and the graph
-    // both editors work on from now on.
+    // The graph under its new labels, over its new axis ranges, or with its new legend or statistics: drawn at once,
+    // named after its title, and the graph every editor works on from now on.
     private void Show(GraphPresentationState graph)
     {
         _labels.Show(graph);
         _axes.Show(graph);
         _legend.Show(graph);
+        _statistics.Show(graph);
         _canvas.Model = graph.Frame;
         Title = WindowTitle(graph.Frame);
     }

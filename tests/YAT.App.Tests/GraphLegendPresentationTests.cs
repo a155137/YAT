@@ -84,7 +84,7 @@ public class GraphLegendPresentationTests
 
         var configuration = new GraphConfiguration(type, Guid.Empty, [])
         {
-            PresentationOptions = new GraphPresentationOptions(statistics),
+            StatisticsOptions = new GraphStatisticsOptions(statistics ? GraphStatisticsMode.Auto : GraphStatisticsMode.Hide),
             Specification = GraphTypeDefinitions.For(type).Supports(GraphCapability.SpecificationLines) ? new Specification(14.8, 15, 15.3) : Specification.None
         };
         var frame = GraphPresentation.Present(built.Frame, data, configuration, Token).Frame;

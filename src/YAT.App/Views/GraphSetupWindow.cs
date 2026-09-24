@@ -215,9 +215,10 @@ internal sealed class GraphSetupWindow : Window
             options.Children.Add(Option(setup, "Show normal fit", nameof(GraphSetupViewModel.ShowNormalFit)));
         }
 
+        // The statistics options take one row, where a single check box used to be (Task #045).
         if (setup.SupportsStatisticsPanel)
         {
-            options.Children.Add(Option(setup, "Show statistics", nameof(GraphSetupViewModel.ShowStatistics)));
+            options.Children.Add(GraphStatisticsEditor.Create(setup.Statistics));
         }
 
         if (setup.SupportsFittedLine)

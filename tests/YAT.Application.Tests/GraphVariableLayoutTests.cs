@@ -72,7 +72,7 @@ public class GraphVariableLayoutTests
         var labels = new GraphLabelOptions(GraphLabelOption.Custom("Wafer"), GraphLabelOption.Hidden, GraphLabelOption.Auto);
         var configuration = Configuration(GraphType.Histogram, 3, grouped: true) with
         {
-            PresentationOptions = new GraphPresentationOptions(ShowStatistics: false),
+            StatisticsOptions = new GraphStatisticsOptions(GraphStatisticsMode.Hide),
             Specification = new Specification(1, 2, 3),
             HistogramOptions = new HistogramOptions(HistogramYScale.Density),
             ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine: false),
@@ -88,7 +88,7 @@ public class GraphVariableLayoutTests
             reg2.Assignments.Select(assignment => assignment.Role));
         Assert.Equal(configuration.GraphType, reg2.GraphType);
         Assert.Equal(configuration.WorksheetId, reg2.WorksheetId);
-        Assert.Same(configuration.PresentationOptions, reg2.PresentationOptions);
+        Assert.Same(configuration.StatisticsOptions, reg2.StatisticsOptions);
         Assert.Same(configuration.Specification, reg2.Specification);
         Assert.Same(configuration.HistogramOptions, reg2.HistogramOptions);
         Assert.Same(configuration.ProbabilityPlotOptions, reg2.ProbabilityPlotOptions);

@@ -50,7 +50,7 @@ public class ProbabilityPlotOptionsTests
         Assert.False(off.ProbabilityPlotOptions.ShowFittedLine);
         Assert.Equal(configuration.GraphType, off.GraphType);
         Assert.Equal(configuration.Assignments, off.Assignments);
-        Assert.Same(configuration.PresentationOptions, off.PresentationOptions);
+        Assert.Same(configuration.StatisticsOptions, off.StatisticsOptions);
         Assert.Same(configuration.Specification, off.Specification);
     }
 

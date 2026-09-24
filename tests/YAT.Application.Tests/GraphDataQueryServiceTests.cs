@@ -246,7 +246,7 @@ public class GraphDataQueryServiceTests
 
         var shown = OneVariable(await fixture.LoadAsync(configuration));
         var hidden = OneVariable(await fixture.LoadAsync(
-            configuration with { PresentationOptions = new GraphPresentationOptions(ShowStatistics: false) }));
+            configuration with { StatisticsOptions = new GraphStatisticsOptions(GraphStatisticsMode.Hide) }));
 
         Assert.Equal(shown.Values.ToArray(), hidden.Values.ToArray());
         Assert.Equal(StringGroups(shown), StringGroups(hidden));

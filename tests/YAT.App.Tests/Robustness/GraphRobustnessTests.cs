@@ -285,7 +285,7 @@ public sealed class GraphRobustnessFittedLineTests
         // frame: no panel, the specification's lines, and still no fitted line.
         var configuration = new GraphConfiguration(GraphType.ProbabilityPlot, Guid.Empty, [])
         {
-            PresentationOptions = new GraphPresentationOptions(ShowStatistics: false),
+            StatisticsOptions = new GraphStatisticsOptions(GraphStatisticsMode.Hide),
             Specification = specification,
             ProbabilityPlotOptions = Hidden
         };

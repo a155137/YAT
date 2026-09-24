@@ -287,7 +287,7 @@ public class GraphStatisticsPanelBuilderTests
         var data = Data([1, 2, 3], graphType: graphType);
 
         var frame = GraphStatisticsPanelBuilder.Attach(
-            Frame(), data, GraphTypeDefinitions.For(graphType), GraphPresentationOptions.Default, Token);
+            Frame(), data, GraphTypeDefinitions.For(graphType), Token);
 
         AssertSamePanel(Build(data), frame.StatisticsPanel);
     }
@@ -296,15 +296,19 @@ public class GraphStatisticsPanelBuilderTests
     [InlineData(GraphType.Histogram)]
     [InlineData(GraphType.ProbabilityPlot)]
     [InlineData(GraphType.EmpiricalCdf)]
-    public void TurningStatisticsOffLeavesTheFrameAsItWas(GraphType graphType)
+    public void ThePanelIsWorkedOutEvenWhenItIsToBeHidden(GraphType graphType)
     {
-        var original = Frame();
+        // Task #045: the panel is always worked out with the graph; Hide only keeps it off the frame that is drawn.
+        var data = Data([1, 2, 3], graphType: graphType);
+        var configuration = new GraphConfiguration(graphType, Guid.NewGuid(), [])
+        {
+            StatisticsOptions = new GraphStatisticsOptions(GraphStatisticsMode.Hide)
+        };
 
-        var frame = GraphStatisticsPanelBuilder.Attach(
-            original, Data([1, 2, 3], graphType: graphType), GraphTypeDefinitions.For(graphType), new GraphPresentationOptions(false), Token);
+        var state = GraphPresentation.Present(Frame(), data, configuration, Token);
 
-        Assert.Same(original, frame);
-        Assert.Null(frame.StatisticsPanel);
+        AssertSamePanel(Build(data), state.BaseFrame.StatisticsPanel);
+        Assert.Null(state.Frame.StatisticsPanel);
     }
 
     [Theory]
@@ -315,7 +319,7 @@ public class GraphStatisticsPanelBuilderTests
         var original = Frame();
 
         var frame = GraphStatisticsPanelBuilder.Attach(
-            original, Data([1, 2, 3]), GraphTypeDefinitions.For(graphType), GraphPresentationOptions.Default, Token);
+            original, Data([1, 2, 3]), GraphTypeDefinitions.For(graphType), Token);
 
         Assert.Same(original, frame);
     }
@@ -327,7 +331,7 @@ public class GraphStatisticsPanelBuilderTests
         var scatter = new ScatterGraphData(Guid.NewGuid(), Column("X"), Column("Y"), new double[] { 1, 2 }, new double[] { 3, 4 }, null);
 
         var frame = GraphStatisticsPanelBuilder.Attach(
-            original, scatter, GraphTypeDefinitions.For(GraphType.Histogram), GraphPresentationOptions.Default, Token);
+            original, scatter, GraphTypeDefinitions.For(GraphType.Histogram), Token);
 
         Assert.Same(original, frame);
     }
@@ -338,7 +342,7 @@ public class GraphStatisticsPanelBuilderTests
         var original = Frame();
 
         var frame = GraphStatisticsPanelBuilder.Attach(
-            original, Data([]), GraphTypeDefinitions.For(GraphType.Histogram), GraphPresentationOptions.Default, Token);
+            original, Data([]), GraphTypeDefinitions.For(GraphType.Histogram), Token);
 
         Assert.Null(frame.StatisticsPanel);
     }

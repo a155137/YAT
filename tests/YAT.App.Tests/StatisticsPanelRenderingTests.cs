@@ -301,8 +301,11 @@ public class StatisticsPanelRenderingTests
         var groups = Enumerable.Range(0, 200).Select(index => index % 5 == 0 ? null : $"Lot {index % 3}").ToArray();
         var data = Data(values, groups);
         var model = new HistogramRenderModelBuilder().Build(data, new HistogramPlotLabels("Reg1", "Lot"), Token)!;
-        var frame = GraphStatisticsPanelBuilder.Attach(
-            model.Frame, data, GraphTypeDefinitions.For(GraphType.Histogram), new GraphPresentationOptions(showStatistics), Token);
+        var definition = GraphTypeDefinitions.For(GraphType.Histogram);
+        var frame = GraphStatisticsPresentationBuilder.Attach(
+            GraphStatisticsPanelBuilder.Attach(model.Frame, data, definition, Token),
+            definition,
+            new GraphStatisticsOptions(showStatistics ? GraphStatisticsMode.Auto : GraphStatisticsMode.Hide));
         return (frame, new HistogramRenderer(model));
     }
 

@@ -53,6 +53,8 @@ public static class GraphValidationMessages
                 $"{AxisName(error.Axis)} minimum must be below the {AxisName(error.Axis)} maximum.",
             GraphValidationReason.AxisRangeTooNarrow => $"The {AxisName(error.Axis)} range is too narrow to be shown.",
             GraphValidationReason.LegendOptionsInvalid => "Please choose how the legend is shown and where.",
+            GraphValidationReason.StatisticsOptionsInvalid => "Please choose how the statistics are shown.",
+            GraphValidationReason.StatisticsItemsMissing => "Choose at least one statistic, or hide the statistics.",
             _ => "This graph cannot be created with the current settings."
         };
     }

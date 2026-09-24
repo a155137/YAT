@@ -209,7 +209,7 @@ public class GraphExportControllerTests
             new StringGroupData(new GraphColumnInfo(Guid.NewGuid(), "Lot", WorksheetDataType.String), Enumerable.Range(0, 60).Select(index => (string?)$"Lot {index % 2}").ToArray()));
         var configuration = new GraphConfiguration(GraphType.ProbabilityPlot, Guid.NewGuid(), [])
         {
-            PresentationOptions = new GraphPresentationOptions(statistics),
+            StatisticsOptions = new GraphStatisticsOptions(statistics ? GraphStatisticsMode.Auto : GraphStatisticsMode.Hide),
             ProbabilityPlotOptions = new ProbabilityPlotOptions(fittedLine),
             Specification = specification ?? YAT.Application.Specifications.Specification.None
         };

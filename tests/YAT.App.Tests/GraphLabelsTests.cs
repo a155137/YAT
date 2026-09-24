@@ -96,7 +96,7 @@ public class GraphLabelsTests
         Specification? specification = null) =>
         new(type, Guid.Empty, [])
         {
-            PresentationOptions = new GraphPresentationOptions(statistics),
+            StatisticsOptions = new GraphStatisticsOptions(statistics ? GraphStatisticsMode.Auto : GraphStatisticsMode.Hide),
             Specification = specification ?? Specification.None,
             LabelOptions = labels ?? GraphLabelOptions.Default
         };

@@ -72,7 +72,13 @@ public enum GraphValidationReason
     AxisRangeTooNarrow,
 
     // The legend's mode or position is not a defined choice.
-    LegendOptionsInvalid
+    LegendOptionsInvalid,
+
+    // The statistics panel's mode is not a defined choice.
+    StatisticsOptionsInvalid,
+
+    // The statistics panel is shown (Auto or Show) but no statistic is chosen for it.
+    StatisticsItemsMissing
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
@@ -210,7 +216,28 @@ public sealed class GraphConfigurationValidator
             errors.Add(new GraphValidationError(GraphValidationReason.LegendOptionsInvalid));
         }
 
+        // And the statistics panel, only where the graph type has one.
+        if (definition.Supports(GraphCapability.StatisticsPanel))
+        {
+            errors.AddRange(StatisticsErrors(configuration.StatisticsOptions));
+        }
+
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);
+    }
+
+    // The statistics options' rules, as graph validation errors - for a whole configuration here, and for the options
+    // edited on their own after a graph is drawn: a defined mode, and at least one statistic unless the panel is
+    // hidden.
+    public static IReadOnlyList<GraphValidationError> StatisticsErrors(GraphStatisticsOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (!options.IsModeValid)
+        {
+            return [new GraphValidationError(GraphValidationReason.StatisticsOptionsInvalid)];
+        }
+
+        return options.IsValid ? [] : [new GraphValidationError(GraphValidationReason.StatisticsItemsMissing)];
     }
 
     // The shared label rules, as graph validation errors - for a whole configuration here, and for labels edited on

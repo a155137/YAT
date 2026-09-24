@@ -5,7 +5,8 @@ namespace YAT.Application.Graphs;
 // declaring it.
 public enum GraphCapability
 {
-    // A panel beside the plot with the Mean, standard deviation and N of every series.
+    // A panel beside the plot with the Mean, standard deviation and N of every series, shown or hidden and with the
+    // statistics the user chose (see GraphStatisticsOptions).
     StatisticsPanel,
 
     // The lines of the graph's specification (LSL, Target, USL), drawn across the plot at their values on the X axis,
@@ -34,15 +35,4 @@ public enum GraphCapability
     // The legend of a graph of groups or of several variables drawn together: shown or hidden, and on which side of the
     // plot (see GraphLegendOptions).
     Legend
-}
-
-// How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:
-// they change what is drawn around the plot, never the observations or the statistics of the graph itself.
-//
-// An option only takes effect on graph types whose definition declares the matching capability; elsewhere it is
-// ignored, so the defaults can be the same for every graph.
-public sealed record GraphPresentationOptions(bool ShowStatistics = true)
-{
-    // Statistics are shown unless the user turns them off.
-    public static GraphPresentationOptions Default { get; } = new();
 }
