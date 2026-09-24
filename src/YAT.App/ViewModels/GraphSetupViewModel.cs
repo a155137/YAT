@@ -147,6 +147,16 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             }
         };
 
+        // Every axis starts Auto, with nothing typed; the ranges are checked with the rest of the setup, too.
+        Axes = new GraphAxesEditorViewModel(definition);
+        Axes.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(GraphAxesEditorViewModel.Options))
+            {
+                OnSelectionChanged();
+            }
+        };
+
         OnSelectionChanged();
     }
 
@@ -241,6 +251,12 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     // The graph title and the axis titles, edited the way the Edit Labels dialog of a drawn graph edits them.
     public GraphLabelsEditorViewModel Labels { get; }
+
+    // Whether the graph type lets the user choose an axis range; the setup shows the ranges only when it does.
+    public bool SupportsAxisRanges => Axes.SupportsAxisRanges;
+
+    // The axis ranges, edited the way the Edit Axes dialog of a drawn graph edits them. Blank is Auto.
+    public GraphAxesEditorViewModel Axes { get; }
 
     public string Title => _definition.DisplayName;
 
@@ -339,16 +355,19 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             ProbabilityPlotOptions = new ProbabilityPlotOptions(ShowFittedLine),
             HistogramOptions = SupportsHistogramControls ? HistogramOptionsFromFields() : HistogramOptions.Default,
             Specification = specification,
-            LabelOptions = SupportsLabels ? Labels.Options : GraphLabelOptions.Default
+            LabelOptions = SupportsLabels ? Labels.Options : GraphLabelOptions.Default,
+            AxisRangeOptions = SupportsAxisRanges ? Axes.Options : GraphAxisRangeOptions.Default
         };
 
         var validation = Validator.Validate(configuration, _columns).Errors;
         IReadOnlyList<GraphValidationError> errors =
         [
-            .. validation.Where(error => error.Field is null && error.LabelField is null),
+            .. validation.Where(error => error.Field is null && error.LabelField is null && error.Axis is null),
             .. parseErrors,
             .. validation.Where(error => error.Field is not null),
-            .. validation.Where(error => error.LabelField is not null)
+            .. validation.Where(error => error.LabelField is not null),
+            .. SupportsAxisRanges ? Axes.ParseErrors : Array.Empty<GraphValidationError>(),
+            .. validation.Where(error => error.Axis is not null)
         ];
 
         return (configuration, errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors));
@@ -402,7 +421,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     {
         // The constructor sets the histogram choices and the labels after other properties whose change handlers land
         // here.
-        if (SelectedYScale is null || SelectedBinning is null || Labels is null)
+        if (SelectedYScale is null || SelectedBinning is null || Labels is null || Axes is null)
         {
             return;
         }

@@ -106,10 +106,10 @@ public class GraphTypeDefinitionsTests
             graphType switch
             {
                 GraphType.ProbabilityPlot =>
-                    [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine, GraphCapability.Labels, GraphCapability.VariableLayout],
+                    [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.FittedLine, GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.VariableLayout],
                 GraphType.Histogram =>
-                    [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.HistogramControls, GraphCapability.Labels, GraphCapability.VariableLayout],
-                _ => (GraphCapability[])[GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.Labels, GraphCapability.VariableLayout]
+                    [GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.HistogramControls, GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.VariableLayout],
+                _ => (GraphCapability[])[GraphCapability.StatisticsPanel, GraphCapability.SpecificationLines, GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.VariableLayout]
             },
             definition.Capabilities);
     }
@@ -154,7 +154,9 @@ public class GraphTypeDefinitionsTests
         Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
         Assert.False(definition.Supports(GraphCapability.SpecificationLines));
         Assert.Equal(
-            graphType == GraphType.BoxPlot ? [GraphCapability.Labels, GraphCapability.VariableLayout] : (GraphCapability[])[GraphCapability.Labels],
+            graphType == GraphType.BoxPlot
+                ? [GraphCapability.Labels, GraphCapability.AxisRange, GraphCapability.VariableLayout]
+                : (GraphCapability[])[GraphCapability.Labels, GraphCapability.AxisRange],
             definition.Capabilities);
     }
 

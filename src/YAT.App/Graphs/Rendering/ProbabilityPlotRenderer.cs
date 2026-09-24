@@ -56,8 +56,12 @@ public sealed class ProbabilityPlotRenderer : IGraphPlotRenderer
                 continue;
             }
 
-            var from = transform.ToScreenPoint(fitted.FromValue, fitted.FromScore);
-            var to = transform.ToScreenPoint(fitted.ToValue, fitted.ToScore);
+            // Across the whole score range the plot shows - the builder's own, or one the user chose - so the line
+            // always reaches both edges; the values come from the line itself (ValueAt), nothing is fitted again.
+            var bottom = transform.YRange.Minimum;
+            var top = transform.YRange.Maximum;
+            var from = transform.ToScreenPoint(fitted.ValueAt(bottom), bottom);
+            var to = transform.ToScreenPoint(fitted.ValueAt(top), top);
             if (!IsDrawable(from) || !IsDrawable(to))
             {
                 continue;

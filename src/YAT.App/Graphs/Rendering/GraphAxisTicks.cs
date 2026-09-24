@@ -31,6 +31,9 @@ public static class GraphAxisTicks
     private const double LargeValue = 1e6;
     private const double SmallStep = 1e-4;
 
+    // Past 2^53 a double no longer holds every whole number, so whole-number ticks are not counted out there.
+    private const double WholeNumberLimit = 9007199254740992d;
+
     private const string ScientificFormat = "0.###E+0";
     private const string DefaultFormat = "0.####";
 
@@ -142,6 +145,39 @@ public static class GraphAxisTicks
         }
 
         return new GraphZeroBasedAxis(new GraphAxisRange(0, values[^1]), Label(values, step));
+    }
+
+    // The ticks of a count axis over any range, as a user may choose it (Task #043): whole numbers only, one step of 1,
+    // 2 or 5 times a power of ten apart - never less than 1 - and every one of them inside the range. A range with no
+    // whole number inside has no ticks; one too wide for whole numbers to be told apart gets Nice's ticks, which are
+    // whole numbers there anyway.
+    public static IReadOnlyList<GraphAxisTick> NiceCountsWithin(GraphAxisRange range, int intervals = DefaultIntervals)
+    {
+        if (!range.IsValid)
+        {
+            throw new ArgumentException("The axis range must be finite and non-empty.", nameof(range));
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(intervals, 2);
+
+        var step = Math.Max(1d, NiceStep(range.Span / intervals));
+        var first = Math.Ceiling(range.Minimum / step);
+        var last = Math.Floor(range.Maximum / step);
+        var count = last - first + 1;
+        if (!double.IsFinite(step) || !double.IsFinite(count) || count > MaximumTicks
+            || Math.Abs(first * step) >= WholeNumberLimit || Math.Abs(last * step) >= WholeNumberLimit)
+        {
+            return Nice(range, intervals);
+        }
+
+        var ticks = new List<GraphAxisTick>(Math.Max(0, (int)count));
+        for (var index = 0; index < (int)count; index++)
+        {
+            var value = (first + index) * step;
+            ticks.Add(new GraphAxisTick(value == 0 ? 0 : value, value.ToString("0", CultureInfo.InvariantCulture)));
+        }
+
+        return ticks;
     }
 
     // count ticks over the whole range, the first at Minimum and the last at Maximum.

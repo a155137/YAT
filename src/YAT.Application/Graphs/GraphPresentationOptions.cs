@@ -25,7 +25,11 @@ public enum GraphCapability
 
     // Several variables drawn together in one graph or each in a graph of its own (see GraphVariableLayout). Only a
     // graph type whose variable role takes several columns offers it.
-    VariableLayout
+    VariableLayout,
+
+    // The range each axis is shown over, chosen automatically or by the user (see GraphAxisRangeOptions). Which axes
+    // have one, and what may be typed for them, the graph type's axis kinds say.
+    AxisRange
 }
 
 // How a graph is presented, as opposed to which data it reads. The graph data query ignores these options entirely:

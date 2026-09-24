@@ -30,6 +30,10 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // ignore it; the data query and the graph types' builders never read it. Every label Auto unless the user chose.
     public GraphLabelOptions LabelOptions { get; init; } = GraphLabelOptions.Default;
 
+    // The range each axis is shown over. Graph types that do not declare GraphCapability.AxisRange ignore it; the data
+    // query and the graph types' builders never read it. Both axes Auto unless the user chose.
+    public GraphAxisRangeOptions AxisRangeOptions { get; init; } = GraphAxisRangeOptions.Default;
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

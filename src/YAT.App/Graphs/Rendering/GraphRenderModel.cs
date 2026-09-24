@@ -62,6 +62,28 @@ public sealed record GraphAxisTick
     public string Label { get; }
 }
 
+// How an axis reads, so that whatever gives it another range (GraphAxisViewportBuilder) chooses its ticks the way the
+// graph type's builder chose them, without knowing the graph type. The renderer does not read it: it draws the range
+// and the ticks it is given.
+public enum GraphAxisScale
+{
+    // A linear axis of any numbers, on 1-2-5 ticks (GraphAxisTicks.Nice).
+    Linear,
+
+    // A linear axis of whole counts, on whole-number ticks (a histogram's frequency).
+    Count,
+
+    // A linear percentage from 0 to 100 (an empirical CDF's cumulative percent).
+    Percent,
+
+    // Normal scores, read and labelled as the percentages they belong to (a probability plot's percent; see
+    // ProbabilityAxis).
+    Probability,
+
+    // Slots of named categories rather than numbers (a box plot's variables and groups).
+    Categorical
+}
+
 // One axis of a graph: the range it covers, its major ticks and an optional title. Ticks outside the range are allowed
 // but are not drawn; nothing here knows about pixels.
 public sealed record GraphAxisModel
@@ -87,6 +109,9 @@ public sealed record GraphAxisModel
     public GraphAxisRange Range { get; }
 
     public IReadOnlyList<GraphAxisTick> Ticks { get; }
+
+    // How the axis reads (see GraphAxisScale). Linear unless the builder says otherwise; kept by WithTitle.
+    public GraphAxisScale Scale { get; init; } = GraphAxisScale.Linear;
 
     // Null or empty when the axis has no title; the layout then gives the space back to the plot area. Private set only
     // so WithTitle can replace it on a copy.

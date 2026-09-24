@@ -59,6 +59,13 @@ public sealed class GraphLabelEditController
         }
     }
 
+    // The graph as it is shown now, after something else changed it (its axis ranges, edited on their own).
+    public void Show(GraphPresentationState graph)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        Graph = graph;
+    }
+
     // The text a title shows on the graph.
     public static string? ShownText(GraphRenderModel frame, GraphLabelField field)
     {

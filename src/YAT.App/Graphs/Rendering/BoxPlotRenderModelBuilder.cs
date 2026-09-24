@@ -156,7 +156,10 @@ public sealed class BoxPlotRenderModelBuilder
 
         var frame = new GraphRenderModel(
             Title(labels),
-            new GraphAxisModel(horizontal, CategoryTicks(categories), isGrouped ? labels.GroupColumn : null),
+            new GraphAxisModel(horizontal, CategoryTicks(categories), isGrouped ? labels.GroupColumn : null)
+            {
+                Scale = GraphAxisScale.Categorical
+            },
             new GraphAxisModel(vertical, GraphAxisTicks.Nice(vertical)),
             // Without a group column the X axis already names every box, so a legend would repeat it.
             isGrouped && legendEntries.Count > 0 ? new GraphLegendModel(legendEntries, labels.GroupColumn) : null);

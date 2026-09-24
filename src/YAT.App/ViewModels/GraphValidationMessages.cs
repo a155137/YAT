@@ -1,5 +1,7 @@
+using System.Globalization;
 using YAT.Application.Graphs;
 using YAT.Application.Specifications;
+using YAT.app.Graphs.Rendering;
 
 namespace YAT.app.ViewModels;
 
@@ -45,9 +47,35 @@ public static class GraphValidationMessages
                 $"Enter {LabelName(error.LabelField, article: true)}, or choose Auto or Hidden.",
             GraphValidationReason.LabelModeInvalid =>
                 $"Please choose Auto, Custom or Hidden for the {LabelName(error.LabelField, article: false)}.",
+            GraphValidationReason.AxisRangeValueNotNumeric => $"{BoundName(error)} must be a number.",
+            GraphValidationReason.AxisRangeValueOutsideAxis => OutsideAxis(error, definition),
+            GraphValidationReason.AxisRangeNotIncreasing =>
+                $"{AxisName(error.Axis)} minimum must be below the {AxisName(error.Axis)} maximum.",
+            GraphValidationReason.AxisRangeTooNarrow => $"The {AxisName(error.Axis)} range is too narrow to be shown.",
             _ => "This graph cannot be created with the current settings."
         };
     }
+
+    // "X-axis", "Y-axis", as the setup and the graph preparation name the axes.
+    private static string AxisName(GraphAxisField? axis) => GraphAxisViewportBuilder.AxisName(axis ?? GraphAxisField.X);
+
+    // "X-axis minimum", "Y-axis maximum".
+    private static string BoundName(GraphValidationError error) =>
+        $"{AxisName(error.Axis)} {(error.Bound == GraphAxisBound.Maximum ? "maximum" : "minimum")}";
+
+    // What an axis of this kind can show, in the words its values are typed in.
+    private static string OutsideAxis(GraphValidationError error, GraphTypeDefinition definition) =>
+        definition.AxisKind(error.Axis ?? GraphAxisField.X) switch
+        {
+            GraphAxisKind.NonNegative => $"{BoundName(error)} cannot be below 0.",
+            GraphAxisKind.Percent => $"{BoundName(error)} must be from 0 to 100.",
+            GraphAxisKind.ProbabilityPercent =>
+                $"{BoundName(error)} must be from {Percent(GraphAxisRangeRules.MinimumProbabilityPercent)} " +
+                $"to {Percent(GraphAxisRangeRules.MaximumProbabilityPercent)} (%).",
+            _ => $"{BoundName(error)} must be a number."
+        };
+
+    private static string Percent(double value) => value.ToString(CultureInfo.InvariantCulture);
 
     // The labels as the setup names them: "Graph title", "X-axis title", "Y-axis title".
     private static string LabelName(GraphLabelField? field, bool article) => field switch

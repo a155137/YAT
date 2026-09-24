@@ -57,6 +57,18 @@ public sealed record GraphTypeDefinition(GraphType GraphType, string DisplayName
 
     public bool Supports(GraphCapability capability) => Capabilities.Contains(capability);
 
+    // What each axis reads, as far as a range the user chooses for it goes (GraphCapability.AxisRange). None - no range
+    // to choose - unless declared.
+    public GraphAxisKind XAxisKind { get; init; } = GraphAxisKind.None;
+
+    public GraphAxisKind YAxisKind { get; init; } = GraphAxisKind.None;
+
+    public GraphAxisKind AxisKind(GraphAxisField axis) => axis == GraphAxisField.X ? XAxisKind : YAxisKind;
+
+    // Whether the user may choose the range of this axis: the graph type offers axis ranges and the axis has one.
+    public bool SupportsAxisRange(GraphAxisField axis) =>
+        Supports(GraphCapability.AxisRange) && AxisKind(axis) != GraphAxisKind.None;
+
     public IEnumerable<GraphRoleDefinition> RequiredRoles => Roles.Where(role => role.IsRequired);
 
     public IEnumerable<GraphRoleDefinition> OptionalRoles => Roles.Where(role => !role.IsRequired);

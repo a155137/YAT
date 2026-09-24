@@ -26,8 +26,10 @@ public static class GraphTypeDefinitions
     private static readonly IReadOnlyList<GraphCapability> HistogramCapabilities =
         [.. DistributionCapabilities, GraphCapability.HistogramControls];
 
-    // Every graph has a title and two axis titles the user may keep, replace or hide.
-    private static readonly IReadOnlyList<GraphCapability> EveryGraph = [GraphCapability.Labels];
+    // Every graph has a title and two axis titles the user may keep, replace or hide, and axes whose ranges the user
+    // may choose (as far as its axis kinds allow).
+    private static readonly IReadOnlyList<GraphCapability> EveryGraph =
+        [GraphCapability.Labels, GraphCapability.AxisRange];
 
     // A graph whose variable role takes several columns draws them together or each in a graph of its own.
     private static readonly IReadOnlyList<GraphCapability> SeveralVariables = [GraphCapability.VariableLayout];
@@ -39,32 +41,58 @@ public static class GraphTypeDefinitions
             new(GraphVariableRole.X, "X-axis", IsRequired: true, Numeric),
             new(GraphVariableRole.Y, "Y-axis", IsRequired: true, Numeric),
             GroupRole
-        ]) { Capabilities = EveryGraph },
+        ])
+        {
+            Capabilities = EveryGraph,
+            XAxisKind = GraphAxisKind.Numeric,
+            YAxisKind = GraphAxisKind.Numeric
+        },
         // A histogram names its roles the way the people who use it do; the role and the column id are what identify
         // them, so the wording is presentation only.
         new(GraphType.Histogram, "Histogram",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = [.. HistogramCapabilities, .. EveryGraph, .. SeveralVariables] },
+        ])
+        {
+            Capabilities = [.. HistogramCapabilities, .. EveryGraph, .. SeveralVariables],
+            XAxisKind = GraphAxisKind.Numeric,
+            YAxisKind = GraphAxisKind.NonNegative
+        },
         // The only graph so far that draws several measured variables at once: its variable role takes as many columns
         // as the user selects, and the generic setup and validation follow that flag rather than the graph type.
         new(GraphType.BoxPlot, "Box Plot",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
             GroupRole with { DisplayName = "Categorical variable for grouping" }
-        ]) { Capabilities = [.. EveryGraph, .. SeveralVariables] },
+        ])
+        {
+            Capabilities = [.. EveryGraph, .. SeveralVariables],
+
+            // Its X axis is its categories: no range to choose.
+            YAxisKind = GraphAxisKind.Numeric
+        },
         // Like a histogram, a probability plot names its roles the way the people who use it do.
         new(GraphType.ProbabilityPlot, "Probability Plot",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = [.. ProbabilityPlotCapabilities, .. EveryGraph, .. SeveralVariables] },
+        ])
+        {
+            Capabilities = [.. ProbabilityPlotCapabilities, .. EveryGraph, .. SeveralVariables],
+            XAxisKind = GraphAxisKind.Numeric,
+            YAxisKind = GraphAxisKind.ProbabilityPercent
+        },
         new(GraphType.EmpiricalCdf, "Empirical CDF",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
             new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
-        ]) { Capabilities = [.. DistributionCapabilities, .. EveryGraph, .. SeveralVariables] }
+        ])
+        {
+            Capabilities = [.. DistributionCapabilities, .. EveryGraph, .. SeveralVariables],
+            XAxisKind = GraphAxisKind.Numeric,
+            YAxisKind = GraphAxisKind.Percent
+        }
     ];
 
     // In menu order.

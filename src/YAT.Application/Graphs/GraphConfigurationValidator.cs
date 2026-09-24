@@ -57,17 +57,32 @@ public enum GraphValidationReason
 
     // A role that takes several columns was given more than GraphRoleDefinition.MaximumColumns of them. Role says
     // which one.
-    TooManyColumns
+    TooManyColumns,
+
+    // An axis range value is not a finite number. Axis and Bound say which one.
+    AxisRangeValueNotNumeric,
+
+    // An axis range value lies outside what its axis can show (see GraphAxisKind). Axis and Bound say which one.
+    AxisRangeValueOutsideAxis,
+
+    // An axis range whose minimum is not below its maximum. Axis says which one.
+    AxisRangeNotIncreasing,
+
+    // An axis range too narrow for its ends to be told apart. Axis says which one.
+    AxisRangeTooNarrow
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
-// the specification, Field, and for a problem with a label, LabelField; the UI turns this into readable text.
+// the specification, Field, for a problem with a label, LabelField, and for a problem with an axis range, Axis and
+// Bound; the UI turns this into readable text.
 public sealed record GraphValidationError(
     GraphValidationReason Reason,
     GraphVariableRole? Role = null,
     Guid? WorksheetColumnId = null,
     SpecificationField? Field = null,
-    GraphLabelField? LabelField = null);
+    GraphLabelField? LabelField = null,
+    GraphAxisField? Axis = null,
+    GraphAxisBound? Bound = null);
 
 public sealed record GraphValidationResult(IReadOnlyList<GraphValidationError> Errors)
 {
@@ -180,6 +195,12 @@ public sealed class GraphConfigurationValidator
             errors.AddRange(LabelErrors(configuration.LabelOptions));
         }
 
+        // And the axis ranges, only for the axes the graph type lets the user choose.
+        if (definition.Supports(GraphCapability.AxisRange))
+        {
+            errors.AddRange(AxisRangeErrors(configuration.AxisRangeOptions, definition));
+        }
+
         return errors.Count == 0 ? GraphValidationResult.Valid : new GraphValidationResult(errors);
     }
 
@@ -192,6 +213,24 @@ public sealed class GraphConfigurationValidator
                 ? GraphValidationReason.LabelTextMissing
                 : GraphValidationReason.LabelModeInvalid,
             LabelField: problem.Field))
+    ];
+
+    // The shared axis range rules, as graph validation errors - for a whole configuration here, and for ranges edited
+    // on their own after a graph is drawn.
+    public static IReadOnlyList<GraphValidationError> AxisRangeErrors(
+        GraphAxisRangeOptions options,
+        GraphTypeDefinition definition) =>
+    [
+        .. GraphAxisRangeRules.Check(options, definition).Select(problem => new GraphValidationError(
+            problem.Kind switch
+            {
+                GraphAxisRangeProblemKind.NotFinite => GraphValidationReason.AxisRangeValueNotNumeric,
+                GraphAxisRangeProblemKind.OutsideAxis => GraphValidationReason.AxisRangeValueOutsideAxis,
+                GraphAxisRangeProblemKind.NotIncreasing => GraphValidationReason.AxisRangeNotIncreasing,
+                _ => GraphValidationReason.AxisRangeTooNarrow
+            },
+            Axis: problem.Axis,
+            Bound: problem.Bound))
     ];
 
     // The shared specification rules, as graph validation errors.

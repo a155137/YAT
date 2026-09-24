@@ -118,7 +118,10 @@ public sealed class HistogramRenderModelBuilder
         var frame = new GraphRenderModel(
             $"Histogram of {labels.Variable}",
             new GraphAxisModel(x, GraphAxisTicks.Nice(x), labels.AxisTitle ?? labels.Variable),
-            new GraphAxisModel(y.Range, y.Ticks, AxisTitle(options.YScale)),
+            new GraphAxisModel(y.Range, y.Ticks, AxisTitle(options.YScale))
+            {
+                Scale = options.YScale == HistogramYScale.Frequency ? GraphAxisScale.Count : GraphAxisScale.Linear
+            },
             // A histogram without a group column is one unnamed series, and one series needs no legend.
             data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));
 

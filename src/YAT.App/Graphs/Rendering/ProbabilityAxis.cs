@@ -31,6 +31,55 @@ public static class ProbabilityAxis
     // The normal score a percentage sits at.
     public static double Score(double percent) => NormalDistribution.InverseCdf(percent / 100);
 
+    // The percentage a normal score belongs to: what a place on the axis reads as.
+    public static double Percent(double score) => NormalDistribution.Cdf(score) * 100;
+
+    // The ticks of the axis over any score range, as a user may choose it (Task #043): the percentages the axis is
+    // always read at - the tail ones included - that lie inside the range. A range too narrow to hold two of them is
+    // read on 1-2-5 percentages instead (40, 45, 50, 55, 60), each placed at its own score; the labels are always
+    // percentages.
+    public static IReadOnlyList<GraphAxisTick> Ticks(GraphAxisRange scoreRange)
+    {
+        if (!scoreRange.IsValid)
+        {
+            throw new ArgumentException("The axis range must be finite and non-empty.", nameof(scoreRange));
+        }
+
+        var percents = StandardPercents.Concat(TailPercents)
+            .Where(percent => Score(percent) is var score && score >= scoreRange.Minimum && score <= scoreRange.Maximum)
+            .Order()
+            .ToList();
+        if (percents.Count >= 2)
+        {
+            return
+            [
+                .. percents.Select(percent =>
+                    new GraphAxisTick(Score(percent), percent.ToString(PercentFormat, CultureInfo.InvariantCulture)))
+            ];
+        }
+
+        // The ends read back as percentages, let out by a hair: a percentage typed as an end (40) comes back from its
+        // score a rounding error inside (40.0000000001), and would otherwise lose its own tick.
+        var lowest = Percent(scoreRange.Minimum);
+        var highest = Percent(scoreRange.Maximum);
+        if (!(highest > lowest))
+        {
+            return [];
+        }
+
+        var slack = (highest - lowest) * 1e-9;
+        lowest = Math.Max(lowest - slack, double.Epsilon);
+        highest = Math.Min(highest + slack, 100);
+
+        return
+        [
+            .. GraphAxisTicks.Nice(new GraphAxisRange(lowest, highest))
+                .Where(tick => tick.Value is > 0 and < 100 && Score(tick.Value) is var score
+                    && double.IsFinite(score) && score >= scoreRange.Minimum && score <= scoreRange.Maximum)
+                .Select(tick => new GraphAxisTick(Score(tick.Value), tick.Label))
+        ];
+    }
+
     // The axis for scores between minimumScore and maximumScore: at least the standard range of 0.1% to 99.9%, wider
     // when the data is, with the tail percentages that the result reaches.
     public static GraphAxisModel Axis(double minimumScore, double maximumScore)
@@ -69,6 +118,6 @@ public static class ProbabilityAxis
             ticks.Add(new GraphAxisTick(Score(percent), percent.ToString(PercentFormat, CultureInfo.InvariantCulture)));
         }
 
-        return new GraphAxisModel(range, ticks, Title);
+        return new GraphAxisModel(range, ticks, Title) { Scale = GraphAxisScale.Probability };
     }
 }

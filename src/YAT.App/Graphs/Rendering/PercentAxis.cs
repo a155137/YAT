@@ -25,6 +25,9 @@ public static class PercentAxis
             ticks.Add(new GraphAxisTick(percent, percent.ToString("0.####", CultureInfo.InvariantCulture)));
         }
 
-        return new GraphAxisModel(new GraphAxisRange(Minimum, Maximum), ticks, Title);
+        return new GraphAxisModel(new GraphAxisRange(Minimum, Maximum), ticks, Title)
+        {
+            Scale = GraphAxisScale.Percent
+        };
     }
 }

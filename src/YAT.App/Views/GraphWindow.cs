@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.Input;
+using YAT.Application.Graphs;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Export;
 using YAT.app.Graphs.Rendering;
@@ -22,6 +23,11 @@ namespace YAT.app.Views;
 // Its labels can be changed after the graph is drawn: double-click a title the graph shows, or right-click and choose
 // Edit Labels... (the only way back to a title that is hidden). Confirmed labels go onto the frame the graph had before
 // its labels, without its data, and this same window then shows, copies and exports the new frame under the new title.
+//
+// Its axis ranges can be changed the same way (Task #043): right-click and choose Edit Axes.... Confirmed ranges go
+// onto the frame the graph had before any range or label - its data, bins, fits and statistics untouched - and the
+// window shows, copies and exports the frame over the new ranges. Labels and ranges are edited on the one graph: a
+// change to either keeps the other.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
@@ -32,6 +38,7 @@ internal sealed class GraphWindow : Window
     private readonly GraphCanvas _canvas;
     private readonly GraphExportController _export;
     private readonly GraphLabelEditController _labels;
+    private readonly GraphAxesEditController _axes;
     private readonly IAsyncRelayCommand _copyImage;
 
     // Ctrl+C copies the graph while this window is active. The binding belongs to this window alone, so the worksheet's
@@ -47,13 +54,16 @@ internal sealed class GraphWindow : Window
         _canvas = new GraphCanvas { Model = graph.Frame, Plot = plot };
         _export = exports.Create(this);
         _labels = new GraphLabelEditController(graph, new AvaloniaGraphLabelsDialog(this));
-        _labels.GraphChanged += (_, _) => ShowFrame(_labels.Graph.Frame);
+        _labels.GraphChanged += (_, _) => Show(_labels.Graph);
+        _axes = new GraphAxesEditController(graph, new AvaloniaGraphAxesDialog(this));
+        _axes.GraphChanged += (_, _) => Show(_axes.Graph);
 
         // One command for the menu item, the shortcut and the right-click menu. It is not run again while a copy is still
         // in progress.
         _copyImage = new AsyncRelayCommand(() => _export.CopyImageAsync(Snapshot()));
         KeyBindings.Add(new KeyBinding { Gesture = CopyImageGesture, Command = _copyImage });
         var editLabels = new AsyncRelayCommand(() => _labels.EditAsync(focus: null));
+        var editAxes = new AsyncRelayCommand(() => _axes.EditAsync());
 
         Title = WindowTitle(graph.Frame);
         Width = DefaultWidth;
@@ -64,9 +74,16 @@ internal sealed class GraphWindow : Window
 
         var menu = new Menu { Items = { FileMenu() } };
         DockPanel.SetDock(menu, Dock.Top);
-        var graphArea = GraphArea(
-            _canvas,
-            new ContextMenu { Items = { CopyImageItem(_copyImage), new Separator(), EditLabelsItem(editLabels) } });
+        var contextMenu = new ContextMenu
+        {
+            Items = { CopyImageItem(_copyImage), new Separator(), EditLabelsItem(editLabels) }
+        };
+        if (graph.Definition.Supports(GraphCapability.AxisRange))
+        {
+            contextMenu.Items.Add(EditAxesItem(editAxes));
+        }
+
+        var graphArea = GraphArea(_canvas, contextMenu);
         graphArea.DoubleTapped += OnGraphAreaDoubleTapped;
         Content = new DockPanel { Children = { menu, graphArea } };
     }
@@ -90,6 +107,10 @@ internal sealed class GraphWindow : Window
     internal static MenuItem EditLabelsItem(ICommand editLabels) =>
         new() { Header = "_Edit Labels...", Command = editLabels };
 
+    // Right-click > Edit Axes...: the range of every axis the graph type lets the user choose.
+    internal static MenuItem EditAxesItem(ICommand editAxes) =>
+        new() { Header = "Edit _Axes...", Command = editAxes };
+
     // What the window is called after the graph it shows: its title, or "Graph" when it has none.
     internal static string WindowTitle(GraphRenderModel frame) =>
         string.IsNullOrWhiteSpace(frame.Title) ? "Graph" : frame.Title;
@@ -107,11 +128,14 @@ internal sealed class GraphWindow : Window
         await _labels.EditAsync(field);
     }
 
-    // The graph under its new labels: drawn at once, and named after its title.
-    private void ShowFrame(GraphRenderModel frame)
+    // The graph under its new labels or over its new axis ranges: drawn at once, named after its title, and the graph
+    // both editors work on from now on.
+    private void Show(GraphPresentationState graph)
     {
-        _canvas.Model = frame;
-        Title = WindowTitle(frame);
+        _labels.Show(graph);
+        _axes.Show(graph);
+        _canvas.Model = graph.Frame;
+        Title = WindowTitle(graph.Frame);
     }
 
     private MenuItem FileMenu()
@@ -134,7 +158,8 @@ internal sealed class GraphWindow : Window
         };
     }
 
-    // What an export draws, fixed here on the UI thread: the graph as it is shown now - under the labels last confirmed
-    // - and the theme it is being shown in. The export work that follows never looks at this window again.
+    // What an export draws, fixed here on the UI thread: the graph as it is shown now - under the labels and over the
+    // axis ranges last confirmed - and the theme it is being shown in. The export work that follows never looks at this
+    // window again.
     private GraphExportSnapshot Snapshot() => new(_labels.Graph.Frame, _plot, _canvas.CurrentTheme);
 }

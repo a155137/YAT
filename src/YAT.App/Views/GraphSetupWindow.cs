@@ -187,15 +187,16 @@ internal sealed class GraphSetupWindow : Window
     // The roles, then the options the graph type offers. An option the graph type does not have is left out entirely
     // rather than shown disabled; which options exist is read from the graph type's capabilities.
     //
-    // The histogram has the most options, so they stand in two columns - its own bins and statistics beside the
-    // specification and the labels - to keep the dialog within a 1280 x 720 screen.
+    // A graph type with options of its own shows them in two columns - its own bins, statistics and fitted line on the
+    // left, the specification, the labels and the axis ranges on the right - to keep the dialog within a 1280 x 720
+    // screen; one without (a scatter plot, a box plot) shows the right-hand ones alone.
     private static Control RightColumn(GraphSetupViewModel setup)
     {
         var column = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Top };
         column.Children.Add(Roles(setup));
 
         if (!setup.SupportsStatisticsPanel && !setup.SupportsFittedLine && !setup.SupportsSpecificationLines
-            && !setup.SupportsHistogramControls && !setup.SupportsLabels)
+            && !setup.SupportsHistogramControls && !setup.SupportsLabels && !setup.SupportsAxisRanges)
         {
             Grid.SetColumn(column, 2);
             return column;
@@ -203,7 +204,9 @@ internal sealed class GraphSetupWindow : Window
 
         var options = new StackPanel { Spacing = 4 };
         options.Children.Add(new TextBlock { Text = "Options", FontWeight = FontWeight.SemiBold });
-        var second = setup.SupportsHistogramControls ? new StackPanel { Spacing = 4 } : options;
+        var hasOwnOptions =
+            setup.SupportsHistogramControls || setup.SupportsStatisticsPanel || setup.SupportsFittedLine;
+        var second = hasOwnOptions ? new StackPanel { Spacing = 4 } : options;
 
         if (setup.SupportsHistogramControls)
         {
@@ -231,6 +234,12 @@ internal sealed class GraphSetupWindow : Window
         {
             second.Children.Add(new TextBlock { Text = "Labels", Margin = new Thickness(0, 6, 0, 0) });
             second.Children.Add(GraphLabelsEditor.Create(setup.Labels));
+        }
+
+        if (setup.SupportsAxisRanges)
+        {
+            second.Children.Add(new TextBlock { Text = "Axes", Margin = new Thickness(0, 6, 0, 0) });
+            second.Children.Add(GraphAxesEditor.Create(setup.Axes));
         }
 
         if (ReferenceEquals(second, options))

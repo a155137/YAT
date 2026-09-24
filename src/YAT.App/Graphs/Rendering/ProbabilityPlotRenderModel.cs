@@ -45,6 +45,11 @@ public sealed record ProbabilityPlotFittedLine
     public double FromValue { get; }
 
     public double ToValue { get; }
+
+    // The value the line passes at any score: the line itself, not only the part of it between FromScore and ToScore.
+    // The renderer draws the line across whatever score range the plot shows with it (a range the user chose included,
+    // Task #043); over the scores the builder chose, that is exactly FromValue to ToValue.
+    public double ValueAt(double score) => Mean + (StandardDeviation * score);
 }
 
 // One group of a probability plot: its observations in ascending order, each with the score of its rank, and the line

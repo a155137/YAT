@@ -48,7 +48,8 @@ public static class GraphSpecificationLinesBuilder
         var range = GraphAxisRanges.Including(axis.Range, [.. lines.Select(line => line.Value)]);
         return range == axis.Range
             ? withLines
-            : withLines.WithXAxis(new GraphAxisModel(range, GraphAxisTicks.Nice(range), axis.Title));
+            : withLines.WithXAxis(
+                new GraphAxisModel(range, GraphAxisTicks.Nice(range), axis.Title) { Scale = axis.Scale });
     }
 
     // The lines of a specification, LSL first and USL last. A value that is not finite has no place on an axis and gets
