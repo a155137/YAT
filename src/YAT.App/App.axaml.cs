@@ -23,10 +23,7 @@ public partial class App : AvaloniaApplication
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Every window shows the application's icon (AppIcon), before the first one is made.
-            if (AppIcon.Load() is { } icon)
-            {
-                Styles.Add(AppIcon.Style(icon));
-            }
+            Styles.Add(AppIcon.Style(AppIcon.Load()));
 
             // The application owns the project workspace. Disposing it on exit closes the current project database and
             // deletes the temporary storage of an untitled project.

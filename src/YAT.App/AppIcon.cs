@@ -1,34 +1,29 @@
 using Avalonia.Controls;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
 
 namespace YAT.app;
 
-// The icon every YAT window shows - in its title bar and on the taskbar - in one place (Task #048). It is the YAT icon,
-// Assets/yat.ico, once that file exists; the same file then is the executable's icon too (YAT.App.csproj). Until then
-// the Avalonia template's icon stands in for the windows, as it always has for the main window.
+// The YAT icon and logo, in one place (Task #048). Assets/yat.ico is the executable's icon (YAT.App.csproj) and, through
+// the style below, every window's - in its title bar and on the taskbar. Assets/yat-logo.png is the same mark for the
+// About dialog, drawn at twice the size it is shown at so it stays sharp on high-DPI screens.
 internal static class AppIcon
 {
-    // Where the YAT icon goes.
     public const string YatIcon = "avares://YAT/Assets/yat.ico";
 
-    // What stands in for it until it exists.
-    public const string StandInIcon = "avares://YAT/Assets/avalonia-logo.ico";
+    public const string YatLogo = "avares://YAT/Assets/yat-logo.png";
 
-    // The icon, or null when neither file is there.
-    public static WindowIcon? Load()
+    public static WindowIcon Load()
     {
-        foreach (var path in new[] { YatIcon, StandInIcon })
-        {
-            var uri = new Uri(path);
-            if (AssetLoader.Exists(uri))
-            {
-                using var stream = AssetLoader.Open(uri);
-                return new WindowIcon(stream);
-            }
-        }
+        using var stream = AssetLoader.Open(new Uri(YatIcon));
+        return new WindowIcon(stream);
+    }
 
-        return null;
+    public static Bitmap LoadLogo()
+    {
+        using var stream = AssetLoader.Open(new Uri(YatLogo));
+        return new Bitmap(stream);
     }
 
     // A style that gives every window the icon: the main window, graph windows, result windows and dialogs alike.

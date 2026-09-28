@@ -7,11 +7,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-  </PropertyGroup>
-
-  <!-- The YAT icon (Task #048): Assets\yat.ico, once it exists, is the executable's icon, and AppIcon makes it every
-       window's (and so the taskbar's). Until then the executable keeps the default icon. -->
-  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\Assets\yat.ico')">
+    <!-- The YAT icon (Task #048.1) is the executable's icon; AppIcon makes it every window's, and so the taskbar's. -->
     <ApplicationIcon>Assets\yat.ico</ApplicationIcon>
   </PropertyGroup>
 

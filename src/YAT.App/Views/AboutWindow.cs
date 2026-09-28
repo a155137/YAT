@@ -7,15 +7,15 @@ namespace YAT.app.Views;
 
 // Help > About YAT... (Task #048): the application's name, what it stands for, its version, what it is for, its
 // publisher and its license. The name, description, version and publisher are the assembly's metadata
-// (ApplicationInfo); nothing here writes a version of its own. The space on the left is kept for the YAT logo, which
-// is not drawn until it exists. Modal to the main window.
+// (ApplicationInfo); nothing here writes a version of its own. On the left, the YAT logo - the mark of the application's
+// icon (Task #048.1). Modal to the main window.
 internal sealed class AboutWindow : Window
 {
     public const string Summary = "Engineering data analysis and visualization";
 
     public const string License = "License: AGPL-3.0";
 
-    // The logo's place: kept empty, and the same size whether or not there is a logo in it.
+    // The logo's place.
     public const double LogoSize = 96;
 
     private AboutWindow(ApplicationInfo info)
@@ -50,7 +50,14 @@ internal sealed class AboutWindow : Window
                     Spacing = 20,
                     Children =
                     {
-                        new Border { Name = "LogoArea", Width = LogoSize, Height = LogoSize, VerticalAlignment = VerticalAlignment.Top },
+                        new Border
+                        {
+                            Name = "LogoArea",
+                            Width = LogoSize,
+                            Height = LogoSize,
+                            VerticalAlignment = VerticalAlignment.Top,
+                            Child = Logo()
+                        },
                         new StackPanel
                         {
                             Spacing = 4,
@@ -69,6 +76,14 @@ internal sealed class AboutWindow : Window
                 close
             }
         };
+    }
+
+    // The logo, scaled down smoothly from the size it is drawn at.
+    private static Image Logo()
+    {
+        var logo = new Image { Name = "Logo", Source = AppIcon.LoadLogo(), Width = LogoSize, Height = LogoSize, Stretch = Stretch.Uniform };
+        RenderOptions.SetBitmapInterpolationMode(logo, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+        return logo;
     }
 
     private static TextBlock Line(string text, string name, double fontSize = 0, FontWeight weight = FontWeight.Normal, double top = 0, double opacity = 1)
