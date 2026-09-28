@@ -313,8 +313,9 @@ public class GraphSetupViewModelTests
     {
         var setup = WithSpecification(lower, target, upper);
 
+        // Said as it is typed (Task #048), while OK is unavailable - and again when a confirm is attempted.
         Assert.False(setup.CanConfirm);
-        Assert.Null(setup.ValidationMessage);
+        Assert.Equal(message, setup.ValidationMessage);
 
         Assert.Null(setup.Confirm());
         Assert.Equal(message, setup.ValidationMessage);

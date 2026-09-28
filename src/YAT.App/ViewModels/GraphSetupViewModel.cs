@@ -473,9 +473,12 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             return;
         }
 
-        CanConfirm = Build().Result.IsValid;
+        // Checked as it is edited, and said while it cannot be confirmed (Task #048): OK is unavailable then, so this is
+        // the only place the user learns why. The same rules and words as Confirm, which checks once more.
+        var result = Build().Result;
+        CanConfirm = result.IsValid;
         OnPropertyChanged(nameof(IsLayoutEnabled));
-        ValidationMessage = null;
+        ValidationMessage = GraphValidationMessages.For(result, _definition);
     }
 
     private static GraphColumnOption Option(WorksheetColumn column) => new(column.Id, column.Name, column.DataType.ToString());

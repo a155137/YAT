@@ -1,10 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>YAT.app</RootNamespace>
+    <!-- The application is YAT.exe (Task #048); the project keeps its name. -->
+    <AssemblyName>YAT</AssemblyName>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <!-- The YAT icon (Task #048): Assets\yat.ico, once it exists, is the executable's icon, and AppIcon makes it every
+       window's (and so the taskbar's). Until then the executable keeps the default icon. -->
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\Assets\yat.ico')">
+    <ApplicationIcon>Assets\yat.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

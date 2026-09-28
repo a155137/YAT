@@ -46,6 +46,8 @@ public partial class MainWindow : Window
 
     private void OnExitClick(object? sender, RoutedEventArgs e) => Close();
 
+    private async void OnAboutClick(object? sender, RoutedEventArgs e) => await AboutWindow.ShowAsync(this);
+
     // Worksheet shortcuts use the bubbling KeyDown event rather than Window.KeyBindings: key bindings are matched before
     // the focused control sees the key, which would take Ctrl+V or Delete away from text boxes. A focused TextBox
     // handles its own keys first, so these only run when no control handled the gesture.

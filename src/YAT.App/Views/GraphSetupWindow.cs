@@ -29,12 +29,23 @@ internal sealed class GraphSetupWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         MinWidth = 520;
 
+        // Sized to its content when it opens; from then on only its height follows, so a reason for OK being unavailable
+        // never widens it as it changes.
+        Opened += (_, _) => SizeToContent = SizeToContent.Height;
+
+        // Why OK is unavailable, said as the setup is edited (Task #048): on the worksheet's line, to its right, on that
+        // one line, so the dialog is no taller when there is something to say - a row of its own, or a second line, would
+        // take the box plot's setup past a 1280 x 720 screen. The reason keeps the room it needs and the worksheet's name
+        // gives way to it; a reason longer than the whole line would be cut short, and is then shown whole on hover.
         _validation = new TextBlock
         {
+            Name = "ValidationMessage",
             Foreground = new SolidColorBrush(Color.FromRgb(0xD1, 0x34, 0x38)),
-            TextWrapping = TextWrapping.Wrap,
-            IsVisible = false
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(16, 0, 0, 0)
         };
+        DockPanel.SetDock(_validation, Dock.Right);
+        ShowValidation(setup.ValidationMessage);
 
         _confirm = new Button
         {
@@ -105,8 +116,7 @@ internal sealed class GraphSetupWindow : Window
             }
             else if (e.PropertyName == nameof(GraphSetupViewModel.ValidationMessage))
             {
-                _validation.Text = setup.ValidationMessage;
-                _validation.IsVisible = !string.IsNullOrEmpty(setup.ValidationMessage);
+                ShowValidation(setup.ValidationMessage);
             }
         };
 
@@ -116,9 +126,20 @@ internal sealed class GraphSetupWindow : Window
             Spacing = 14,
             Children =
             {
-                new TextBlock { Text = $"Worksheet: {setup.WorksheetName}", Opacity = 0.7 },
+                new DockPanel
+                {
+                    Children =
+                    {
+                        _validation,
+                        new TextBlock
+                        {
+                            Text = $"Worksheet: {setup.WorksheetName}",
+                            Opacity = 0.7,
+                            TextTrimming = TextTrimming.CharacterEllipsis
+                        }
+                    }
+                },
                 RolesAndOptions(setup),
-                _validation,
                 new DockPanel
                 {
                     LastChildFill = false,
@@ -138,6 +159,13 @@ internal sealed class GraphSetupWindow : Window
                 }
             }
         };
+    }
+
+    private void ShowValidation(string? message)
+    {
+        _validation.Text = message;
+        _validation.IsVisible = !string.IsNullOrEmpty(message);
+        ToolTip.SetTip(_validation, message);
     }
 
     private static Control Docked(Control control, Dock dock)

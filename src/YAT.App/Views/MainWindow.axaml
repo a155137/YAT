@@ -6,8 +6,7 @@
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
         x:Class="YAT.app.Views.MainWindow"
         x:DataType="vm:MainWindowShellViewModel"
-        Icon="/Assets/avalonia-logo.ico"
-        Width="1100" Height="700"
+        Width="1100" Height="640"
         Title="{Binding WindowTitle}">
 
     <!-- The runtime DataContext (the shell: File menu and window title around the current project's view model) is built by
@@ -153,6 +152,10 @@
                     <MenuItem Header="_Descriptive Statistics..." Command="{Binding DescriptiveStatisticsCommand}" />
                     <MenuItem Header="_Capability Analysis..." Command="{Binding CapabilityAnalysisCommand}" />
                 </MenuItem>
+            </MenuItem>
+            <!-- What the application is and which version (Task #048). -->
+            <MenuItem Header="_Help">
+                <MenuItem Header="_About YAT..." Click="OnAboutClick" />
             </MenuItem>
         </Menu>
 

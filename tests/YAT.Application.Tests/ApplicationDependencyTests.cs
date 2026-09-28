@@ -6,7 +6,8 @@ namespace YAT.Application.Tests;
 // Architecture guard: Application depends only on Domain (no Infrastructure, App, Analytics, UI or database frameworks).
 public class ApplicationDependencyTests
 {
-    private static readonly string[] ForbiddenAssemblies = ["YAT.Infrastructure", "YAT.App", "YAT.Analytics"];
+    // The application project is YAT.App; its assembly is YAT (Task #048).
+    private static readonly string[] ForbiddenAssemblies = ["YAT.Infrastructure", "YAT.App", "YAT", "YAT.Analytics"];
 
     private static readonly string[] ForbiddenAssemblyPrefixes = ["Avalonia", "DuckDB", "SkiaSharp", "HarfBuzzSharp", "Apache.Arrow", "CommunityToolkit"];
 
