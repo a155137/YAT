@@ -131,6 +131,30 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         }
     }
 
+    public Task<RawDistinctValues> GetDistinctValuesAsync(
+        Guid worksheetId,
+        Guid columnId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var values = Execute(connection => ReadDistinctValues(connection, worksheetId, columnId, limit, cancellationToken));
+            return Task.FromResult(values);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<RawDistinctValues>(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException<RawDistinctValues>(exception);
+        }
+    }
+
     public Task DeleteColumnsAsync(Guid worksheetId, IReadOnlyList<Guid> columnIds, CancellationToken cancellationToken)
     {
         try
@@ -434,6 +458,75 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         {
             throw new RawDataStorageException("The raw data window query returned an unexpected number of rows.");
         }
+    }
+
+    // A column lives in one block table, whose row_index runs over the column's own rows. Its distinct values are grouped
+    // there and ordered by the first row each occurs in; one more than the limit is asked for, so a column with exactly
+    // limit values and one with more are told apart without counting them all. Missing is asked for on its own, so it
+    // never takes a value's place under the limit: an empty cell, or a column shorter than the worksheet.
+    private static RawDistinctValues ReadDistinctValues(
+        DuckDBConnection connection,
+        Guid worksheetId,
+        Guid columnId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (!DuckDbRawCatalog.FindColumns(connection, [columnId]).TryGetValue(columnId, out var column)
+            || column.WorksheetId != worksheetId)
+        {
+            throw new EntityNotFoundException("RawDataColumn", columnId);
+        }
+
+        var table = DuckDbIdentifiers.Quote(column.TableName);
+        var value = DuckDbIdentifiers.Quote(column.PhysicalName);
+        var rowIndex = DuckDbIdentifiers.RowIndexColumn;
+
+        var hasMissing = column.RowCount < DuckDbRawCatalog.GetWorksheetRowCount(connection, worksheetId)
+            || Convert.ToBoolean(
+                DuckDbRawCatalog.Scalar(connection, $"SELECT EXISTS (SELECT 1 FROM {table} WHERE {value} IS NULL)"),
+                CultureInfo.InvariantCulture);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // The limit is an int validated by the caller, so it is written into the query rather than bound.
+        using var command = DuckDbRawCatalog.CreateCommand(
+            connection,
+            $"SELECT {value}, MIN({rowIndex}) AS first_row FROM {table} WHERE {value} IS NOT NULL " +
+            $"GROUP BY {value} ORDER BY first_row LIMIT {((long)limit + 1).ToString(CultureInfo.InvariantCulture)}");
+        using var reader = command.ExecuteReader();
+
+        var numbers = new List<double>();
+        var seenNumbers = new HashSet<double>();
+        var texts = new List<string>();
+        var hasMore = false;
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (numbers.Count + texts.Count == limit)
+            {
+                hasMore = true;
+                break;
+            }
+
+            if (column.DataType == WorksheetDataType.Numeric)
+            {
+                // Exact equality is the identity, so -0 and 0 are one value however the database groups them.
+                var number = reader.GetDouble(0);
+                if (seenNumbers.Add(number))
+                {
+                    numbers.Add(number);
+                }
+            }
+            else
+            {
+                texts.Add(reader.GetString(0));
+            }
+        }
+
+        return column.DataType == WorksheetDataType.Numeric
+            ? new NumericRawDistinctValues(columnId, numbers, hasMissing, hasMore)
+            : new StringRawDistinctValues(columnId, texts, hasMissing, hasMore);
     }
 
     private void Execute(Action<DuckDBConnection> operation) =>

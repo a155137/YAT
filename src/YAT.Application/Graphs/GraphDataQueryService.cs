@@ -6,7 +6,8 @@ using YAT.Domain.Enums;
 namespace YAT.Application.Graphs;
 
 // Turns a validated GraphConfiguration into graph-ready observations: it resolves the configured columns, reads their
-// raw values in aligned row windows and applies the graph's null rules, keeping worksheet row order.
+// raw values in aligned row windows, keeps the rows the configuration's filter selects (Task #049) and applies the
+// graph's null rules, keeping worksheet row order.
 //
 // Row alignment is the point: the configured columns are read together per row window (IWorksheetRawDataStore returns a
 // rectangular block, shorter columns padded with null), so X[i], Y[i] and Group[i] always come from the same worksheet
@@ -59,16 +60,21 @@ public sealed class GraphDataQueryService
 
         var group = FindColumn(configuration, worksheetColumns, GraphVariableRole.Group);
 
+        // The rows the graph keeps (Task #049): null keeps every row, exactly as before there were filters.
+        var filter = configuration.Filter is { } valueFilter
+            ? new RowFilter(valueFilter, worksheetColumns.First(column => column.Id == valueFilter.ColumnId))
+            : null;
+
         // What the graph data looks like follows the graph's own roles: a scatter plot pairs two measured columns,
         // a role that takes several columns reads one variable per column, and everything else reads one variable.
         if (definition.GraphType == GraphType.ScatterPlot)
         {
-            return await LoadScatterAsync(configuration, worksheetColumns, group, cancellationToken);
+            return await LoadScatterAsync(configuration, worksheetColumns, group, filter, cancellationToken);
         }
 
         return definition.FindRole(GraphVariableRole.Variable)?.AllowsMultiple == true
-            ? await LoadMultiVariableAsync(configuration, worksheetColumns, group, cancellationToken)
-            : await LoadUnivariateAsync(configuration, worksheetColumns, group, cancellationToken);
+            ? await LoadMultiVariableAsync(configuration, worksheetColumns, group, filter, cancellationToken)
+            : await LoadUnivariateAsync(configuration, worksheetColumns, group, filter, cancellationToken);
     }
 
     private static void Validate(GraphConfiguration configuration, IReadOnlyList<WorksheetColumn> worksheetColumns)
@@ -85,7 +91,8 @@ public sealed class GraphDataQueryService
         {
             GraphValidationReason.UnknownGraphType =>
                 new GraphDataException(GraphDataError.UnsupportedGraphType, "This graph type is not supported."),
-            GraphValidationReason.ColumnNotFound or GraphValidationReason.ColumnFromAnotherWorksheet =>
+            GraphValidationReason.ColumnNotFound or GraphValidationReason.ColumnFromAnotherWorksheet
+                or GraphValidationReason.FilterColumnNotFound or GraphValidationReason.FilterColumnFromAnotherWorksheet =>
                 new GraphDataException(GraphDataError.ColumnUnavailable, "A column of this graph is no longer available."),
             _ => new GraphDataException(GraphDataError.InvalidConfiguration, "This graph configuration cannot be used.")
         };
@@ -95,6 +102,7 @@ public sealed class GraphDataQueryService
         GraphConfiguration configuration,
         IReadOnlyList<WorksheetColumn> worksheetColumns,
         WorksheetColumn? group,
+        RowFilter? filter,
         CancellationToken cancellationToken)
     {
         var x = FindColumn(configuration, worksheetColumns, GraphVariableRole.X)!;
@@ -104,7 +112,7 @@ public sealed class GraphDataQueryService
         var yValues = new DoubleBuffer();
         var groupValues = GroupBuffer.For(group);
 
-        await ReadAsync(configuration.WorksheetId, [x, y], group, (block, reader, row) =>
+        await ReadAsync(configuration.WorksheetId, [x, y], group, filter, (block, reader, row) =>
         {
             // One worksheet row: both values must be present, and the row's own group value travels with it.
             if (reader.Numeric(block, 0, row) is not { } xValue || reader.Numeric(block, 1, row) is not { } yValue)
@@ -125,6 +133,7 @@ public sealed class GraphDataQueryService
         GraphConfiguration configuration,
         IReadOnlyList<WorksheetColumn> worksheetColumns,
         WorksheetColumn? group,
+        RowFilter? filter,
         CancellationToken cancellationToken)
     {
         var variable = FindColumn(configuration, worksheetColumns, GraphVariableRole.Variable)!;
@@ -132,7 +141,7 @@ public sealed class GraphDataQueryService
         var values = new DoubleBuffer();
         var groupValues = GroupBuffer.For(group);
 
-        await ReadAsync(configuration.WorksheetId, [variable], group, (block, reader, row) =>
+        await ReadAsync(configuration.WorksheetId, [variable], group, filter, (block, reader, row) =>
         {
             if (reader.Numeric(block, 0, row) is not { } value)
             {
@@ -157,6 +166,7 @@ public sealed class GraphDataQueryService
         GraphConfiguration configuration,
         IReadOnlyList<WorksheetColumn> worksheetColumns,
         WorksheetColumn? group,
+        RowFilter? filter,
         CancellationToken cancellationToken)
     {
         var variables = configuration.FindColumnIds(GraphVariableRole.Variable)
@@ -181,7 +191,7 @@ public sealed class GraphDataQueryService
 
         if (readable.Length > 0)
         {
-            await ReadAsync(configuration.WorksheetId, readable, group, (block, reader, row) =>
+            await ReadAsync(configuration.WorksheetId, readable, group, filter, (block, reader, row) =>
             {
                 // One worksheet row, offered to every variable: each keeps it only if it has a value there, and takes
                 // this row's own group value with it.
@@ -211,8 +221,13 @@ public sealed class GraphDataQueryService
             ]);
     }
 
-    // Reads the value columns and the group column together, one bounded row window at a time, and offers every row to
-    // the caller. A column without stored raw values reads as all-null, like a row beyond a shorter column.
+    // Reads the value columns, the group column and the filter column together, one bounded row window at a time, and
+    // offers every row the filter keeps to the caller. A column without stored raw values reads as all-null, like a row
+    // beyond a shorter column.
+    //
+    // The filter decides first, on the row as it is stored, before the caller applies the graph's null rules: a row the
+    // filter drops never reaches the graph data, so nothing built from it - series, statistics, display samples - sees it.
+    // Without a filter every row is offered, as it always was, and no column is read for it.
     //
     // known: the worksheet's stored column ids when the caller has already looked them up (a graph that reads several
     // variables decides for itself which of them can be read); null asks the store for them.
@@ -220,6 +235,7 @@ public sealed class GraphDataQueryService
         Guid worksheetId,
         IReadOnlyList<WorksheetColumn> valueColumns,
         WorksheetColumn? group,
+        RowFilter? filter,
         Action<RawDataBlock, BlockReader, int> onRow,
         CancellationToken cancellationToken,
         IReadOnlySet<Guid>? known = null)
@@ -251,6 +267,11 @@ public sealed class GraphDataQueryService
 
         var groupIsStored = group is not null && storedColumnIds.Contains(group.Id);
         var reader = new BlockReader(valueIndexes, groupIsStored ? Position(columnIds, group!.Id) : -1);
+
+        // The filter column has its own position too, shared when it is also the group column or a value column. A filter
+        // column without stored values is missing in every row.
+        var keeps = filter?.At(storedColumnIds.Contains(filter.Column.Id) ? Position(columnIds, filter.Column.Id) : -1);
+
         long rowOffset = 0;
         while (true)
         {
@@ -273,6 +294,11 @@ public sealed class GraphDataQueryService
 
             for (var row = 0; row < block.RowCount; row++)
             {
+                if (keeps is not null && !keeps.Keeps(block, row))
+                {
+                    continue;
+                }
+
                 onRow(block, reader, row);
             }
 
@@ -326,6 +352,44 @@ public sealed class GraphDataQueryService
 
         public string? StringGroup(RawDataBlock block, int row) =>
             GroupIndex < 0 ? null : ((StringRawDataColumn)block.Columns[GroupIndex]).Values[row];
+    }
+
+    // The graph's filter and the worksheet column it selects rows by, before the column has a place in a read.
+    private sealed class RowFilter(GraphValueFilter filter, WorksheetColumn column)
+    {
+        public WorksheetColumn Column { get; } = column;
+
+        // The filter over the column at this position of every block read; -1 when the column is not read, and so has no
+        // value in any row.
+        public RowPredicate At(int columnIndex) => filter switch
+        {
+            NumericValueFilter numeric => new NumericRowPredicate(numeric, columnIndex),
+            TextValueFilter text => new TextRowPredicate(text, columnIndex),
+            _ => throw new NotSupportedException($"Filter type '{filter.GetType().Name}' is not supported.")
+        };
+    }
+
+    // Whether one row of a block is kept: its value is a selected one - by exact double equality or ordinal comparison,
+    // in the column's own type - or it has no value and Missing is selected.
+    private abstract class RowPredicate
+    {
+        public abstract bool Keeps(RawDataBlock block, int row);
+    }
+
+    private sealed class NumericRowPredicate(NumericValueFilter filter, int columnIndex) : RowPredicate
+    {
+        public override bool Keeps(RawDataBlock block, int row) =>
+            (columnIndex < 0 ? null : ((NumericRawDataColumn)block.Columns[columnIndex]).Values[row]) is { } value
+                ? filter.Contains(value)
+                : filter.IncludeMissing;
+    }
+
+    private sealed class TextRowPredicate(TextValueFilter filter, int columnIndex) : RowPredicate
+    {
+        public override bool Keeps(RawDataBlock block, int row) =>
+            (columnIndex < 0 ? null : ((StringRawDataColumn)block.Columns[columnIndex]).Values[row]) is { } value
+                ? filter.Contains(value)
+                : filter.IncludeMissing;
     }
 
     // Growable buffer of the kept values. The final data wraps the buffer without copying it again.

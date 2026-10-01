@@ -13,7 +13,10 @@ public class StorageBoundaryTests
         typeof(RawDataBlock),
         typeof(RawDataColumn),
         typeof(NumericRawDataColumn),
-        typeof(StringRawDataColumn)
+        typeof(StringRawDataColumn),
+        typeof(RawDistinctValues),
+        typeof(NumericRawDistinctValues),
+        typeof(StringRawDistinctValues)
     ];
 
     private static readonly Type[] MetadataRepositoryTypes =
@@ -112,6 +115,14 @@ public class StorageBoundaryTests
         Assert.Equal(["ColumnId", "DataType", "RowCount", "Values"], PropertyNames(typeof(NumericRawDataColumn)));
         Assert.Equal(["ColumnId", "DataType", "RowCount", "Values"], PropertyNames(typeof(StringRawDataColumn)));
         Assert.Equal(["Columns", "RowCount"], PropertyNames(typeof(RawDataBlock)));
+    }
+
+    [Fact]
+    public void RawDistinctValuesCarryOnlyIdentityTypeValuesAndTheirFlags()
+    {
+        Assert.Equal(["ColumnId", "Count", "DataType", "HasMissing", "HasMore"], PropertyNames(typeof(RawDistinctValues)));
+        Assert.Equal(["ColumnId", "Count", "DataType", "HasMissing", "HasMore", "Values"], PropertyNames(typeof(NumericRawDistinctValues)));
+        Assert.Equal(["ColumnId", "Count", "DataType", "HasMissing", "HasMore", "Values"], PropertyNames(typeof(StringRawDistinctValues)));
     }
 
     [Fact]

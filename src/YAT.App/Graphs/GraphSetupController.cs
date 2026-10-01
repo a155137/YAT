@@ -96,7 +96,12 @@ public sealed class GraphSetupController
         }
 
         var request = await _dialogs.ShowSetupAsync(
-            new GraphSetupViewModel(GraphTypeDefinitions.For(graphType), worksheet, columns));
+            new GraphSetupViewModel(
+                GraphTypeDefinitions.For(graphType),
+                worksheet,
+                columns,
+                // The Filter dialog reads a column's distinct values through the session, never its rows (Task #049).
+                (columnId, token) => session.LoadGraphFilterValuesAsync(worksheet.Id, columnId, token)));
 
         if (request is not null)
         {

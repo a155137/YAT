@@ -205,7 +205,54 @@ internal sealed class GraphSetupWindow : Window
             }
         }
 
+        // Which rows the graph uses (Task #049): a row of its own, not part of the group, with the values chosen in a
+        // dialog of their own - a list of values inline would take the setup past a 1280 x 720 screen.
+        if (setup.SupportsFilter)
+        {
+            AddRoleRow(panel, row, "Filter", FilterRow(setup));
+        }
+
         return panel;
+    }
+
+    // The filter in a few words, and Edit... to change it.
+    private static Control FilterRow(GraphSetupViewModel setup)
+    {
+        var summary = new TextBlock
+        {
+            Name = "FilterSummary",
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        summary.Bind(TextBlock.TextProperty, new Binding(nameof(GraphSetupViewModel.FilterSummary)) { Source = setup });
+        summary.Bind(ToolTip.TipProperty, new Binding(nameof(GraphSetupViewModel.FilterSummary)) { Source = setup });
+
+        // A compact button: the row is no taller than a role's.
+        var edit = new Button
+        {
+            Name = "EditFilter",
+            Content = "Edit...",
+            MinWidth = 72,
+            MinHeight = 0,
+            Padding = new Thickness(10, 3),
+            Margin = new Thickness(12, 0, 0, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        edit.Click += async (_, _) =>
+        {
+            if (TopLevel.GetTopLevel(edit) is not Window owner)
+            {
+                return;
+            }
+
+            // Cancel leaves the filter as it was; Apply sets it - to none when every row is kept.
+            if (await GraphFilterWindow.ShowAsync(owner, setup.CreateFilterEditor()) is { } edited)
+            {
+                setup.Filter = edited.Filter;
+            }
+        };
+
+        return new DockPanel { Children = { Docked(edit, Dock.Right), summary } };
     }
 
     private static void AddRoleRow(Grid panel, int row, string text, Control selector)
@@ -477,7 +524,10 @@ internal sealed class GraphSetupWindow : Window
             ItemsSource = role.Options,
             ItemTemplate = ColumnTemplate(),
             MinWidth = 200,
-            MaxHeight = 160,
+
+            // About three and a half rows, so a part-shown row says the list scrolls: with the Filter row (Task #049) the
+            // setup of a box plot or a distribution graph still fits a 1280 x 720 screen.
+            MaxHeight = 136,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             SelectionMode = SelectionMode.Multiple | SelectionMode.Toggle
         };

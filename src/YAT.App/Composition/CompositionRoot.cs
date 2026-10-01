@@ -112,6 +112,7 @@ public sealed class CompositionRoot
             new WorksheetColumnsTsvExporter(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             new ProjectMetadataQueryService(projectSession.Projects, projectSession.Worksheets, projectSession.WorksheetColumns),
             new GraphDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
+            new GraphFilterValuesQueryService(projectSession.WorksheetColumns, projectSession.RawDataStore),
             new AnalysisDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             projectSession.ProjectId);
     }

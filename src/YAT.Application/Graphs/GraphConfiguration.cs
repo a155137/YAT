@@ -51,6 +51,11 @@ public sealed record GraphConfiguration(GraphType GraphType, Guid WorksheetId, I
     // they have always been drawn unless the user chose.
     public BoxPlotOptions BoxPlotOptions { get; init; } = BoxPlotOptions.Default;
 
+    // Which worksheet rows the graph uses (Task #049): null - every row - unless the user selected values of a column.
+    // Unlike the options above, it is read by the data query and nothing after it: every graph type is built from the
+    // rows it keeps, and none of them knows there was a filter.
+    public GraphValueFilter? Filter { get; init; }
+
     // The column of a single-valued role: the first one assigned to it, or null when it has none. Roles that take
     // several columns are read with FindColumnIds.
     public Guid? FindColumnId(GraphVariableRole role) =>

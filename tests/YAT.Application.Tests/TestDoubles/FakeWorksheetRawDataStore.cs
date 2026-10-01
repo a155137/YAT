@@ -78,6 +78,93 @@ internal sealed class FakeWorksheetRawDataStore : IWorksheetRawDataStore
         return Task.FromResult(new RawDataBlock(window));
     }
 
+    public List<(Guid WorksheetId, Guid ColumnId, int Limit)> DistinctReads { get; } = [];
+
+    // The same contract as the DuckDB store: first-occurrence order, Missing apart from the values (an empty cell, or a
+    // row beyond the column within the worksheet), at most limit values and HasMore when there are more.
+    public Task<RawDistinctValues> GetDistinctValuesAsync(Guid worksheetId, Guid columnId, int limit, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (ReadFailure is not null)
+        {
+            throw ReadFailure;
+        }
+
+        if (!_stored.TryGetValue(columnId, out var entry) || entry.WorksheetId != worksheetId)
+        {
+            throw new EntityNotFoundException("RawDataColumn", columnId);
+        }
+
+        DistinctReads.Add((worksheetId, columnId, limit));
+
+        var worksheetRowCount = _stored.Values
+            .Where(other => other.WorksheetId == worksheetId)
+            .Max(other => other.Column.RowCount);
+        var hasMissing = entry.Column.RowCount < worksheetRowCount;
+
+        switch (entry.Column)
+        {
+            case NumericRawDataColumn numeric:
+            {
+                var values = new List<double>();
+                var seen = new HashSet<double>();
+                var hasMore = false;
+                foreach (var value in numeric.Values)
+                {
+                    if (value is not { } number)
+                    {
+                        hasMissing = true;
+                    }
+                    else if (!seen.Contains(number))
+                    {
+                        if (values.Count == limit)
+                        {
+                            hasMore = true;
+                            continue;
+                        }
+
+                        seen.Add(number);
+                        values.Add(number);
+                    }
+                }
+
+                return Task.FromResult<RawDistinctValues>(new NumericRawDistinctValues(columnId, values, hasMissing, hasMore));
+            }
+
+            case StringRawDataColumn text:
+            {
+                var values = new List<string>();
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                var hasMore = false;
+                foreach (var value in text.Values)
+                {
+                    if (value is null)
+                    {
+                        hasMissing = true;
+                    }
+                    else if (!seen.Contains(value))
+                    {
+                        if (values.Count == limit)
+                        {
+                            hasMore = true;
+                            continue;
+                        }
+
+                        seen.Add(value);
+                        values.Add(value);
+                    }
+                }
+
+                return Task.FromResult<RawDistinctValues>(new StringRawDistinctValues(columnId, values, hasMissing, hasMore));
+            }
+
+            default:
+                throw new NotSupportedException();
+        }
+    }
+
     public List<(Guid WorksheetId, IReadOnlyList<Guid> ColumnIds)> Deletes { get; } = [];
 
     // Thrown by DeleteColumnsAsync instead of retiring the columns.

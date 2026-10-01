@@ -10,6 +10,10 @@ internal sealed class FakeGraphSetupDialogs : IGraphSetupDialogs
 {
     public Func<GraphSetupViewModel, GraphConfiguration?> Answer { get; set; } = _ => null;
 
+    // When set, used instead of Answer: what the user does with the setup, waiting for what the setup reads on the way
+    // (the Filter dialog's values, Task #049).
+    public Func<GraphSetupViewModel, Task<GraphConfiguration?>>? AnswerAsync { get; set; }
+
     public GraphVariableLayout Layout { get; set; } = GraphVariableLayout.Together;
 
     public List<GraphSetupViewModel> Shown { get; } = [];
@@ -18,10 +22,11 @@ internal sealed class FakeGraphSetupDialogs : IGraphSetupDialogs
 
     public GraphSetupViewModel LastSetup => Shown.Count > 0 ? Shown[^1] : throw new InvalidOperationException("No graph setup was shown.");
 
-    public Task<GraphSetupRequest?> ShowSetupAsync(GraphSetupViewModel setup)
+    public async Task<GraphSetupRequest?> ShowSetupAsync(GraphSetupViewModel setup)
     {
         Shown.Add(setup);
-        return Task.FromResult(Answer(setup) is { } configuration ? new GraphSetupRequest(configuration, Layout) : null);
+        var configuration = AnswerAsync is not null ? await AnswerAsync(setup) : Answer(setup);
+        return configuration is not null ? new GraphSetupRequest(configuration, Layout) : null;
     }
 
     public Task ShowErrorAsync(string message)

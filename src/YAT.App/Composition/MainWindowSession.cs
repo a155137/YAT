@@ -43,6 +43,7 @@ public sealed class MainWindowSession
     private readonly WorksheetColumnsTsvExporter _columnsExporter;
     private readonly ProjectMetadataQueryService _metadataQuery;
     private readonly GraphDataQueryService _graphData;
+    private readonly GraphFilterValuesQueryService _graphFilterValues;
     private readonly AnalysisDataQueryService _analysisData;
     private readonly Guid? _projectId;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -65,6 +66,7 @@ public sealed class MainWindowSession
         WorksheetColumnsTsvExporter columnsExporter,
         ProjectMetadataQueryService metadataQuery,
         GraphDataQueryService graphData,
+        GraphFilterValuesQueryService graphFilterValues,
         AnalysisDataQueryService analysisData,
         Guid? projectId)
     {
@@ -84,6 +86,7 @@ public sealed class MainWindowSession
         _columnsExporter = columnsExporter;
         _metadataQuery = metadataQuery;
         _graphData = graphData;
+        _graphFilterValues = graphFilterValues;
         _analysisData = analysisData;
         _projectId = projectId;
     }
@@ -111,6 +114,13 @@ public sealed class MainWindowSession
     public Task<GraphData> LoadGraphDataAsync(GraphConfiguration configuration, CancellationToken cancellationToken) =>
         RunExclusiveAsync(
             () => Task.Run(() => _graphData.LoadAsync(configuration, cancellationToken), cancellationToken),
+            cancellationToken);
+
+    // The values a graph's filter can be chosen from (see GraphFilterValuesQueryService), read off the UI thread: the
+    // distinct values of one column, at most GraphValueFilter.MaximumDistinctValues of them - never its rows.
+    public Task<GraphFilterValues> LoadGraphFilterValuesAsync(Guid worksheetId, Guid columnId, CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(() => _graphFilterValues.LoadAsync(worksheetId, columnId, cancellationToken), cancellationToken),
             cancellationToken);
 
     // The worksheet rows of an analysis configuration (see AnalysisDataQueryService), read off the UI thread. The

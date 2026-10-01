@@ -75,8 +75,14 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     private readonly GraphTypeDefinition _definition;
     private readonly IReadOnlyList<WorksheetColumn> _columns;
+    private readonly Func<Guid, CancellationToken, Task<GraphFilterValues>>? _loadFilterValues;
 
-    public GraphSetupViewModel(GraphTypeDefinition definition, Worksheet worksheet, IReadOnlyList<WorksheetColumn> columns)
+    // loadFilterValues: reads the values a filter can be chosen from (Task #049); without it the setup offers no filter.
+    public GraphSetupViewModel(
+        GraphTypeDefinition definition,
+        Worksheet worksheet,
+        IReadOnlyList<WorksheetColumn> columns,
+        Func<Guid, CancellationToken, Task<GraphFilterValues>>? loadFilterValues = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(worksheet);
@@ -84,6 +90,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
         _definition = definition;
         _columns = columns;
+        _loadFilterValues = loadFilterValues;
         WorksheetId = worksheet.Id;
         WorksheetName = worksheet.Name;
         AvailableColumns = [.. columns.Select(Option)];
@@ -327,6 +334,28 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     [ObservableProperty]
     public partial string UpperLimitText { get; set; }
 
+    // Whether the setup can filter the graph's rows (Task #049): every graph type can, given a way to read a column's values.
+    public bool SupportsFilter => _loadFilterValues is not null;
+
+    // Which rows the graph uses: null - every row - until a filter is applied in the Filter dialog. Not tied to the group
+    // column: any Numeric or String column of the worksheet.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FilterSummary))]
+    public partial GraphValueFilter? Filter { get; set; }
+
+    // The filter in a few words: "All rows", or its column and the values it keeps.
+    public string FilterSummary => GraphFilterEditorViewModel.Describe(
+        Filter, Filter is { } filter ? _columns.FirstOrDefault(column => column.Id == filter.ColumnId)?.Name : null);
+
+    // The Filter dialog's editor for the filter as it is now. The first column it offers is the filter's own, or else
+    // the group column the setup has chosen.
+    public GraphFilterEditorViewModel CreateFilterEditor() =>
+        new(
+            _columns,
+            Filter,
+            Roles.FirstOrDefault(role => role.Role == GraphVariableRole.Group)?.SelectedColumnId,
+            _loadFilterValues ?? throw new InvalidOperationException("This setup offers no filter."));
+
     public GraphType GraphType => _definition.GraphType;
 
     public Guid WorksheetId { get; }
@@ -399,7 +428,8 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             Specification = specification,
             LabelOptions = SupportsLabels ? Labels.Options : GraphLabelOptions.Default,
             AxisRangeOptions = SupportsAxisRanges ? Axes.Options : GraphAxisRangeOptions.Default,
-            LegendOptions = SupportsLegend ? Legend.Options : GraphLegendOptions.Default
+            LegendOptions = SupportsLegend ? Legend.Options : GraphLegendOptions.Default,
+            Filter = Filter
         };
 
         var validation = Validator.Validate(configuration, _columns).Errors;
@@ -451,6 +481,8 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         SpecificationLimitParser.TryParse(text, out var value) ? value : null;
 
     partial void OnAppearanceChanged(GraphAppearanceOptions value) => OnSelectionChanged();
+
+    partial void OnFilterChanged(GraphValueFilter? value) => OnSelectionChanged();
 
     partial void OnBoxPlotChanged(BoxPlotOptions value) => OnSelectionChanged();
 

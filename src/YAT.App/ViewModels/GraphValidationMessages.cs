@@ -61,6 +61,11 @@ public static class GraphValidationMessages
             GraphValidationReason.AppearanceColorInvalid => "Enter each color as #RRGGBB, for example #1F77B4.",
             GraphValidationReason.BoxPlotWidthInvalid =>
                 $"Box width must be a whole number from {BoxPlotOptions.MinimumBoxWidthPercent} to {BoxPlotOptions.MaximumBoxWidthPercent}.",
+            GraphValidationReason.FilterColumnNotFound => "The filter column is no longer available. Edit the filter.",
+            GraphValidationReason.FilterColumnFromAnotherWorksheet => "The filter column belongs to another worksheet. Edit the filter.",
+            GraphValidationReason.FilterColumnIncompatibleType =>
+                "The filter's values do not match its column. Choose a Numeric or String column and its values.",
+            GraphValidationReason.FilterSelectionEmpty => "Select at least one filter value, or (Missing).",
             _ => "This graph cannot be created with the current settings."
         };
     }
