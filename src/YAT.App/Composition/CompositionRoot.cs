@@ -18,6 +18,7 @@ using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
 using YAT.Infrastructure.Persistence.InMemory;
+using YAT.Infrastructure.Settings;
 
 namespace YAT.app.Composition;
 
@@ -27,6 +28,7 @@ public sealed class CompositionRoot
 {
     private readonly TimeProvider _timeProvider;
     private readonly DuckDbProjectStorage _projectStorage;
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<GraphPaletteLibraryService, GraphPaletteLibraryAccess> _paletteAccess = new();
 
     // temporaryProjectsDirectory: where temporary projects and project working folders are kept
     // (default %TEMP%\YAT\projects).
@@ -143,7 +145,12 @@ public sealed class CompositionRoot
 
     public IPowerPointGraphExporter CreatePowerPointExporter() => new PowerPointGraphExporter();
 
-    public GraphSetupController CreateGraphSetup(IGraphSetupDialogs dialogs, IGraphWindowPresenter windows)
+    // palettes: the user's graph palettes, whose default a new graph setup starts with (Task #050). Without them every
+    // setup starts with YAT Default.
+    public GraphSetupController CreateGraphSetup(
+        IGraphSetupDialogs dialogs,
+        IGraphWindowPresenter windows,
+        GraphPaletteLibraryService? palettes = null)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         ArgumentNullException.ThrowIfNull(windows);
@@ -154,8 +161,25 @@ public sealed class CompositionRoot
             new HistogramRenderModelBuilder(),
             new ProbabilityPlotRenderModelBuilder(),
             new EmpiricalCdfRenderModelBuilder(),
-            new BoxPlotRenderModelBuilder());
+            new BoxPlotRenderModelBuilder(),
+            palettes: palettes is null ? null : GraphPaletteAccess(palettes));
     }
+
+    // The windows' one way to the user's palettes (Task #050): their choices and the Palette Manager. One for each library,
+    // so the graph setups and the graph windows share it.
+    public GraphPaletteLibraryAccess GraphPaletteAccess(GraphPaletteLibraryService palettes)
+    {
+        ArgumentNullException.ThrowIfNull(palettes);
+        return _paletteAccess.GetValue(palettes, library => new GraphPaletteLibraryAccess(library));
+    }
+
+    // The user's graph palettes (Task #050), loaded now from filePath - by default graph-palettes.json in YAT's folder of
+    // the user's roaming application data. Loading never fails and never writes: what cannot be read is left out, and
+    // the worst case is YAT Default alone. Only the application passes no path; tests give a folder of their own.
+    public GraphPaletteLibraryService CreateGraphPaletteLibrary(string? filePath = null) =>
+        new(
+            new JsonGraphPaletteLibraryStore(filePath ?? JsonGraphPaletteLibraryStore.DefaultFilePath, _timeProvider),
+            new GraphPalette([.. GraphThemes.Light.SeriesPalette.Select(GraphAppearance.FromSkia)]));
 
     // The Statistics menu's analyses. The setup dialogs and the result window belong to the UI, which supplies them;
     // the statistics themselves are the builder's, which is why it is built here and not in a window.

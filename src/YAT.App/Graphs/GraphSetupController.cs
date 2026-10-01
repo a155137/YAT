@@ -34,9 +34,12 @@ public sealed class GraphSetupController
     private readonly EmpiricalCdfRenderModelBuilder _empiricalCdf;
     private readonly BoxPlotRenderModelBuilder _boxPlot;
     private readonly Func<GraphData, GraphConfiguration, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?> _prepare;
+    private readonly GraphPaletteLibraryAccess? _palettes;
 
     // prepare: replaces the graph types' own preparation. Only tests pass one, to prove that a preparation that fails
     // is contained; the application always uses Prepare.
+    // palettes: the user's graph palettes (Task #050), whose default palette a new setup starts with; without them every
+    // setup starts with YAT Default.
     internal GraphSetupController(
         IGraphSetupDialogs dialogs,
         IGraphWindowPresenter windows,
@@ -45,7 +48,8 @@ public sealed class GraphSetupController
         ProbabilityPlotRenderModelBuilder probabilityPlot,
         EmpiricalCdfRenderModelBuilder empiricalCdf,
         BoxPlotRenderModelBuilder boxPlot,
-        Func<GraphData, GraphConfiguration, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?>? prepare = null)
+        Func<GraphData, GraphConfiguration, CancellationToken, (GraphRenderModel Frame, IGraphPlotRenderer Plot)?>? prepare = null,
+        GraphPaletteLibraryAccess? palettes = null)
     {
         _dialogs = dialogs;
         _windows = windows;
@@ -55,6 +59,7 @@ public sealed class GraphSetupController
         _empiricalCdf = empiricalCdf;
         _boxPlot = boxPlot;
         _prepare = prepare ?? Prepare;
+        _palettes = palettes;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until graphs become documents.
@@ -101,7 +106,12 @@ public sealed class GraphSetupController
                 worksheet,
                 columns,
                 // The Filter dialog reads a column's distinct values through the session, never its rows (Task #049).
-                (columnId, token) => session.LoadGraphFilterValuesAsync(worksheet.Id, columnId, token)));
+                (columnId, token) => session.LoadGraphFilterValuesAsync(worksheet.Id, columnId, token),
+                // The appearance starts as the default palette is now (Task #050): a copy of its colours, the setup's own
+                // from here on - or YAT Default, which is no palette at all.
+                _palettes?.DefaultAppearance,
+                // And the user's palettes are offered in its Appearance... dialog, with the Palette Manager.
+                _palettes));
 
         if (request is not null)
         {

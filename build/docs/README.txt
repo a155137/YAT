@@ -16,6 +16,10 @@ None. YAT is portable: it needs no installer and no separately installed .NET.
 Keep every file of the folder together; YAT.exe needs the files beside it.
 To remove YAT, delete the folder.
 
+YAT keeps your preferences - your graph palettes - in your user profile, in
+%APPDATA%\YAT, not in the YAT folder, so unzipping a new version keeps them.
+To remove them as well, delete %APPDATA%\YAT.
+
 
 Getting started
 ---------------

@@ -17,13 +17,16 @@ public sealed class AvaloniaGraphWindowPresenter : IGraphWindowPresenter
 {
     private readonly Window _owner;
     private readonly IGraphExportWorkflowFactory _exports;
+    private readonly IGraphPaletteLibraryAccess? _palettes;
 
-    public AvaloniaGraphWindowPresenter(Window owner, IGraphExportWorkflowFactory exports)
+    // palettes: the user's palettes, offered by every graph window's Edit Appearance... (Task #050).
+    public AvaloniaGraphWindowPresenter(Window owner, IGraphExportWorkflowFactory exports, IGraphPaletteLibraryAccess? palettes = null)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(exports);
         _owner = owner;
         _exports = exports;
+        _palettes = palettes;
     }
 
     // How far each further window of a request opens from the one before it, in layout units.
@@ -34,7 +37,7 @@ public sealed class AvaloniaGraphWindowPresenter : IGraphWindowPresenter
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentOutOfRangeException.ThrowIfNegative(cascade);
 
-        var window = new GraphWindow(graph, plot, _exports);
+        var window = new GraphWindow(graph, plot, _exports, _palettes);
         if (cascade > 0)
         {
             // Placed first where every graph window is placed (centred on its owner), then moved along.

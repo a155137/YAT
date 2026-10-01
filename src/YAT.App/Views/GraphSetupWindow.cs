@@ -79,9 +79,12 @@ internal sealed class GraphSetupWindow : Window
         };
         appearance.Click += async (_, _) =>
         {
+            // The user's palettes are offered, with the Palette Manager (Task #050); whatever the manager saves, the setup's
+            // appearance is only what this dialog confirms.
             var edited = await GraphAppearanceWindow.ShowAsync(
                 this,
-                new GraphAppearanceEditorViewModel(GraphTypeDefinitions.For(setup.GraphType), setup.Appearance));
+                new GraphAppearanceEditorViewModel(GraphTypeDefinitions.For(setup.GraphType), setup.Appearance, setup.Palettes?.Choices),
+                setup.Palettes);
             if (edited is not null)
             {
                 setup.Appearance = edited;

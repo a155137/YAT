@@ -16,7 +16,7 @@ namespace YAT.app.Views;
 // window it was opened from.
 internal sealed class GraphAppearanceWindow : Window
 {
-    private GraphAppearanceWindow(GraphAppearanceEditorViewModel appearance)
+    private GraphAppearanceWindow(GraphAppearanceEditorViewModel appearance, IGraphPaletteLibraryAccess? palettes)
     {
         Title = "Appearance";
         SizeToContent = SizeToContent.WidthAndHeight;
@@ -74,7 +74,17 @@ internal sealed class GraphAppearanceWindow : Window
         };
         ShowValidity();
 
-        var editor = GraphAppearanceEditor.Create(appearance);
+        // Manage... opens the Palette Manager over this dialog. Whatever it saved is offered from then on; the colours being
+        // edited here stay exactly as they were (Task #050).
+        Func<Task>? manage = palettes is null
+            ? null
+            : async () =>
+            {
+                await GraphPaletteManagerWindow.ShowAsync(this, palettes.CreateManager());
+                appearance.UpdateChoices(palettes.Choices);
+            };
+
+        var editor = GraphAppearanceEditor.Create(appearance, manage);
         Content = new StackPanel
         {
             Margin = new Thickness(20, 18),
@@ -106,22 +116,33 @@ internal sealed class GraphAppearanceWindow : Window
             DispatcherPriority.Loaded);
     }
 
-    // Shows the dialog over its owner and returns the confirmed appearance, or null when it was cancelled.
-    public static Task<GraphAppearanceOptions?> ShowAsync(Window owner, GraphAppearanceEditorViewModel appearance) =>
-        new GraphAppearanceWindow(appearance).ShowDialog<GraphAppearanceOptions?>(owner);
+    // Shows the dialog over its owner and returns the confirmed appearance, or null when it was cancelled. palettes: the
+    // user's palette library, for Manage...; without it the dialog offers no Manage... (the palettes it was given are
+    // still offered).
+    public static Task<GraphAppearanceOptions?> ShowAsync(
+        Window owner,
+        GraphAppearanceEditorViewModel appearance,
+        IGraphPaletteLibraryAccess? palettes = null) =>
+        new GraphAppearanceWindow(appearance, palettes).ShowDialog<GraphAppearanceOptions?>(owner);
 }
 
 // The Edit Appearance dialog of one graph window, owned by it.
 internal sealed class AvaloniaGraphAppearanceDialog : IGraphAppearanceDialog
 {
     private readonly Window _owner;
+    private readonly IGraphPaletteLibraryAccess? _palettes;
 
-    public AvaloniaGraphAppearanceDialog(Window owner)
+    // palettes: the user's palettes to offer, and the Palette Manager (Task #050); none without them.
+    public AvaloniaGraphAppearanceDialog(Window owner, IGraphPaletteLibraryAccess? palettes = null)
     {
         ArgumentNullException.ThrowIfNull(owner);
         _owner = owner;
+        _palettes = palettes;
     }
 
     public Task<GraphAppearanceOptions?> EditAsync(GraphTypeDefinition definition, GraphAppearanceOptions current) =>
-        GraphAppearanceWindow.ShowAsync(_owner, new GraphAppearanceEditorViewModel(definition, current));
+        GraphAppearanceWindow.ShowAsync(
+            _owner,
+            new GraphAppearanceEditorViewModel(definition, current, _palettes?.Choices),
+            _palettes);
 }

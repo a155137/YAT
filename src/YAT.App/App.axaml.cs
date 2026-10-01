@@ -37,9 +37,14 @@ public partial class App : AvaloniaApplication
             // Graph windows export through a workflow built here: the shared parts come from the composition root, and
             // each window adds its own dialogs when it opens.
             var exports = new AvaloniaGraphExportWorkflowFactory(Composition.CreateGraphExportService(), Composition.CreatePowerPointExporter());
+            // The user's graph palettes (Task #050): read once, from the user's profile; a new graph starts with their
+            // default.
+            // Graph windows offer the same palettes in Edit Appearance... - their choices and the Palette Manager only.
+            var palettes = Composition.CreateGraphPaletteLibrary();
             var graphs = Composition.CreateGraphSetup(
                 new AvaloniaGraphSetupDialogs(mainWindow),
-                new AvaloniaGraphWindowPresenter(mainWindow, exports));
+                new AvaloniaGraphWindowPresenter(mainWindow, exports, Composition.GraphPaletteAccess(palettes)),
+                palettes);
             // Analyses show their results in the shared analysis result window, which the presenter opens.
             var results = new AvaloniaAnalysisResultPresenter(mainWindow);
             var statistics = Composition.CreateDescriptiveStatistics(new AvaloniaAnalysisSetupDialogs(mainWindow), results);

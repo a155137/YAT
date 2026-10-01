@@ -137,6 +137,14 @@ foreach ($required in @('YAT.exe', 'YAT.dll', 'hostfxr.dll', 'coreclr.dll', 'lib
     }
 }
 
+# A user's preferences live in their profile (%APPDATA%\YAT), never in a release: an unpacked or updated release must
+# never carry, or overwrite, anyone's graph palettes (Task #050).
+$preferences = @(Get-ChildItem -LiteralPath $release -Recurse -File |
+    Where-Object { $_.Name -like 'graph-palettes*.json' -or $_.Name -like 'graph-palettes.json.*.tmp' })
+if ($preferences.Count -gt 0) {
+    throw "The release contains user preference files: $($preferences.Name -join ', ')."
+}
+
 $symbols = @(Get-ChildItem -LiteralPath $release -Recurse -File -Filter '*.pdb')
 if ($symbols.Count -gt 0) {
     throw "The release still contains debug symbols: $($symbols.Name -join ', ')."

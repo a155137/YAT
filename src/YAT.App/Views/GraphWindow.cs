@@ -64,7 +64,13 @@ internal sealed class GraphWindow : Window
     // own Ctrl+C in the main window is untouched.
     internal static readonly KeyGesture CopyImageGesture = new(Key.C, KeyModifiers.Control);
 
-    public GraphWindow(GraphPresentationState graph, IGraphPlotRenderer? plot, IGraphExportWorkflowFactory exports)
+    // palettes: the user's palettes for Edit Appearance... (Task #050) - their choices and the Palette Manager, never
+    // where they are kept. A graph takes a palette's colours, never the palette, so nothing the library does reaches it.
+    public GraphWindow(
+        GraphPresentationState graph,
+        IGraphPlotRenderer? plot,
+        IGraphExportWorkflowFactory exports,
+        IGraphPaletteLibraryAccess? palettes = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(exports);
@@ -80,7 +86,7 @@ internal sealed class GraphWindow : Window
         _legend.GraphChanged += (_, _) => Show(_legend.Graph);
         _statistics = new GraphStatisticsEditController(graph, new AvaloniaGraphStatisticsDialog(this));
         _statistics.GraphChanged += (_, _) => Show(_statistics.Graph);
-        _appearance = new GraphAppearanceEditController(graph, new AvaloniaGraphAppearanceDialog(this));
+        _appearance = new GraphAppearanceEditController(graph, new AvaloniaGraphAppearanceDialog(this, palettes));
         _appearance.GraphChanged += (_, _) => Show(_appearance.Graph);
 
         // A box plot's own options change the plot it is drawn by, not the presented graph (Task #047).

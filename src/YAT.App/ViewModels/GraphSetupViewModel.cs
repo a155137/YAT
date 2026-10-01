@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using YAT.Application.Analyses;
 using YAT.Application.Graphs;
 using YAT.Application.Specifications;
+using YAT.app.Graphs;
 using YAT.Domain.Entities;
 
 namespace YAT.app.ViewModels;
@@ -78,11 +79,16 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     private readonly Func<Guid, CancellationToken, Task<GraphFilterValues>>? _loadFilterValues;
 
     // loadFilterValues: reads the values a filter can be chosen from (Task #049); without it the setup offers no filter.
+    // appearance: how the graph is to look to begin with (Task #050: the default palette's colours, copied when the setup
+    // is made); without it, the graph theme's own look.
+    // palettes: the user's palettes, offered in the Appearance... dialog with the Palette Manager; none without them.
     public GraphSetupViewModel(
         GraphTypeDefinition definition,
         Worksheet worksheet,
         IReadOnlyList<WorksheetColumn> columns,
-        Func<Guid, CancellationToken, Task<GraphFilterValues>>? loadFilterValues = null)
+        Func<Guid, CancellationToken, Task<GraphFilterValues>>? loadFilterValues = null,
+        GraphAppearanceOptions? appearance = null,
+        IGraphPaletteLibraryAccess? palettes = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(worksheet);
@@ -91,6 +97,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         _definition = definition;
         _columns = columns;
         _loadFilterValues = loadFilterValues;
+        Palettes = palettes;
         WorksheetId = worksheet.Id;
         WorksheetName = worksheet.Name;
         AvailableColumns = [.. columns.Select(Option)];
@@ -154,8 +161,13 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         // The legend starts as the graph type gives it, on the right.
         Legend = new GraphLegendEditorViewModel();
 
-        // The appearance starts as the graph theme draws it; it is chosen in a dialog of its own (Appearance...).
-        Appearance = GraphAppearanceOptions.Default;
+        // The appearance starts as the graph theme draws it, or with the palette it was given; it is chosen in a dialog of
+        // its own (Appearance...).
+        Appearance = appearance ?? GraphAppearanceOptions.Default;
+        if (!Appearance.IsValid)
+        {
+            throw new ArgumentException("The appearance is not valid.", nameof(appearance));
+        }
 
         // The boxes start as they have always been drawn; their options are chosen in a dialog of their own
         // (Box Plot Options...).
@@ -355,6 +367,9 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
             Filter,
             Roles.FirstOrDefault(role => role.Role == GraphVariableRole.Group)?.SelectedColumnId,
             _loadFilterValues ?? throw new InvalidOperationException("This setup offers no filter."));
+
+    // The user's palettes for the Appearance... dialog (Task #050); null when there are none to offer.
+    public IGraphPaletteLibraryAccess? Palettes { get; }
 
     public GraphType GraphType => _definition.GraphType;
 

@@ -198,7 +198,7 @@ public class GraphAppearanceEditingTests
     {
         var appearance = new GraphAppearanceEditorViewModel(HistogramDefinition);
 
-        Assert.Equal(["Default", "Custom"], appearance.PaletteModeChoices.Select(choice => choice.Name));
+        Assert.Equal(["YAT Default", "Custom (this graph)"], appearance.PaletteOptions.Select(option => option.Name));
         Assert.Equal(["Auto", "Show", "Hide"], appearance.GridModeChoices.Select(choice => choice.Name));
         Assert.False(appearance.IsCustomPalette);
         Assert.Equal(GraphAppearanceOptions.Default, appearance.Options);
@@ -210,10 +210,10 @@ public class GraphAppearanceEditingTests
             appearance.PaletteColors.Select(color => color.Color!.Value));
         Assert.Null(appearance.Options!.Palette);
 
-        appearance.SelectedPaletteMode = appearance.PaletteModeChoices[1];
+        appearance.SelectedPalette = appearance.PaletteOptions[^1];
         Assert.Equal(GraphThemes.Light.SeriesPalette.Select(GraphAppearance.FromSkia), appearance.Options!.Palette!.Colors);
 
-        appearance.SelectedPaletteMode = appearance.PaletteModeChoices[0];
+        appearance.SelectedPalette = appearance.PaletteOptions[0];
         Assert.Equal(GraphAppearanceOptions.Default, appearance.Options);
     }
 
@@ -238,7 +238,7 @@ public class GraphAppearanceEditingTests
     {
         var appearance = new GraphAppearanceEditorViewModel(HistogramDefinition);
         Assert.False(appearance.AddPaletteColorCommand.CanExecute(null));
-        appearance.SelectedPaletteMode = appearance.PaletteModeChoices[1];
+        appearance.SelectedPalette = appearance.PaletteOptions[^1];
 
         appearance.SelectedPaletteColor = appearance.PaletteColors[1];
         appearance.AddPaletteColorCommand.Execute(null);
@@ -299,10 +299,10 @@ public class GraphAppearanceEditingTests
         Assert.Null(appearance.Options!.PlotBackground);
 
         // A palette colour likewise, while the palette is custom.
-        appearance.SelectedPaletteMode = appearance.PaletteModeChoices[1];
+        appearance.SelectedPalette = appearance.PaletteOptions[^1];
         appearance.PaletteColors[3].Text = "red";
         Assert.False(appearance.IsValid);
-        appearance.SelectedPaletteMode = appearance.PaletteModeChoices[0];
+        appearance.SelectedPalette = appearance.PaletteOptions[0];
         Assert.True(appearance.IsValid);
     }
 

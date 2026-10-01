@@ -27,7 +27,8 @@ public class GraphExportCompositionTests
         var constructor = Assert.Single(GraphWindow.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
 
         Assert.Equal(
-            ["GraphPresentationState", "IGraphPlotRenderer", "IGraphExportWorkflowFactory"],
+            // And, since Task #050, the user's palette choices for Edit Appearance... - never where they are kept.
+            ["GraphPresentationState", "IGraphPlotRenderer", "IGraphExportWorkflowFactory", "IGraphPaletteLibraryAccess"],
             constructor.GetParameters().Select(parameter => parameter.ParameterType.Name));
     }
 
@@ -51,7 +52,7 @@ public class GraphExportCompositionTests
         var constructor = Assert.Single(typeof(AvaloniaGraphWindowPresenter).GetConstructors());
 
         Assert.Equal(
-            ["Window", "IGraphExportWorkflowFactory"],
+            ["Window", "IGraphExportWorkflowFactory", "IGraphPaletteLibraryAccess"],
             constructor.GetParameters().Select(parameter => parameter.ParameterType.Name));
     }
 
