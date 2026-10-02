@@ -105,6 +105,32 @@ public partial class MainWindow : Window
         }
     }
 
+    // Install Update (Task #051.C): the same close decision as any close request - the save prompt included. When it lets
+    // YAT close, the project is closed and the window will close without asking again.
+    internal async Task<bool> CloseForUpdateAsync()
+    {
+        if (_shell is null || _closeDecisionRunning || _closeApproved)
+        {
+            return _closeApproved;
+        }
+
+        _closeDecisionRunning = true;
+        try
+        {
+            if (!await _shell.RequestCloseAsync())
+            {
+                return false;
+            }
+
+            _closeApproved = true;
+            return true;
+        }
+        finally
+        {
+            _closeDecisionRunning = false;
+        }
+    }
+
     private async Task DecideCloseAsync(MainWindowShellViewModel shell)
     {
         _closeDecisionRunning = true;

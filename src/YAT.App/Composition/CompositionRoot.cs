@@ -223,21 +223,32 @@ public sealed class CompositionRoot
             updatesRoot,
             handler);
 
-    // Help > Check for Updates... over an update connection - or, in tests, over any manifest source and downloader.
+    // Help > Check for Updates... over an update connection - or, in tests, over any manifest source and downloader. The
+    // application's check installs for this very process (Task #051.C), from the packages the connection keeps.
     public UpdateCheckController CreateUpdateCheck(IUpdateDialogs dialogs, UpdateConnection connection) =>
-        CreateUpdateCheck(dialogs, connection.Source, connection.Downloader);
+        CreateUpdateCheck(dialogs, connection.Source, connection.Downloader, installer: CreateUpdateInstaller(connection.Store.Root));
 
     public UpdateCheckController CreateUpdateCheck(
         IUpdateDialogs dialogs,
         IUpdateManifestSource source,
         IUpdatePackageDownloader downloader,
-        UpdateEnvironment? environment = null)
+        UpdateEnvironment? environment = null,
+        IUpdateInstaller? installer = null)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         return new UpdateCheckController(
             dialogs,
-            new UpdateCheckService(source, downloader, environment ?? UpdateEnvironment.Current(ApplicationInfo.Current.Version)));
+            new UpdateCheckService(source, downloader, environment ?? UpdateEnvironment.Current(ApplicationInfo.Current.Version), installer));
     }
+
+    // Installs verified packages kept under updatesRoot for a YAT (Task #051.C): by default this process, in the folder
+    // it runs from.
+    public UpdateInstaller CreateUpdateInstaller(string updatesRoot, UpdateInstallTarget? target = null) =>
+        new(target ?? UpdateInstallTarget.Current(ApplicationInfo.Current.Version), updatesRoot);
+
+    // "YAT has been updated to vX.Y.Z." - the version the updater just installed in this YAT's folder, once (Task #051.C).
+    public string? TakeInstalledUpdateNotice(string? installation = null) =>
+        UpdateInstallNotice.Take(installation ?? AppContext.BaseDirectory, ApplicationInfo.Current.Version);
 
     private ProjectSession CreatePersistentSession(DuckDbProjectDatabase database, DuckDbProjectRepository? projects = null)
     {

@@ -6,8 +6,9 @@ namespace YAT.Application.Updates;
 
 // Checking for an update, and downloading one when the user asks (Task #051.B): the release manifest is fetched, read
 // with the release contract's own reader (Task #051.A), its version compared with this YAT's, and its package for this
-// computer offered. Downloading is a separate step the user starts; it gives a package verified against the manifest,
-// ready for a future installer - nothing is extracted, installed or replaced.
+// computer offered. Downloading is a separate step the user starts; it gives a package verified against the manifest.
+// Installing it is a third (Task #051.C), when this YAT has an installer: the updater is prepared and started here, and
+// installs once YAT has closed.
 //
 // A failure is a result of its own, never "up to date". Cancellation is an OperationCanceledException.
 public sealed class UpdateCheckService
@@ -18,8 +19,9 @@ public sealed class UpdateCheckService
     private readonly IUpdateManifestSource _source;
     private readonly IUpdatePackageDownloader _downloader;
     private readonly UpdateEnvironment _environment;
+    private readonly IUpdateInstaller? _installer;
 
-    public UpdateCheckService(IUpdateManifestSource source, IUpdatePackageDownloader downloader, UpdateEnvironment environment)
+    public UpdateCheckService(IUpdateManifestSource source, IUpdatePackageDownloader downloader, UpdateEnvironment environment, IUpdateInstaller? installer = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(downloader);
@@ -27,7 +29,11 @@ public sealed class UpdateCheckService
         _source = source;
         _downloader = downloader;
         _environment = environment;
+        _installer = installer;
     }
+
+    // Whether a verified package can be installed from here (Task #051.C).
+    public bool CanInstall => _installer?.IsAvailable == true;
 
     // This YAT's version, or null when it is not a stable release version.
     public ReleaseVersion? Installed => ReleaseVersion.TryParse(_environment.InstalledVersion, out var version) ? version : null;
@@ -102,6 +108,15 @@ public sealed class UpdateCheckService
         {
             return new UpdateDownloadResult(null, exception.Failure, exception.Detail);
         }
+    }
+
+    // Prepares installing a verified package: the updater is ready, or why it is not. Never throws for a failure.
+    public Task<UpdateInstallPreparation> PrepareInstallAsync(VerifiedUpdatePackage package, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        return _installer is null
+            ? Task.FromResult(UpdateInstallPreparation.Failed(UpdateInstallFailure.NotAReleaseInstallation))
+            : _installer.PrepareAsync(package, cancellationToken);
     }
 
     private static bool IsJson(string text)

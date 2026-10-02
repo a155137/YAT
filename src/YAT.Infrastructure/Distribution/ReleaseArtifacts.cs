@@ -18,10 +18,8 @@ namespace YAT.Infrastructure.Distribution;
 // connects to anything.
 public static class ReleaseArtifacts
 {
-    // A user's preference files (Task #050), which no release may ever contain.
-    public static bool IsUserSettingsFile(string fileName) =>
-        fileName.StartsWith("graph-palettes", StringComparison.OrdinalIgnoreCase)
-        && (fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase));
+    // A user's preference files (Task #050), which no release may ever contain - the release rules' own test.
+    public static bool IsUserSettingsFile(string fileName) => ReleasePackageVerifier.IsUserSettingsFile(fileName);
 
     // The inventory of a release folder: every file in it but the inventory itself, hashed. Refuses a folder with user
     // settings in it, or a file whose path cannot be a release path.
@@ -195,85 +193,10 @@ public static class ReleaseArtifacts
         }
     }
 
-    // The ZIP: one top folder named after the release, safe entry names, its inventory for this version and runtime, and
-    // exactly the inventory's files, each the size and SHA-256 listed. No user settings.
+    // The ZIP, by the release package rules (ReleasePackageVerifier) - the same rules the updater installs by.
     private static void VerifyPackage(string package, ReleaseVersion version, string rid, List<string> problems)
     {
-        var top = version.PackageName(rid) + "/";
         using var archive = ZipFile.OpenRead(package);
-        var entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in archive.Entries)
-        {
-            if (!entry.FullName.StartsWith(top, StringComparison.Ordinal))
-            {
-                problems.Add($"The package entry '{entry.FullName}' is not inside {top}.");
-                continue;
-            }
-
-            var relative = entry.FullName[top.Length..];
-            if (relative.Length == 0 || relative.EndsWith('/'))
-            {
-                continue;
-            }
-
-            if (entry.FullName.Contains('\\') || ReleasePath.Normalize(relative) != relative)
-            {
-                problems.Add($"The package entry '{entry.FullName}' is not a safe release path.");
-                continue;
-            }
-
-            if (IsUserSettingsFile(entry.Name))
-            {
-                problems.Add($"The package contains a user settings file: {relative}.");
-            }
-
-            if (!entries.TryAdd(relative, entry))
-            {
-                problems.Add($"The package contains '{relative}' twice.");
-            }
-        }
-
-        if (!entries.Remove(ReleaseInventory.FileName, out var inventoryEntry))
-        {
-            problems.Add($"The package has no {ReleaseInventory.FileName}.");
-            return;
-        }
-
-        string json;
-        using (var reader = new StreamReader(inventoryEntry.Open(), Encoding.UTF8))
-        {
-            json = reader.ReadToEnd();
-        }
-
-        if (!ReleaseInventory.TryRead(json, out var inventory, out var problem))
-        {
-            problems.Add($"The package's {ReleaseInventory.FileName} is not an inventory: {problem}");
-            return;
-        }
-
-        if (inventory!.Version != version || !string.Equals(inventory.Rid, rid, StringComparison.Ordinal))
-        {
-            problems.Add($"The package's inventory is {inventory.Version} {inventory.Rid}, not {version} {rid}.");
-        }
-
-        foreach (var file in inventory.Files)
-        {
-            if (!entries.Remove(file.Path, out var entry))
-            {
-                problems.Add($"The package has no {file.Path}, which its inventory lists.");
-                continue;
-            }
-
-            using var stream = entry.Open();
-            if (entry.Length != file.Size || Sha256(stream) != file.Sha256)
-            {
-                problems.Add($"The package's {file.Path} is not the file its inventory lists.");
-            }
-        }
-
-        foreach (var extra in entries.Keys.Order(StringComparer.Ordinal))
-        {
-            problems.Add($"The package contains {extra}, which its inventory does not list.");
-        }
+        problems.AddRange(ReleasePackageVerifier.Verify(archive, version, rid));
     }
 }

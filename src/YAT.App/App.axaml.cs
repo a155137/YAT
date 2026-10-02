@@ -53,7 +53,9 @@ public partial class App : AvaloniaApplication
             // lifetime, closed when it exits. Nothing connects until the user asks.
             var updateConnection = Composition.CreateUpdateConnection();
             desktop.Exit += (_, _) => updateConnection.Dispose();
-            var updates = Composition.CreateUpdateCheck(new AvaloniaUpdateDialogs(mainWindow), updateConnection);
+            var updates = Composition.CreateUpdateCheck(new AvaloniaUpdateDialogs(mainWindow, desktop), updateConnection);
+            // Started by the updater after it installed this version (Task #051.C): said once.
+            var updated = Composition.TakeInstalledUpdateNotice();
             var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates);
 
             mainWindow.DataContext = shell;
@@ -62,7 +64,14 @@ public partial class App : AvaloniaApplication
             // Start with "Untitled Project" / "Sheet1" in temporary file-backed project storage. The storage is local, so
             // this normally completes before the window is shown; awaiting it on Opened surfaces any unexpected failure.
             var startup = shell.StartAsync();
-            mainWindow.Opened += async (_, _) => await startup;
+            mainWindow.Opened += async (_, _) =>
+            {
+                await startup;
+                if (updated is not null)
+                {
+                    await LifecycleMessageWindow.ShowInformationAsync(mainWindow, $"YAT has been updated to v{updated}.");
+                }
+            };
         }
 
         base.OnFrameworkInitializationCompleted();

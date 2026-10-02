@@ -5,6 +5,7 @@
     <Project Path="src/YAT.Application/YAT.Application.csproj" />
     <Project Path="src/YAT.Domain/YAT.Domain.csproj" />
     <Project Path="src/YAT.Infrastructure/YAT.Infrastructure.csproj" />
+    <Project Path="src/YAT.Updater/YAT.Updater.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/YAT.Analytics.Tests/YAT.Analytics.Tests.csproj" />
@@ -12,5 +13,6 @@
     <Project Path="tests/YAT.Application.Tests/YAT.Application.Tests.csproj" />
     <Project Path="tests/YAT.Domain.Tests/YAT.Domain.Tests.csproj" />
     <Project Path="tests/YAT.Infrastructure.Tests/YAT.Infrastructure.Tests.csproj" />
+    <Project Path="tests/YAT.Updater.Tests/YAT.Updater.Tests.csproj" />
   </Folder>
 </Solution>

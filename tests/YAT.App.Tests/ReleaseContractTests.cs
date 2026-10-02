@@ -114,6 +114,25 @@ public class ReleaseContractTests
         Assert.Contains("--require-manifest", publish, StringComparison.Ordinal);
     }
 
+    // Every release carries its updater (Task #051.C): YAT.Updater.exe, self-contained as one file - not trimmed, not
+    // NativeAOT - beside YAT.exe, and so in the inventory and the zip.
+    [Fact]
+    public void EveryReleaseCarriesItsUpdaterAsOneFile()
+    {
+        var publish = Publish;
+        var updater = XDocument.Load(Path.Combine(Root, "src", "YAT.Updater", "YAT.Updater.csproj"));
+
+        Assert.Contains("$updaterProject = Join-Path $root 'src\\YAT.Updater\\YAT.Updater.csproj'", publish, StringComparison.Ordinal);
+        Assert.Contains("'-p:PublishSingleFile=true'", publish, StringComparison.Ordinal);
+        Assert.Contains("'-p:PublishTrimmed=false'", publish, StringComparison.Ordinal);
+        Assert.Contains("@('YAT.exe', 'YAT.Updater.exe',", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("PublishAot", publish, StringComparison.Ordinal);
+        Assert.True(publish.IndexOf("Copy-Item -LiteralPath $updaterFiles[0].FullName -Destination $release", StringComparison.Ordinal)
+            < publish.IndexOf("@('inventory'", StringComparison.Ordinal), "the updater is in the release before its inventory is made");
+        Assert.DoesNotContain(updater.Descendants(), element => element.Name.LocalName is "PublishAot" or "PublishTrimmed");
+        Assert.Equal("WinExe", Assert.Single(updater.Descendants("OutputType")).Value);
+    }
+
     [Fact]
     public void UserSettingsNeverGoIntoARelease()
     {

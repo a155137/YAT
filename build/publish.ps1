@@ -4,9 +4,10 @@
 
 .DESCRIPTION
     Builds src/YAT.App self-contained for win-x64 - not single-file, not trimmed, without ReadyToRun and without debug
-    symbols - and lays the release out in the output folder (artifacts/ unless -OutputDirectory says otherwise):
+    symbols - and src/YAT.Updater self-contained as one file (not trimmed; Task #051.C), and lays the release out in the
+    output folder (artifacts/ unless -OutputDirectory says otherwise):
 
-        YAT-v<version>-win-x64/              YAT.exe, the .NET runtime, the managed and native dependencies,
+        YAT-v<version>-win-x64/              YAT.exe, YAT.Updater.exe, the .NET runtime, the managed and native dependencies,
                                              LICENSE.txt, README.txt, THIRD-PARTY-NOTICES.txt, licenses/ and
                                              yat-files.json - the inventory of every other file, with its size and SHA-256
         YAT-v<version>-win-x64.zip           that folder, zipped
@@ -58,6 +59,7 @@ $ErrorActionPreference = 'Stop'
 $runtime = 'win-x64'
 $root = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $root 'src\YAT.App\YAT.App.csproj'
+$updaterProject = Join-Path $root 'src\YAT.Updater\YAT.Updater.csproj'
 $documents = Join-Path $PSScriptRoot 'docs'
 $tool = Join-Path $PSScriptRoot 'YatRelease.cs'
 
@@ -173,6 +175,33 @@ $properties = @(
 $null = Invoke-Dotnet (@('build', $project, '--no-incremental') + $properties)
 $null = Invoke-Dotnet (@('publish', $project, '--no-build', '--output', $release) + $properties)
 
+# The updater (Task #051.C): one self-contained file, not trimmed, published on its own and put beside YAT.exe - YAT
+# runs a copy of it from the new release when it installs that release.
+$updaterOutput = Join-Path $artifacts "$name-updater"
+if (Test-Path -LiteralPath $updaterOutput) {
+    Remove-Item -LiteralPath $updaterOutput -Recurse -Force
+}
+
+$updaterProperties = @(
+    '--configuration', 'Release',
+    '--runtime', $runtime,
+    '--self-contained', 'true',
+    '-p:PublishSingleFile=true',
+    '-p:PublishTrimmed=false',
+    '-p:PublishReadyToRun=false',
+    '-p:DebugType=None',
+    '-p:DebugSymbols=false',
+    '--nologo')
+$null = Invoke-Dotnet (@('build', $updaterProject, '--no-incremental') + $updaterProperties)
+$null = Invoke-Dotnet (@('publish', $updaterProject, '--no-build', '--output', $updaterOutput) + $updaterProperties)
+$updaterFiles = @(Get-ChildItem -LiteralPath $updaterOutput -File | Where-Object { $_.Extension -ne '.pdb' })
+if ($updaterFiles.Count -ne 1 -or $updaterFiles[0].Name -ne 'YAT.Updater.exe') {
+    throw "The updater must publish as one file, YAT.Updater.exe; it published: $($updaterFiles.Name -join ', ')."
+}
+
+Copy-Item -LiteralPath $updaterFiles[0].FullName -Destination $release
+Remove-Item -LiteralPath $updaterOutput -Recurse -Force
+
 # Debug symbols that packages ship alongside their native libraries are not part of the release.
 Get-ChildItem -LiteralPath $release -Recurse -File -Filter '*.pdb' | Remove-Item -Force
 
@@ -222,7 +251,7 @@ if ($unlisted.Count -gt 0) {
 
 # ---- Check what was published ----
 
-foreach ($required in @('YAT.exe', 'YAT.dll', 'hostfxr.dll', 'coreclr.dll', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', 'duckdb.dll', 'av_libglesv2.dll', 'LICENSE.txt', 'README.txt', 'THIRD-PARTY-NOTICES.txt')) {
+foreach ($required in @('YAT.exe', 'YAT.Updater.exe', 'YAT.dll', 'hostfxr.dll', 'coreclr.dll', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', 'duckdb.dll', 'av_libglesv2.dll', 'LICENSE.txt', 'README.txt', 'THIRD-PARTY-NOTICES.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $release $required))) {
         throw "The release is missing $required."
     }

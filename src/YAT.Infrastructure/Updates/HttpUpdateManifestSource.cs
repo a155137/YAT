@@ -141,18 +141,11 @@ public sealed class UpdatePackageStore
 
     public string Root { get; }
 
-    public string Folder(ReleaseVersion version) => Path.Combine(Root, version.Tag);
+    public string Folder(ReleaseVersion version) => UpdatePackageLayout.Folder(Root, version);
 
-    public string PackagePath(ReleaseVersion version, string rid) =>
-        Path.Combine(Folder(version), version.PackageName(CheckedRid(rid)) + ".zip");
+    public string PackagePath(ReleaseVersion version, string rid) => UpdatePackageLayout.PackagePath(Root, version, rid);
 
     public string PartialPath(ReleaseVersion version, string rid) => PackagePath(version, rid) + ".partial";
 
-    public string SnapshotPath(ReleaseVersion version) => Path.Combine(Folder(version), ReleaseManifest.FileName);
-
-    // A runtime id as YAT writes them ("win-x64"): nothing that could make a name a path.
-    private static string CheckedRid(string rid) =>
-        rid.Length is > 0 and <= 32 && rid.All(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '-')
-            ? rid
-            : throw new ArgumentException($"'{rid}' is not a runtime id.", nameof(rid));
+    public string SnapshotPath(ReleaseVersion version) => UpdatePackageLayout.SnapshotPath(Root, version);
 }

@@ -61,4 +61,12 @@ internal sealed class LifecycleMessageWindow : Window
     public static Task ShowErrorAsync(Window owner, string message) =>
         new LifecycleMessageWindow("YAT", message, null, ("OK", SaveChangesChoice.Cancel, true))
             .ShowDialog<SaveChangesChoice>(owner);
+
+    // A message with OK (Task #051.C: "YAT has been updated to vX.Y.Z.").
+    public static Task ShowInformationAsync(Window owner, string message) => ShowErrorAsync(owner, message);
+
+    // A question with an accept button (the default) and Cancel; true when accepted (Task #051.C: Install Update).
+    public static async Task<bool> ConfirmAsync(Window owner, string message, string detail, string accept) =>
+        await new LifecycleMessageWindow("YAT", message, detail, (accept, SaveChangesChoice.Save, true), ("Cancel", SaveChangesChoice.Cancel, false))
+            .ShowDialog<SaveChangesChoice>(owner) == SaveChangesChoice.Save;
 }

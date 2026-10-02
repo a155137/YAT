@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    YAT's updater (Task #051.C): installs a release package that YAT downloaded and verified, after YAT has closed -
+    verified again here, from the package itself, offline. A separate Windows executable, published by build/publish.ps1
+    self-contained as one file (not trimmed, not NativeAOT) and shipped in every release as YAT.Updater.exe; YAT runs a
+    copy of it from <installation>\.yat-update\updater, outside the files it replaces. It knows the release contracts of
+    YAT.Application and nothing else of YAT: no Avalonia, no Infrastructure, no DuckDB, no SkiaSharp.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>YAT.Updater</RootNamespace>
+    <AssemblyName>YAT.Updater</AssemblyName>
+    <!-- Run as the user (an executable named like an updater would otherwise be elevated by Windows' installer detection). -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\YAT.App\Assets\yat.ico</ApplicationIcon>
+    <AssemblyTitle>YAT Updater</AssemblyTitle>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\YAT.Application\YAT.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="YAT.Updater.Tests" />
+  </ItemGroup>
+</Project>

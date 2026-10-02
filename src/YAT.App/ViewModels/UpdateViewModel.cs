@@ -16,12 +16,17 @@ public enum UpdateWindowState
     Downloading,
     Verifying,
     Verified,
+
+    // Preparing the installation (Task #051.C): the package verified again, the updater started.
+    Installing,
     Failed
 }
 
 // The update window (Task #051.B): checking, then the result - up to date, a newer version offered, or why the check
-// failed - and, only when the user clicks Download, downloading and verifying the package. A verified package is kept
-// for a future installer; nothing here installs, extracts or replaces anything.
+// failed - and, only when the user clicks Download, downloading and verifying the package. A verified package can be
+// installed (Task #051.C): once the user confirms, the updater is prepared and started - while YAT is still open, so
+// any failure leaves YAT open - and the window closes with the updater ready (PendingInstall); the controller then
+// closes YAT the usual way and the updater installs. Nothing here extracts or replaces anything.
 //
 // The work runs off the UI thread through the service; the state and the progress are put back here. Cancel stops a
 // download (the offer stays) or a check (the window closes). Retry repeats what failed. One step at a time.
@@ -29,22 +34,27 @@ public sealed partial class UpdateViewModel : ObservableObject
 {
     private readonly UpdateCheckService _service;
     private readonly IUpdateLauncher _launcher;
+    private readonly IUpdatePrompts? _prompts;
     private CancellationTokenSource? _running;
     private UpdateOffer? _offer;
     private bool _downloadFailed;
+    private bool _installFailed;
 
-    public UpdateViewModel(UpdateCheckService service, IUpdateLauncher launcher)
+    public UpdateViewModel(UpdateCheckService service, IUpdateLauncher launcher, IUpdatePrompts? prompts = null)
     {
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(launcher);
         _service = service;
         _launcher = launcher;
+        _prompts = prompts;
+        CanInstall = prompts is not null && service.CanInstall;
+        InstallCommand = new AsyncRelayCommand(InstallAsync, () => State == UpdateWindowState.Verified && CanInstall);
         InstalledVersion = service.Installed?.ToString() ?? "unknown";
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => State == UpdateWindowState.UpdateAvailable);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         RetryCommand = new AsyncRelayCommand(RetryAsync, () => State == UpdateWindowState.Failed);
         OpenReleaseNotesCommand = new AsyncRelayCommand(OpenReleaseNotesAsync, () => ReleaseNotesUrl is not null);
-        OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, () => State == UpdateWindowState.Verified);
+        OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, () => Package is not null && State is UpdateWindowState.Verified or UpdateWindowState.Failed);
         State = UpdateWindowState.Checking;
         Headline = "Checking for updates...";
     }
@@ -84,7 +94,13 @@ public sealed partial class UpdateViewModel : ObservableObject
     public partial VerifiedUpdatePackage? Package { get; private set; }
 
     // Something is running that Cancel stops.
-    public bool IsBusy => State is UpdateWindowState.Checking or UpdateWindowState.Downloading or UpdateWindowState.Verifying;
+    public bool IsBusy => State is UpdateWindowState.Checking or UpdateWindowState.Downloading or UpdateWindowState.Verifying or UpdateWindowState.Installing;
+
+    // Whether a verified package can be installed from this YAT (it runs from an unpacked release).
+    public bool CanInstall { get; }
+
+    // The updater, ready, once the user chose Install Update and the window closed for it (Task #051.C).
+    public IUpdateHandoff? PendingInstall { get; private set; }
 
     // The step running now, or the last one (for tests and for the window, which waits for it when it closes).
     public Task Completion { get; private set; } = Task.CompletedTask;
@@ -98,6 +114,8 @@ public sealed partial class UpdateViewModel : ObservableObject
     public IAsyncRelayCommand OpenReleaseNotesCommand { get; }
 
     public IAsyncRelayCommand OpenFolderCommand { get; }
+
+    public IAsyncRelayCommand InstallCommand { get; }
 
     // Raised when the window should close (a check was cancelled).
     public event EventHandler? CloseRequested;
@@ -136,7 +154,10 @@ public sealed partial class UpdateViewModel : ObservableObject
         CancelCommand.NotifyCanExecuteChanged();
         RetryCommand.NotifyCanExecuteChanged();
         OpenFolderCommand.NotifyCanExecuteChanged();
+        InstallCommand.NotifyCanExecuteChanged();
     }
+
+    partial void OnPackageChanged(VerifiedUpdatePackage? value) => OpenFolderCommand.NotifyCanExecuteChanged();
 
     partial void OnReleaseNotesUrlChanged(Uri? value) => OpenReleaseNotesCommand.NotifyCanExecuteChanged();
 
@@ -228,7 +249,9 @@ public sealed partial class UpdateViewModel : ObservableObject
             Package = package;
             ProgressPercent = 100;
             Headline = $"YAT {package.Version} has been downloaded and verified.";
-            Detail = "Installation will be supported in a future update.";
+            Detail = CanInstall
+                ? "Install Update closes YAT, installs this version and starts YAT again."
+                : "This YAT does not run from an unpacked release package, so it cannot install updates itself.";
             State = UpdateWindowState.Verified;
             return;
         }
@@ -244,6 +267,12 @@ public sealed partial class UpdateViewModel : ObservableObject
             return Task.CompletedTask;
         }
 
+        if (_installFailed && Package is not null)
+        {
+            State = UpdateWindowState.Verified;
+            return InstallAsync();
+        }
+
         if (_downloadFailed && _offer is not null)
         {
             State = UpdateWindowState.UpdateAvailable;
@@ -252,6 +281,70 @@ public sealed partial class UpdateViewModel : ObservableObject
 
         return CheckAsync();
     }
+
+    // Install Update (Task #051.C): confirmed, then the updater prepared and started off the UI thread. Ready: the window
+    // closes and the controller closes YAT. Not ready: why, and YAT stays open. Cancel (or closing the window) while it
+    // prepares stops it; an updater already started is told to change nothing.
+    private async Task InstallAsync()
+    {
+        if (Package is not { } package || State != UpdateWindowState.Verified || !CanInstall
+            || !await _prompts!.ConfirmInstallAsync(package.Version.ToString()))
+        {
+            return;
+        }
+
+        await (Completion = Run(token => InstallCoreAsync(package, token), onCancelled: () =>
+        {
+            Headline = $"YAT {package.Version} has been downloaded and verified.";
+            Detail = "The installation was cancelled.";
+            State = UpdateWindowState.Verified;
+        }));
+    }
+
+    private async Task InstallCoreAsync(VerifiedUpdatePackage package, CancellationToken token)
+    {
+        _installFailed = false;
+        State = UpdateWindowState.Installing;
+        Headline = $"Preparing to install YAT {package.Version}...";
+        Detail = null;
+
+        var result = await Task.Run(() => _service.PrepareInstallAsync(package, token), token);
+        if (result.Handoff is { } handoff)
+        {
+            if (token.IsCancellationRequested)
+            {
+                handoff.Cancel();
+                handoff.Dispose();
+                token.ThrowIfCancellationRequested();
+            }
+
+            PendingInstall = handoff;
+            Headline = $"Installing YAT {package.Version}...";
+            Detail = "YAT will close, install the update and start again.";
+            CloseRequested?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        _installFailed = true;
+        Headline = $"YAT {package.Version} could not be installed.";
+        Detail = DescribeInstall(result.Failure!.Value);
+        ProgressText = null;
+        State = UpdateWindowState.Failed;
+    }
+
+    // User-facing words for why an update cannot be installed now; YAT stays open in every case.
+    public static string DescribeInstall(UpdateInstallFailure failure) => failure switch
+    {
+        UpdateInstallFailure.NotAReleaseInstallation => "This YAT does not run from an unpacked release package, so it cannot install updates itself.",
+        UpdateInstallFailure.OtherYatRunning => "Another YAT window is running from the same folder. Close it, then try again.",
+        UpdateInstallFailure.InstallationNotWritable =>
+            "Automatic installation cannot modify YAT's folder (for example a folder under Program Files, or a read-only location). Use Open Folder to find the downloaded package.",
+        UpdateInstallFailure.InsufficientSpace => "There is not enough free disk space in YAT's folder to install the update.",
+        UpdateInstallFailure.PackageInvalid => "The downloaded package is no longer the verified release. Check for updates again.",
+        UpdateInstallFailure.UpdateInProgress => "An update of this YAT is already being installed.",
+        UpdateInstallFailure.UpdaterNotReady => "The updater could not be started. Security software may have blocked it.",
+        _ => "The update could not be installed."
+    };
 
     private void Fail(UpdateFailure failure)
     {
