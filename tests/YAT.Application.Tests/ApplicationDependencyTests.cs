@@ -9,7 +9,8 @@ public class ApplicationDependencyTests
     // The application project is YAT.App; its assembly is YAT (Task #048).
     private static readonly string[] ForbiddenAssemblies = ["YAT.Infrastructure", "YAT.App", "YAT", "YAT.Analytics"];
 
-    private static readonly string[] ForbiddenAssemblyPrefixes = ["Avalonia", "DuckDB", "SkiaSharp", "HarfBuzzSharp", "Apache.Arrow", "CommunityToolkit"];
+    // Checking for updates (Task #051.B) is Application's; the HTTP it needs is Infrastructure's.
+    private static readonly string[] ForbiddenAssemblyPrefixes = ["Avalonia", "DuckDB", "SkiaSharp", "HarfBuzzSharp", "Apache.Arrow", "CommunityToolkit", "System.Net.Http"];
 
     [Fact]
     public void ApplicationAssemblyDoesNotReferenceOuterLayersOrFrameworks()
@@ -27,6 +28,22 @@ public class ApplicationDependencyTests
 
         Assert.Equal(["YAT.Domain"], ProjectReferenceNames(project));
         Assert.Empty(project.Descendants("PackageReference"));
+    }
+
+    [Fact]
+    public void ApplicationSourcesNameNoHttp()
+    {
+        var sources = Directory.EnumerateFiles(Path.GetDirectoryName(ProjectFile("src/YAT.Application/YAT.Application.csproj"))!, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.Contains(sources, path => path.EndsWith("UpdateCheckService.cs", StringComparison.Ordinal));
+        foreach (var source in sources)
+        {
+            var text = File.ReadAllText(source);
+            Assert.DoesNotContain("System.Net.Http", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("HttpClient", text, StringComparison.Ordinal);
+        }
     }
 
     private static string[] ProjectReferenceNames(XDocument project) =>

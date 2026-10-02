@@ -124,23 +124,52 @@ public class ReleaseContractTests
         Assert.False(YAT.Infrastructure.Distribution.ReleaseArtifacts.IsUserSettingsFile("YAT.deps.json"));
     }
 
-    // Where a release is published is given when it is made (-PackageBaseUrl), never assumed: no release host or manifest
-    // address is written into YAT or its release script - only the documented placeholder.
+    // Where a release is published is given when it is made (-PackageBaseUrl), never assumed: the release script names
+    // only the documented placeholder. The one address YAT reads its update information from (Task #051.B) is written
+    // once, as Directory.Build.props' YatUpdateManifestUrl, and reaches the application as assembly metadata - no source,
+    // project or view writes a release host or manifest address of its own.
     [Fact]
     public void NoReleaseHostIsWrittenIn()
     {
+        const string Endpoint = "https://github.com/a155137/YAT/releases/latest/download/yat-update.json";
+
         foreach (var url in Regex.Matches(Publish, "https://[^\\s'\"]+").Select(match => match.Value))
         {
             Assert.Contains("<owner>", url, StringComparison.Ordinal);
         }
 
-        var sources = Directory.EnumerateFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories)
-            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
-        foreach (var source in sources)
+        var props = File.ReadAllText(Path.Combine(Root, "Directory.Build.props"));
+        Assert.Equal(Endpoint, Assert.Single(XDocument.Parse(props).Descendants("YatUpdateManifestUrl")).Value);
+        Assert.Single(Regex.Matches(props, "releases/latest"));
+        Assert.Single(Regex.Matches(props, "a155137"));
+
+        bool Written(string path) =>
+            !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+
+        var files = new[] { "*.cs", "*.csproj", "*.axaml", "*.props", "*.targets", "*.json", "*.manifest", "*.ps1" }
+            .SelectMany(pattern => Directory.EnumerateFiles(Path.Combine(Root, "src"), pattern, SearchOption.AllDirectories)
+                .Concat(Directory.EnumerateFiles(Path.Combine(Root, "build"), pattern, SearchOption.AllDirectories)))
+            .Concat(Directory.EnumerateFiles(Root, "*.json"))
+            .Where(Written)
+            .ToList();
+        Assert.Contains(files, path => path.EndsWith("UpdateCheckController.cs", StringComparison.Ordinal));
+        Assert.Contains(files, path => path.EndsWith("YAT.App.csproj", StringComparison.Ordinal));
+        foreach (var file in files)
         {
-            var text = File.ReadAllText(source);
-            Assert.DoesNotContain("github.com", text, StringComparison.OrdinalIgnoreCase);
+            var text = File.ReadAllText(file);
             Assert.DoesNotContain("releases/latest", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("a155137", text, StringComparison.OrdinalIgnoreCase);
+            if (Path.GetExtension(file) == ".cs")
+            {
+                Assert.DoesNotContain("github.com", text, StringComparison.OrdinalIgnoreCase);
+            }
         }
+
+        // YAT.App carries the property, not an address of its own; the built application has exactly that address.
+        Assert.Contains("Value=\"$(YatUpdateManifestUrl)\"", File.ReadAllText(Path.Combine(Root, "src", "YAT.App", "YAT.App.csproj")), StringComparison.Ordinal);
+        Assert.Equal(
+            Endpoint,
+            Application.GetCustomAttributes<AssemblyMetadataAttribute>().Single(attribute => attribute.Key == YAT.app.Updates.UpdateEndpoint.MetadataKey).Value);
     }
 }

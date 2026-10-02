@@ -49,7 +49,12 @@ public partial class App : AvaloniaApplication
             var results = new AvaloniaAnalysisResultPresenter(mainWindow);
             var statistics = Composition.CreateDescriptiveStatistics(new AvaloniaAnalysisSetupDialogs(mainWindow), results);
             var capability = Composition.CreateCapabilityAnalysis(new AvaloniaCapabilityAnalysisSetupDialogs(mainWindow), results);
-            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability);
+            // Help > Check for Updates... (Task #051.B): one update connection - one HttpClient - for the application's
+            // lifetime, closed when it exits. Nothing connects until the user asks.
+            var updateConnection = Composition.CreateUpdateConnection();
+            desktop.Exit += (_, _) => updateConnection.Dispose();
+            var updates = Composition.CreateUpdateCheck(new AvaloniaUpdateDialogs(mainWindow), updateConnection);
+            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates);
 
             mainWindow.DataContext = shell;
             desktop.MainWindow = mainWindow;

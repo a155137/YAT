@@ -23,6 +23,15 @@
   </PropertyGroup>
 
   <!--
+    Where YAT reads its update information (Task #051.B): the one place the address is written. YAT.App carries it as
+    assembly metadata; nothing else names it. Override with -p:YatUpdateManifestUrl=<https address> (for example to try
+    a test release).
+  -->
+  <PropertyGroup>
+    <YatUpdateManifestUrl Condition="'$(YatUpdateManifestUrl)' == ''">https://github.com/a155137/YAT/releases/latest/download/yat-update.json</YatUpdateManifestUrl>
+  </PropertyGroup>
+
+  <!--
     V1 runtime support is Windows x64. Only executables that consume native dependencies (DuckDB, SkiaSharp)
     target a runtime identifier, so they do not copy native payloads for every platform. Libraries and pure
     test projects stay RID-neutral. Override with -p:YatRuntimeIdentifier=<rid>.

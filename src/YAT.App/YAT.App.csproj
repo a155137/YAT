@@ -43,6 +43,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The update information's address, from Directory.Build.props (Task #051.B), read by the composition root. -->
+    <AssemblyMetadata Include="YatUpdateManifestUrl" Value="$(YatUpdateManifestUrl)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The same convention as YAT.Infrastructure: tests may reach internal seams (today the graph controller's
          preparation hook, used to prove that a failing preparation cannot end the application). -->
     <InternalsVisibleTo Include="YAT.App.Tests" />

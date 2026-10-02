@@ -4,6 +4,7 @@ using YAT.Application.Graphs;
 using YAT.app.Analyses;
 using YAT.app.Graphs;
 using YAT.app.Lifecycle;
+using YAT.app.Updates;
 
 namespace YAT.app.ViewModels;
 
@@ -19,7 +20,8 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         ProjectLifecycleController lifecycle,
         GraphSetupController graphs,
         DescriptiveStatisticsController statistics,
-        CapabilityAnalysisController capability)
+        CapabilityAnalysisController capability,
+        UpdateCheckController? updates = null)
     {
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(graphs);
@@ -29,6 +31,7 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         Graphs = graphs;
         Statistics = statistics;
         Capability = capability;
+        Updates = updates;
         Lifecycle.ProjectReplaced += OnProjectReplaced;
         ObserveProject();
     }
@@ -44,6 +47,9 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
     // Statistics menu: measure the active worksheet's variables against their specifications.
     public CapabilityAnalysisController Capability { get; }
 
+    // Help menu: check for an update (Task #051.B); null when this composition has no update check.
+    public UpdateCheckController? Updates { get; }
+
     public MainWindowViewModel? Project => Lifecycle.Project;
 
     // "YAT — <project name>"; never the file name, path or a modified marker.
@@ -53,6 +59,12 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     // Whether the window may close (after the save prompt, if one was needed); the project is closed when it may.
     public Task<bool> RequestCloseAsync() => Lifecycle.CloseAsync();
+
+    // Help > Check for Updates...: one update window at a time (asking again while one is open does nothing).
+    [RelayCommand(CanExecute = nameof(CanCheckForUpdates))]
+    private Task CheckForUpdatesAsync() => Updates?.CheckForUpdatesAsync() ?? Task.CompletedTask;
+
+    private bool CanCheckForUpdates() => Updates is not null;
 
     [RelayCommand]
     private Task NewProjectAsync() => Lifecycle.NewProjectAsync();

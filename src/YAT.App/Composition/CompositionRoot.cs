@@ -9,16 +9,19 @@ using YAT.Application.Features.Worksheets.RenameWorksheet;
 using YAT.Application.Graphs;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
+using YAT.Application.Updates;
 using YAT.app.Analyses;
 using YAT.app.Clipboard;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Rendering;
 using YAT.app.Graphs.Export;
 using YAT.app.Lifecycle;
+using YAT.app.Updates;
 using YAT.app.ViewModels;
 using YAT.Infrastructure.Persistence.DuckDb;
 using YAT.Infrastructure.Persistence.InMemory;
 using YAT.Infrastructure.Settings;
+using YAT.Infrastructure.Updates;
 
 namespace YAT.app.Composition;
 
@@ -205,8 +208,36 @@ public sealed class CompositionRoot
         ProjectLifecycleController lifecycle,
         GraphSetupController graphs,
         DescriptiveStatisticsController statistics,
-        CapabilityAnalysisController capability) =>
-        new(lifecycle, graphs, statistics, capability);
+        CapabilityAnalysisController capability,
+        UpdateCheckController? updates = null) =>
+        new(lifecycle, graphs, statistics, capability, updates);
+
+    // The update connection for the application's lifetime (Task #051.B): one HttpClient, the update information at
+    // manifestUrl (by default the address Directory.Build.props gives the build) and packages kept under updatesRoot (by
+    // default %LOCALAPPDATA%\YAT\updates). The application disposes it when it exits. Only the application passes no
+    // arguments; tests give a handler and a folder of their own.
+    public UpdateConnection CreateUpdateConnection(Uri? manifestUrl = null, string? updatesRoot = null, HttpMessageHandler? handler = null) =>
+        new(
+            manifestUrl ?? UpdateEndpoint.ManifestUrl ?? throw new InvalidOperationException("This build has no update address (YatUpdateManifestUrl)."),
+            ApplicationInfo.Current.Version,
+            updatesRoot,
+            handler);
+
+    // Help > Check for Updates... over an update connection - or, in tests, over any manifest source and downloader.
+    public UpdateCheckController CreateUpdateCheck(IUpdateDialogs dialogs, UpdateConnection connection) =>
+        CreateUpdateCheck(dialogs, connection.Source, connection.Downloader);
+
+    public UpdateCheckController CreateUpdateCheck(
+        IUpdateDialogs dialogs,
+        IUpdateManifestSource source,
+        IUpdatePackageDownloader downloader,
+        UpdateEnvironment? environment = null)
+    {
+        ArgumentNullException.ThrowIfNull(dialogs);
+        return new UpdateCheckController(
+            dialogs,
+            new UpdateCheckService(source, downloader, environment ?? UpdateEnvironment.Current(ApplicationInfo.Current.Version)));
+    }
 
     private ProjectSession CreatePersistentSession(DuckDbProjectDatabase database, DuckDbProjectRepository? projects = null)
     {

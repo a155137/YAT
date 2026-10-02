@@ -29,7 +29,7 @@ public class GraphPaletteLibraryDependencyTests
 
     // Everything that draws, presents, copies or exports a graph: the rendering and export namespaces, and the canvas
     // that resolves the appearance on screen.
-    private static IEnumerable<Type> DrawingTypes() =>
+    internal static IEnumerable<Type> DrawingTypes() =>
         typeof(GraphCanvas).Assembly.GetTypes()
             .Where(type => type.Namespace is "YAT.app.Graphs.Rendering" or "YAT.app.Graphs.Export")
             .Append(typeof(GraphCanvas));
@@ -41,7 +41,7 @@ public class GraphPaletteLibraryDependencyTests
 
     // The types a type refers to: its base, interfaces, fields, properties, method signatures, and every type and member
     // its method bodies name.
-    private static IEnumerable<Type> ReferencedBy(Type type)
+    internal static IEnumerable<Type> ReferencedBy(Type type)
     {
         const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
@@ -172,7 +172,7 @@ public class GraphPaletteLibraryDependencyTests
         }
     }
 
-    private static IEnumerable<Type> Expand(Type type)
+    internal static IEnumerable<Type> Expand(Type type)
     {
         yield return type;
         if (type.HasElementType)
