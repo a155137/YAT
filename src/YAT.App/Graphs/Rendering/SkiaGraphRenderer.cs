@@ -390,6 +390,57 @@ public sealed class SkiaGraphRenderer
         return labels;
     }
 
+    // The axes this model shows on a canvas this size as they can be picked (Task #052), from the very layout Render
+    // draws them with: each axis's area of the layout and the plot edge its line is drawn on, X's area reaching on to
+    // the right by the half tick label the last X tick overhangs the plot with - but never into the legend or the
+    // statistics panel. A canvas too small for a plot gives none. Geometry only: which axis is under a pointer is
+    // GraphAxisHitTest's business, and whether that axis can be edited is the graph type's.
+    internal static GraphAxesGeometry AxisGeometry(GraphRenderModel model, SKRect bounds, GraphTheme theme)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(theme);
+
+        if (!IsFinite(bounds) || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return GraphAxesGeometry.None;
+        }
+
+        using var titleFont = Font(theme.TitleFontSize);
+        using var axisTitleFont = Font(theme.AxisTitleFontSize);
+        using var tickFont = Font(theme.TickLabelFontSize);
+        var layout = Arrange(bounds, model, titleFont, axisTitleFont, tickFont, out var metrics);
+        if (!layout.HasPlotArea)
+        {
+            return GraphAxesGeometry.None;
+        }
+
+        var excluded = new[] { layout.TitleArea, layout.LegendArea, layout.StatisticsPanelArea, layout.ReferenceLabelArea }
+            .Where(area => !area.IsEmpty)
+            .ToList();
+
+        var xArea = layout.XAxisArea;
+        var right = Math.Min(xArea.Right + metrics.XTickLabelOverflow, layout.Canvas.Right);
+        foreach (var area in excluded.Where(area => area.Left >= xArea.Right && area.Top < xArea.Bottom && area.Bottom > xArea.Top))
+        {
+            right = Math.Min(right, area.Left);
+        }
+
+        xArea.Right = Math.Max(xArea.Right, right);
+        var plot = layout.PlotArea;
+        return new GraphAxesGeometry(
+            [
+                new GraphAxisGeometry(
+                    GraphAxisField.X,
+                    xArea,
+                    GraphAxisHitTest.LineBand(new SKPoint(plot.Left, plot.Bottom), new SKPoint(plot.Right, plot.Bottom), theme.AxisThickness)),
+                new GraphAxisGeometry(
+                    GraphAxisField.Y,
+                    layout.YAxisArea,
+                    GraphAxisHitTest.LineBand(new SKPoint(plot.Left, plot.Top), new SKPoint(plot.Left, plot.Bottom), theme.AxisThickness))
+            ],
+            excluded);
+    }
+
     private static SKRect Box(SKPoint center, float width, float height) =>
         new(center.X - (width / 2f), center.Y - (height / 2f), center.X + (width / 2f), center.Y + (height / 2f));
 

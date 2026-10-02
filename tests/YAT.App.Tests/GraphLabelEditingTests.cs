@@ -36,9 +36,9 @@ public class GraphLabelEditingTests
 
     // A graph of one type presented as the graph preparation presents it: with its statistics panel, a specification
     // where it has one, and the given labels.
-    private sealed record Presented(GraphPresentationState Graph, GraphData Data, GraphRenderModel BuilderFrame, IGraphPlotRenderer Plot);
+    internal sealed record Presented(GraphPresentationState Graph, GraphData Data, GraphRenderModel BuilderFrame, IGraphPlotRenderer Plot);
 
-    private static Presented Present(GraphType type, GraphLabelOptions? labels = null, HistogramOptions? histogram = null, bool grouped = true)
+    internal static Presented Present(GraphType type, GraphLabelOptions? labels = null, HistogramOptions? histogram = null, bool grouped = true)
     {
         GraphData data;
         GraphRenderModel frame;

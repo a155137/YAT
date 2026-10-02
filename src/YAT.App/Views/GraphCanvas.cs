@@ -104,6 +104,19 @@ internal sealed class GraphCanvas : Control
         return GraphLabelHitTest.Find(labels, new SKPoint((float)point.X, (float)point.Y));
     }
 
+    // The axis of the graph at a point of this control, or null (Task #052): laid out exactly as it is drawn at this
+    // control's size in its theme (see GraphAxisHitTest). Whether that axis can be edited is the graph type's business.
+    internal GraphAxisField? AxisAt(Point point)
+    {
+        if (Model is not { } model)
+        {
+            return null;
+        }
+
+        var bounds = new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height);
+        return GraphAxisHitTest.Find(SkiaGraphRenderer.AxisGeometry(model, bounds, CurrentTheme), new SKPoint((float)point.X, (float)point.Y));
+    }
+
     public override void Render(DrawingContext context)
     {
         base.Render(context);

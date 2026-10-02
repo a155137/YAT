@@ -27,6 +27,8 @@ namespace YAT.app.Views;
 // Its axis ranges can be changed the same way (Task #043): right-click and choose Edit Axes.... Confirmed ranges go
 // onto the frame the graph had before any range or label - its data, bins, fits and statistics untouched - and the
 // window shows, copies and exports the frame over the new ranges.
+// Or one axis at a time (Task #052): double-click it - its ticks, tick labels or line - for its Edit X Scale or Edit Y
+// Scale dialog, which edits the same ranges.
 //
 // Its legend too (Task #044): right-click and choose Edit Legend... to show, hide or move it - unavailable for a graph
 // without one. The window lays the new frame out again, legend and plot alike, without the data.
@@ -80,7 +82,7 @@ internal sealed class GraphWindow : Window
         _export = exports.Create(this);
         _labels = new GraphLabelEditController(graph, new AvaloniaGraphLabelsDialog(this));
         _labels.GraphChanged += (_, _) => Show(_labels.Graph);
-        _axes = new GraphAxesEditController(graph, new AvaloniaGraphAxesDialog(this));
+        _axes = new GraphAxesEditController(graph, new AvaloniaGraphAxesDialog(this), new AvaloniaGraphAxisScaleDialog(this));
         _axes.GraphChanged += (_, _) => Show(_axes.Graph);
         _legend = new GraphLegendEditController(graph, new AvaloniaGraphLegendDialog(this));
         _legend.GraphChanged += (_, _) => Show(_legend.Graph);
@@ -216,18 +218,36 @@ internal sealed class GraphWindow : Window
     internal static string WindowTitle(GraphRenderModel frame) =>
         string.IsNullOrWhiteSpace(frame.Title) ? "Graph" : frame.Title;
 
-    // A double-click on a title the graph shows edits the labels, opened on that title. Anywhere else - the plot, the
-    // ticks, the legend, the statistics panel, a hidden title's empty place - it does nothing.
+    // A double-click on a title the graph shows edits the labels, opened on that title. Elsewhere on an axis - its ticks,
+    // its tick labels, its line - it edits that axis's scale (Task #052), when the graph type gives the axis a range: not
+    // a box plot's categories. Anywhere else - the plot, the legend, the statistics panel, the reference line labels, a
+    // hidden title's empty place - it does nothing.
     private async void OnGraphAreaDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (_canvas.LabelAt(e.GetPosition(_canvas)) is not { } field)
+        var point = e.GetPosition(_canvas);
+        var label = _canvas.LabelAt(point);
+        switch (DoubleClickTarget(label, label is null ? _canvas.AxisAt(point) : null, _axes.Graph.Definition))
         {
-            return;
+            case (GraphLabelField field, _):
+                e.Handled = true;
+                await _labels.EditAsync(field);
+                break;
+            case (null, GraphAxisField axis):
+                e.Handled = true;
+                await _axes.EditScaleAsync(axis);
+                break;
         }
-
-        e.Handled = true;
-        await _labels.EditAsync(field);
     }
+
+    // What a double-click edits: the title under it first; else the axis under it, when the graph type gives that axis a
+    // range; else nothing.
+    internal static (GraphLabelField? Label, GraphAxisField? Axis) DoubleClickTarget(
+        GraphLabelField? label,
+        GraphAxisField? axis,
+        GraphTypeDefinition definition) =>
+        label is { } field ? (field, null)
+        : axis is { } picked && definition.SupportsAxisRange(picked) ? (null, picked)
+        : (null, null);
 
     // The graph under its new labels, over its new axis ranges, or with its new legend, statistics or appearance:
     // drawn at once, named after its title, and the graph every editor works on from now on.

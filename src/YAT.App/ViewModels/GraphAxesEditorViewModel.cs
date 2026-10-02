@@ -117,10 +117,13 @@ public sealed partial class GraphAxesEditorViewModel : ObservableObject
 
     public bool IsValid => ValidationMessage is null;
 
-    private string Label(GraphAxisField axis)
+    private string Label(GraphAxisField axis) => AxisLabel(_definition, axis);
+
+    // What an axis is called where its range is typed (here and in the single-axis scale dialog, Task #052).
+    internal static string AxisLabel(GraphTypeDefinition definition, GraphAxisField axis)
     {
         var name = axis == GraphAxisField.X ? "X axis" : "Y axis";
-        return _definition.AxisKind(axis) == GraphAxisKind.ProbabilityPercent ? $"{name} (%)" : name;
+        return definition.AxisKind(axis) == GraphAxisKind.ProbabilityPercent ? $"{name} (%)" : name;
     }
 
     private string Hint(GraphAxisField axis, GraphAxisBound bound)
