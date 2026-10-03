@@ -72,6 +72,12 @@ public abstract record GraphData
 
     // Null when the configuration assigned no Group column.
     public GraphGroupData? Group { get; }
+
+    // How many of the rows this graph read considered the configuration's row filter kept (Task #053), before the graph's
+    // null rules - null without a filter. A diagnostic of the read, not a worksheet total: rows past the end of every
+    // column read hold no values to plot and are not counted. Zero says that no row with values matches the filter, which
+    // is told apart from rows that have no values to plot.
+    public long? FilteredRowCount { get; init; }
 }
 
 // Scatter observations: X[i] and Y[i] come from the same worksheet row, and a row is kept only when both are present.

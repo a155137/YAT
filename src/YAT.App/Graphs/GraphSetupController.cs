@@ -21,6 +21,9 @@ public sealed class GraphSetupController
 {
     private const string NotImplementedMessage = "This graph type is not implemented yet.";
     private const string NoDataMessage = "This graph has no data to plot.";
+
+    // The graph's row filter kept no row (Task #053): said apart from rows that have nothing to plot.
+    public const string NoMatchingRowsMessage = "No rows match the filter.";
     public const string PreparationFailedMessage = "This graph could not be drawn.";
 
     // What the user is told about the graphs of a request that could not be drawn, one line each after this.
@@ -106,7 +109,7 @@ public sealed class GraphSetupController
                 worksheet,
                 columns,
                 // The Filter dialog reads a column's distinct values through the session, never its rows (Task #049).
-                (columnId, token) => session.LoadGraphFilterValuesAsync(worksheet.Id, columnId, token),
+                (columnId, token) => session.LoadFilterValuesAsync(worksheet.Id, columnId, token),
                 // The appearance starts as the default palette is now (Task #050): a copy of its colours, the setup's own
                 // from here on - or YAT Default, which is no palette at all.
                 _palettes?.DefaultAppearance,
@@ -278,7 +281,7 @@ public sealed class GraphSetupController
         {
             if (_prepare(data, configuration, cancellationToken) is not { } built)
             {
-                return new PreparedGraph(name, null, null, NoDataMessage);
+                return new PreparedGraph(name, null, null, data.FilteredRowCount == 0 ? NoMatchingRowsMessage : NoDataMessage);
             }
 
             var presentation = GraphPresentation.Present(built.Frame, data, configuration, cancellationToken);

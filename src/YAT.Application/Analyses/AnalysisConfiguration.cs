@@ -1,3 +1,5 @@
+using YAT.Application.Filtering;
+
 namespace YAT.Application.Analyses;
 
 // What a worksheet column is used for in an analysis: a measured variable to summarise, or the categorical column the
@@ -14,4 +16,9 @@ public enum AnalysisColumnRole
 // It is the analysis counterpart of a graph's configuration, deliberately its own type: an analysis produces a table,
 // not a plot, and the two must be free to grow apart. Validate it with AnalysisConfigurationValidator before using it;
 // nothing here reads worksheet values.
-public sealed record AnalysisConfiguration(Guid WorksheetId, IReadOnlyList<Guid> VariableColumnIds, Guid? GroupColumnId);
+public sealed record AnalysisConfiguration(Guid WorksheetId, IReadOnlyList<Guid> VariableColumnIds, Guid? GroupColumnId)
+{
+    // Which worksheet rows the analysis uses (Task #053): null - every row - unless the user set conditions. Read by the
+    // data query and nothing after it: every count and statistic of the analysis is over the rows it keeps.
+    public RowFilter? Filter { get; init; }
+}

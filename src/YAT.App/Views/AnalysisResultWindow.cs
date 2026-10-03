@@ -47,7 +47,18 @@ internal sealed class AnalysisResultWindow : Window
         };
 
         DockPanel.SetDock(heading, Dock.Top);
-        Content = new DockPanel { Children = { heading, Grid(table) } };
+        var content = new DockPanel { Children = { heading } };
+        if (table.Note is { } note)
+        {
+            // What the result is over, when it is not every row (a filter, Task #053).
+            heading.Margin = new Thickness(12, 10, 12, 2);
+            var noteText = new TextBlock { Name = "ResultNote", Text = note, Opacity = 0.75, Margin = new Thickness(12, 0, 12, 8), TextWrapping = TextWrapping.Wrap };
+            DockPanel.SetDock(noteText, Dock.Top);
+            content.Children.Add(noteText);
+        }
+
+        content.Children.Add(Grid(table));
+        Content = content;
     }
 
     private static Control Grid(AnalysisResultTable table)

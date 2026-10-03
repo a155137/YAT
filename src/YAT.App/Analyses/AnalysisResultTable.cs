@@ -47,4 +47,8 @@ public sealed record AnalysisResultTable
     public IReadOnlyList<AnalysisResultColumn> Columns { get; }
 
     public IReadOnlyList<AnalysisResultRow> Rows { get; }
+
+    // A line about the result as a whole, shown under its title - "Filter: 3 conditions" when the analysis used only the
+    // rows a filter kept (Task #053) - or null.
+    public string? Note { get; init; }
 }

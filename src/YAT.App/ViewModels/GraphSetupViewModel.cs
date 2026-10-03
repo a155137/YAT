@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using YAT.Application.Analyses;
+using YAT.Application.Filtering;
 using YAT.Application.Graphs;
 using YAT.Application.Specifications;
 using YAT.app.Graphs;
@@ -76,9 +77,10 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     private readonly GraphTypeDefinition _definition;
     private readonly IReadOnlyList<WorksheetColumn> _columns;
-    private readonly Func<Guid, CancellationToken, Task<GraphFilterValues>>? _loadFilterValues;
+    private readonly Func<Guid, CancellationToken, Task<FilterValues>>? _loadFilterValues;
 
-    // loadFilterValues: reads the values a filter can be chosen from (Task #049); without it the setup offers no filter.
+    // loadFilterValues: reads the values a filter condition can be chosen from (Tasks #049, #053); without it the setup
+    // offers no filter.
     // appearance: how the graph is to look to begin with (Task #050: the default palette's colours, copied when the setup
     // is made); without it, the graph theme's own look.
     // palettes: the user's palettes, offered in the Appearance... dialog with the Palette Manager; none without them.
@@ -86,7 +88,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         GraphTypeDefinition definition,
         Worksheet worksheet,
         IReadOnlyList<WorksheetColumn> columns,
-        Func<Guid, CancellationToken, Task<GraphFilterValues>>? loadFilterValues = null,
+        Func<Guid, CancellationToken, Task<FilterValues>>? loadFilterValues = null,
         GraphAppearanceOptions? appearance = null,
         IGraphPaletteLibraryAccess? palettes = null)
     {
@@ -346,27 +348,27 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     [ObservableProperty]
     public partial string UpperLimitText { get; set; }
 
-    // Whether the setup can filter the graph's rows (Task #049): every graph type can, given a way to read a column's values.
+    // Whether the setup can filter the graph's rows (Tasks #049, #053): every graph type can, given a way to read a
+    // column's values.
     public bool SupportsFilter => _loadFilterValues is not null;
 
-    // Which rows the graph uses: null - every row - until a filter is applied in the Filter dialog. Not tied to the group
-    // column: any Numeric or String column of the worksheet.
+    // Which rows the graph uses: null - every row - until conditions are applied in the Filter dialog. Not tied to the
+    // graph's roles: any Numeric or String columns of the worksheet.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FilterSummary))]
-    public partial GraphValueFilter? Filter { get; set; }
+    public partial RowFilter? Filter { get; set; }
 
-    // The filter in a few words: "All rows", or its column and the values it keeps.
-    public string FilterSummary => GraphFilterEditorViewModel.Describe(
-        Filter, Filter is { } filter ? _columns.FirstOrDefault(column => column.Id == filter.ColumnId)?.Name : null);
+    // The filter in a few words: "All rows", "1 condition", "3 conditions".
+    public string FilterSummary => RowFilterEditorViewModel.Describe(Filter);
 
-    // The Filter dialog's editor for the filter as it is now. The first column it offers is the filter's own, or else
-    // the group column the setup has chosen.
-    public GraphFilterEditorViewModel CreateFilterEditor() =>
+    // The Filter dialog's editor for the filter as it is now. A new condition starts on the group column the setup has
+    // chosen, when there is one.
+    public RowFilterEditorViewModel CreateFilterEditor() =>
         new(
             _columns,
             Filter,
-            Roles.FirstOrDefault(role => role.Role == GraphVariableRole.Group)?.SelectedColumnId,
-            _loadFilterValues ?? throw new InvalidOperationException("This setup offers no filter."));
+            _loadFilterValues ?? throw new InvalidOperationException("This setup offers no filter."),
+            Roles.FirstOrDefault(role => role.Role == GraphVariableRole.Group)?.SelectedColumnId);
 
     // The user's palettes for the Appearance... dialog (Task #050); null when there are none to offer.
     public IGraphPaletteLibraryAccess? Palettes { get; }
@@ -497,7 +499,7 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
 
     partial void OnAppearanceChanged(GraphAppearanceOptions value) => OnSelectionChanged();
 
-    partial void OnFilterChanged(GraphValueFilter? value) => OnSelectionChanged();
+    partial void OnFilterChanged(RowFilter? value) => OnSelectionChanged();
 
     partial void OnBoxPlotChanged(BoxPlotOptions value) => OnSelectionChanged();
 

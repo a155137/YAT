@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Application.Specifications;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
@@ -103,8 +104,11 @@ public enum GraphValidationReason
     // The filter's column is neither Numeric nor String, or its values are not of the column's data type.
     FilterColumnIncompatibleType,
 
-    // The filter selects nothing: no value and not Missing.
-    FilterSelectionEmpty
+    // A value-set condition of the filter selects nothing: no value and not Missing.
+    FilterSelectionEmpty,
+
+    // The filter has more than RowFilter.MaximumConditions conditions (Task #053).
+    FilterTooManyConditions
 }
 
 // One reason a configuration is not valid. Role and WorksheetColumnId identify what to correct - or, for a problem with
@@ -290,38 +294,23 @@ public sealed class GraphConfigurationValidator
         return errors;
     }
 
-    // The filter's rules, against the column metadata only - never its values: a Numeric or String column of the graph's
-    // worksheet, values of that column's data type, and something selected. Which roles the column has in the graph does
-    // not matter. Whether the selected values still occur in the column cannot be known here; a filter whose values no
-    // row has simply keeps no row.
+    // The filter's rules (RowFilterValidator, shared with the analyses), as graph validation errors: at most
+    // RowFilter.MaximumConditions conditions, each on a Numeric or String column of the graph's worksheet, of that column's
+    // data type, with something selected. Which roles the columns have in the graph does not matter.
     private static IEnumerable<GraphValidationError> FilterErrors(
-        GraphValueFilter filter,
+        RowFilter filter,
         Guid worksheetId,
-        IReadOnlyDictionary<Guid, WorksheetColumn> columnsById)
-    {
-        if (!columnsById.TryGetValue(filter.ColumnId, out var column))
-        {
-            yield return new GraphValidationError(GraphValidationReason.FilterColumnNotFound, WorksheetColumnId: filter.ColumnId);
-            yield break;
-        }
-
-        if (column.WorksheetId != worksheetId)
-        {
-            yield return new GraphValidationError(GraphValidationReason.FilterColumnFromAnotherWorksheet, WorksheetColumnId: column.Id);
-            yield break;
-        }
-
-        if (column.DataType is not (WorksheetDataType.Numeric or WorksheetDataType.String) || column.DataType != filter.DataType)
-        {
-            yield return new GraphValidationError(GraphValidationReason.FilterColumnIncompatibleType, WorksheetColumnId: column.Id);
-            yield break;
-        }
-
-        if (filter.IsEmpty)
-        {
-            yield return new GraphValidationError(GraphValidationReason.FilterSelectionEmpty, WorksheetColumnId: column.Id);
-        }
-    }
+        IReadOnlyDictionary<Guid, WorksheetColumn> columnsById) =>
+        RowFilterValidator.Validate(filter, worksheetId, columnsById).Select(problem => new GraphValidationError(
+            problem.Kind switch
+            {
+                RowFilterProblemKind.TooManyConditions => GraphValidationReason.FilterTooManyConditions,
+                RowFilterProblemKind.ColumnNotFound => GraphValidationReason.FilterColumnNotFound,
+                RowFilterProblemKind.ColumnFromAnotherWorksheet => GraphValidationReason.FilterColumnFromAnotherWorksheet,
+                RowFilterProblemKind.ColumnIncompatibleType => GraphValidationReason.FilterColumnIncompatibleType,
+                _ => GraphValidationReason.FilterSelectionEmpty
+            },
+            WorksheetColumnId: problem.ColumnId));
 
     // The box plot options' rules, as graph validation errors - for a whole configuration here, and for the options
     // edited on their own: a box width of 20 to 90 percent.

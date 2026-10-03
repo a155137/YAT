@@ -267,6 +267,15 @@ internal sealed class CapabilityAnalysisSetupWindow : Window
             }
         };
 
+        // Which rows the analysis uses (Task #053): a compact row under the grouping - the conditions are set in a dialog.
+        if (setup.SupportsFilter)
+        {
+            var filter = RowFilterSetupRow.Create(
+                setup, nameof(CapabilityAnalysisSetupViewModel.FilterSummary), setup.CreateFilterEditor, edited => setup.Filter = edited.Filter);
+            filter.Margin = new Thickness(0, 0, 0, 8);
+            panel.Children.Insert(3, filter);
+        }
+
         Grid.SetColumn(panel, 2);
         return panel;
     }

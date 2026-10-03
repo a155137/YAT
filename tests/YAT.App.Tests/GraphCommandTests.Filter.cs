@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.App.Tests.TestDoubles;
 using YAT.Application.Graphs;
 using YAT.app.Graphs;
@@ -31,13 +32,13 @@ public partial class GraphCommandTests
 
     private static readonly double[] SiteTwo = [11, 14, 17, 20];
 
-    // Chooses the roles, then a filter in the setup's Filter editor - its column and what to select there - applies it,
-    // and confirms the setup.
+    // Chooses the roles, then a filter in the setup's Filter dialog - one "is any of" condition on the column, with what to
+    // select in its Choose Values dialog - applies it, and confirms the setup.
     private static async Task<GraphConfiguration?> ConfirmFilteredAsync(
         GraphSetupViewModel setup,
         (string Role, string Column)[] roles,
         string filterColumn,
-        Action<GraphFilterEditorViewModel> select)
+        Action<FilterValueChooserViewModel> select)
     {
         foreach (var (roleName, columnName) in roles)
         {
@@ -54,20 +55,22 @@ public partial class GraphCommandTests
         }
 
         var editor = setup.CreateFilterEditor();
-        await editor.Loading;
-        if (editor.SelectedColumn?.Name != filterColumn)
-        {
-            editor.SelectedColumn = editor.Columns.Single(column => column.Name == filterColumn);
-            await editor.Loading;
-        }
+        editor.AddConditionCommand.Execute(null);
+        var condition = Assert.Single(editor.Conditions);
+        condition.SelectedColumn = editor.Columns.Single(column => column.Name == filterColumn);
+        Assert.Equal(RowFilterOperator.IsAnyOf, condition.SelectedOperator!.Operator);
 
-        select(editor);
+        var chooser = condition.CreateValueChooser()!;
+        await chooser.Loading;
+        select(chooser);
+        Assert.True(chooser.TryApply(out var choice));
+        condition.ApplyValues(choice!);
         Assert.True(editor.TryApply(out var edit));
         setup.Filter = edit!.Filter;
         return setup.Confirm();
     }
 
-    private static void Only(GraphFilterEditorViewModel editor, params string[] labels)
+    private static void Only(FilterValueChooserViewModel editor, params string[] labels)
     {
         editor.ClearCommand.Execute(null);
         foreach (var value in editor.Values.Where(value => labels.Contains(value.Label)))
@@ -81,7 +84,7 @@ public partial class GraphCommandTests
         GraphType type,
         (string Role, string Column)[] roles,
         string filterColumn,
-        Action<GraphFilterEditorViewModel> select,
+        Action<FilterValueChooserViewModel> select,
         GraphVariableLayout layout = GraphVariableLayout.Together)
     {
         var before = runtime.GraphWindows.Shown.Count;
@@ -113,7 +116,7 @@ public partial class GraphCommandTests
         var (frame, _) = Assert.Single(await DrawFilteredAsync(runtime, type,
             [("Variable", "PS_RAW"), ("Group", "Site")], "Site", editor => Only(editor, "2")));
 
-        Assert.Equal(new NumericValueFilter(runtime.Graphs.LastConfiguration!.Filter!.ColumnId, [2]), runtime.Graphs.LastConfiguration.Filter);
+        Assert.Equal(new RowFilter(new NumericValueSetCondition(runtime.Graphs.LastConfiguration!.Filter!.Conditions[0].ColumnId, [2])), runtime.Graphs.LastConfiguration.Filter);
         var row = Assert.Single(frame.StatisticsPanel!.Rows);
         Assert.Equal("2", row.Label);
         Assert.Equal(SiteTwo.Length, row.Count);
@@ -172,7 +175,7 @@ public partial class GraphCommandTests
         Assert.Equal([2, 2], frame.StatisticsPanel.Rows.Select(row => row.Count));
         Assert.Equal([11.0, 17.0], frame.StatisticsPanel.Rows.Select(row => row.Mean));
         var configuration = runtime.Graphs.LastConfiguration!;
-        Assert.NotEqual(configuration.FindColumnId(GraphVariableRole.Group), configuration.Filter!.ColumnId);
+        Assert.NotEqual(configuration.FindColumnId(GraphVariableRole.Group), configuration.Filter!.Conditions[0].ColumnId);
     }
 
     [Fact]
@@ -289,27 +292,40 @@ public partial class GraphCommandTests
     {
         using var runtime = new Runtime();
         await runtime.StartAsync();
-        var rows = Enumerable.Range(0, GraphValueFilter.MaximumDistinctValues + 1)
-            .Select(index => $"{index}\tS{index}\t{(index == GraphValueFilter.MaximumDistinctValues ? 0 : index)}");
+        var rows = Enumerable.Range(0, ValueSetCondition.MaximumDistinctValues + 1)
+            .Select(index => $"{index}\tS{index}\t{(index == ValueSetCondition.MaximumDistinctValues ? 0 : index)}");
         await runtime.PasteAsync("Reg\tSerial\tThousand\n" + string.Join("\n", rows) + "\n");
         runtime.GraphDialogs.Answer = _ => null;
         await runtime.Shell.HistogramCommand.ExecuteAsync(null);
         var setup = runtime.GraphDialogs.LastSetup;
         var editor = setup.CreateFilterEditor();
+        editor.AddConditionCommand.Execute(null);
+        var condition = Assert.Single(editor.Conditions);
 
-        editor.SelectedColumn = editor.Columns.Single(column => column.Name == "Serial");
-        await editor.Loading;
+        // More than 1,000 values: the list is truncated, so no value can be chosen - selecting every value shown can never
+        // mean every row.
+        condition.SelectedColumn = editor.Columns.Single(column => column.Name == "Serial");
+        var serial = condition.CreateValueChooser()!;
+        await serial.Loading;
 
-        Assert.True(editor.HasTooManyValues);
-        Assert.Empty(editor.Values);
+        Assert.True(serial.HasTooManyValues);
+        Assert.Empty(serial.Values);
+        Assert.False(serial.CanApply);
+        Assert.False(serial.SelectAllCommand.CanExecute(null));
+        Assert.Equal(FilterValueChooserViewModel.TooManyValuesMessage, serial.Message);
         Assert.False(editor.CanApply);
-        Assert.Equal(GraphFilterEditorViewModel.TooManyValuesMessage, editor.Message);
 
-        editor.SelectedColumn = editor.Columns.Single(column => column.Name == "Thousand");
-        await editor.Loading;
+        // Exactly 1,000: the list is complete, every value can be chosen, and every value is every row.
+        condition.SelectedColumn = editor.Columns.Single(column => column.Name == "Thousand");
+        var thousand = condition.CreateValueChooser()!;
+        await thousand.Loading;
 
-        Assert.False(editor.HasTooManyValues);
-        Assert.Equal(GraphValueFilter.MaximumDistinctValues, editor.Values.Count);
-        Assert.True(editor.CanApply);
+        Assert.False(thousand.HasTooManyValues);
+        Assert.Equal(ValueSetCondition.MaximumDistinctValues, thousand.Values.Count);
+        Assert.True(thousand.TryApply(out var choice));
+        Assert.False(choice!.Available.HasMore);
+        condition.ApplyValues(choice);
+        Assert.True(editor.TryApply(out var edit));
+        Assert.Null(edit!.Filter);
     }
 }

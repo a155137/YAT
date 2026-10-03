@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Exceptions;
 using YAT.Application.Graphs;
@@ -8,7 +9,7 @@ using YAT.Domain.Enums;
 namespace YAT.Application.Tests;
 
 // The values a graph's filter is chosen from (Task #049): one column's distinct values through the raw store, limited
-// to GraphValueFilter.MaximumDistinctValues, with the column's own type, Missing and "more" - and failures said in the
+// to ValueSetCondition.MaximumDistinctValues, with the column's own type, Missing and "more" - and failures said in the
 // graph pipeline's own terms.
 public class GraphFilterValuesQueryServiceTests
 {
@@ -18,7 +19,7 @@ public class GraphFilterValuesQueryServiceTests
     private readonly FakeWorksheetColumnRepository _columns = new();
     private readonly FakeWorksheetRawDataStore _rawData = new();
 
-    private GraphFilterValuesQueryService Service => new(_columns, _rawData);
+    private FilterValuesQueryService Service => new(_columns, _rawData);
 
     private WorksheetColumn Column(string name, WorksheetDataType dataType, int index)
     {
@@ -73,12 +74,12 @@ public class GraphFilterValuesQueryServiceTests
     [Fact]
     public async Task AtMostTheMostThatCanBeOfferedAreAskedFor()
     {
-        var site = Numeric("Site", 0, [.. Enumerable.Range(0, GraphValueFilter.MaximumDistinctValues + 1).Select(index => (double?)index)]);
+        var site = Numeric("Site", 0, [.. Enumerable.Range(0, ValueSetCondition.MaximumDistinctValues + 1).Select(index => (double?)index)]);
 
         var values = await Service.LoadAsync(_worksheetId, site.Id, Token);
 
-        Assert.Equal(GraphValueFilter.MaximumDistinctValues, Assert.Single(_rawData.DistinctReads).Limit);
-        Assert.Equal(GraphValueFilter.MaximumDistinctValues, values.Count);
+        Assert.Equal(ValueSetCondition.MaximumDistinctValues, Assert.Single(_rawData.DistinctReads).Limit);
+        Assert.Equal(ValueSetCondition.MaximumDistinctValues, values.Count);
         Assert.True(values.HasMore);
     }
 
@@ -111,9 +112,9 @@ public class GraphFilterValuesQueryServiceTests
     [Fact]
     public async Task AColumnThatIsGoneIsUnavailable()
     {
-        var exception = await Assert.ThrowsAsync<GraphDataException>(() => Service.LoadAsync(_worksheetId, Guid.NewGuid(), Token));
+        var exception = await Assert.ThrowsAsync<RowFilterException>(() => Service.LoadAsync(_worksheetId, Guid.NewGuid(), Token));
 
-        Assert.Equal(GraphDataError.ColumnUnavailable, exception.Error);
+        Assert.Equal(RowFilterError.ColumnUnavailable, exception.Error);
     }
 
     [Fact]
@@ -121,9 +122,9 @@ public class GraphFilterValuesQueryServiceTests
     {
         var tested = Column("Tested", WorksheetDataType.DateTime, 0);
 
-        var exception = await Assert.ThrowsAsync<GraphDataException>(() => Service.LoadAsync(_worksheetId, tested.Id, Token));
+        var exception = await Assert.ThrowsAsync<RowFilterException>(() => Service.LoadAsync(_worksheetId, tested.Id, Token));
 
-        Assert.Equal(GraphDataError.InvalidConfiguration, exception.Error);
+        Assert.Equal(RowFilterError.ColumnCannotFilter, exception.Error);
     }
 
     [Fact]
@@ -132,9 +133,9 @@ public class GraphFilterValuesQueryServiceTests
         var site = Numeric("Site", 0, 1);
         _rawData.ReadFailure = new RawDataStorageException("disk");
 
-        var exception = await Assert.ThrowsAsync<GraphDataException>(() => Service.LoadAsync(_worksheetId, site.Id, Token));
+        var exception = await Assert.ThrowsAsync<RowFilterException>(() => Service.LoadAsync(_worksheetId, site.Id, Token));
 
-        Assert.Equal(GraphDataError.DataReadFailed, exception.Error);
+        Assert.Equal(RowFilterError.DataReadFailed, exception.Error);
         Assert.IsType<RawDataStorageException>(exception.InnerException);
     }
 
@@ -155,9 +156,9 @@ public class GraphFilterValuesQueryServiceTests
         var site = Numeric("Site", 0, 1, null, 2);
         var values = await Service.LoadAsync(_worksheetId, site.Id, Token);
 
-        Assert.Null(GraphValueFilter.Canonicalize(new NumericValueFilter(site.Id, [2, 1], includeMissing: true), values));
+        Assert.Null(ValueSetCondition.Canonicalize(new NumericValueSetCondition(site.Id, [2, 1], includeMissing: true), values));
 
-        var partial = new NumericValueFilter(site.Id, [1, 2]);
-        Assert.Same(partial, GraphValueFilter.Canonicalize(partial, values));
+        var partial = new NumericValueSetCondition(site.Id, [1, 2]);
+        Assert.Same(partial, ValueSetCondition.Canonicalize(partial, values));
     }
 }

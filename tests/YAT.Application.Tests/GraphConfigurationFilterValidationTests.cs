@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Application.Graphs;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
@@ -34,12 +35,12 @@ public class GraphConfigurationFilterValidationTests
     // A valid configuration of each graph type, without a filter.
     public static TheoryData<GraphType> GraphTypes => [.. GraphTypeDefinitions.All.Select(definition => definition.GraphType)];
 
-    private static GraphConfiguration Configuration(GraphType graphType, GraphValueFilter? filter = null)
+    private static GraphConfiguration Configuration(GraphType graphType, ValueSetCondition? filter = null)
     {
         IReadOnlyList<GraphColumnAssignment> assignments = graphType == GraphType.ScatterPlot
             ? [new(GraphVariableRole.X, Reg1.Id), new(GraphVariableRole.Y, Reg2.Id)]
             : [new(GraphVariableRole.Variable, Reg1.Id)];
-        return new GraphConfiguration(graphType, WorksheetId, assignments) { Filter = filter };
+        return new GraphConfiguration(graphType, WorksheetId, assignments) { Filter = filter is null ? null : new RowFilter(filter) };
     }
 
     private static GraphValidationResult Validate(GraphConfiguration configuration) => Validator.Validate(configuration, Columns);
@@ -61,15 +62,15 @@ public class GraphConfigurationFilterValidationTests
     [MemberData(nameof(GraphTypes))]
     public void EveryGraphTypeTakesANumericOrTextFilter(GraphType graphType)
     {
-        Assert.True(Validate(Configuration(graphType, new NumericValueFilter(Site.Id, [1, 3, 5, 7]))).IsValid);
-        Assert.True(Validate(Configuration(graphType, new TextValueFilter(Lot.Id, ["L01"]))).IsValid);
+        Assert.True(Validate(Configuration(graphType, new NumericValueSetCondition(Site.Id, [1, 3, 5, 7]))).IsValid);
+        Assert.True(Validate(Configuration(graphType, new TextValueSetCondition(Lot.Id, ["L01"]))).IsValid);
     }
 
     [Theory]
     [MemberData(nameof(GraphTypes))]
     public void EveryGraphTypeChecksItsFilter(GraphType graphType)
     {
-        var error = SingleError(Validate(Configuration(graphType, new NumericValueFilter(Site.Id, []))));
+        var error = SingleError(Validate(Configuration(graphType, new NumericValueSetCondition(Site.Id, []))));
 
         Assert.Equal(GraphValidationReason.FilterSelectionEmpty, error.Reason);
     }
@@ -77,13 +78,13 @@ public class GraphConfigurationFilterValidationTests
     [Fact]
     public void OnlyMissingSelectedIsValid()
     {
-        Assert.True(Validate(Configuration(GraphType.Histogram, new TextValueFilter(Lot.Id, [], includeMissing: true))).IsValid);
+        Assert.True(Validate(Configuration(GraphType.Histogram, new TextValueSetCondition(Lot.Id, [], includeMissing: true))).IsValid);
     }
 
     [Fact]
     public void NothingSelectedIsRefused()
     {
-        var error = SingleError(Validate(Configuration(GraphType.Histogram, new TextValueFilter(Lot.Id, []))));
+        var error = SingleError(Validate(Configuration(GraphType.Histogram, new TextValueSetCondition(Lot.Id, []))));
 
         Assert.Equal(GraphValidationReason.FilterSelectionEmpty, error.Reason);
         Assert.Equal(Lot.Id, error.WorksheetColumnId);
@@ -93,7 +94,7 @@ public class GraphConfigurationFilterValidationTests
     [Fact]
     public void TheFilterColumnNeedNotBeAssignedToTheGraph()
     {
-        var configuration = Configuration(GraphType.BoxPlot, new NumericValueFilter(Site.Id, [2])) with
+        var configuration = Configuration(GraphType.BoxPlot, new NumericValueSetCondition(Site.Id, [2])) with
         {
             Assignments = [new(GraphVariableRole.Variable, Reg1.Id), new(GraphVariableRole.Group, Lot.Id)]
         };
@@ -104,7 +105,7 @@ public class GraphConfigurationFilterValidationTests
     [Fact]
     public void TheFilterColumnMayBeTheGroupColumn()
     {
-        var configuration = Configuration(GraphType.Histogram, new NumericValueFilter(Site.Id, [2])) with
+        var configuration = Configuration(GraphType.Histogram, new NumericValueSetCondition(Site.Id, [2])) with
         {
             Assignments = [new(GraphVariableRole.Variable, Reg1.Id), new(GraphVariableRole.Group, Site.Id)]
         };
@@ -116,14 +117,14 @@ public class GraphConfigurationFilterValidationTests
     public void TheFilterColumnMayBeAMeasuredColumn()
     {
         // Whether a column can filter is its type, never its role in the graph.
-        Assert.True(Validate(Configuration(GraphType.Histogram, new NumericValueFilter(Reg1.Id, [10.5]))).IsValid);
+        Assert.True(Validate(Configuration(GraphType.Histogram, new NumericValueSetCondition(Reg1.Id, [10.5]))).IsValid);
     }
 
     [Fact]
     public void AFilterColumnThatIsGoneIsRefused()
     {
         var gone = Guid.NewGuid();
-        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueFilter(gone, [1]))));
+        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueSetCondition(gone, [1]))));
 
         Assert.Equal(GraphValidationReason.FilterColumnNotFound, error.Reason);
         Assert.Equal(gone, error.WorksheetColumnId);
@@ -132,7 +133,7 @@ public class GraphConfigurationFilterValidationTests
     [Fact]
     public void AFilterColumnOfAnotherWorksheetIsRefused()
     {
-        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueFilter(Elsewhere.Id, [1]))));
+        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueSetCondition(Elsewhere.Id, [1]))));
 
         Assert.Equal(GraphValidationReason.FilterColumnFromAnotherWorksheet, error.Reason);
         Assert.Equal(Elsewhere.Id, error.WorksheetColumnId);
@@ -141,7 +142,7 @@ public class GraphConfigurationFilterValidationTests
     [Fact]
     public void NumbersCannotFilterATextColumn()
     {
-        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueFilter(Lot.Id, [1]))));
+        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueSetCondition(Lot.Id, [1]))));
 
         Assert.Equal(GraphValidationReason.FilterColumnIncompatibleType, error.Reason);
         Assert.Equal(Lot.Id, error.WorksheetColumnId);
@@ -150,7 +151,7 @@ public class GraphConfigurationFilterValidationTests
     [Fact]
     public void TextCannotFilterANumericColumn()
     {
-        var error = SingleError(Validate(Configuration(GraphType.Histogram, new TextValueFilter(Site.Id, ["1"]))));
+        var error = SingleError(Validate(Configuration(GraphType.Histogram, new TextValueSetCondition(Site.Id, ["1"]))));
 
         Assert.Equal(GraphValidationReason.FilterColumnIncompatibleType, error.Reason);
     }
@@ -160,16 +161,16 @@ public class GraphConfigurationFilterValidationTests
     {
         Assert.Equal(
             GraphValidationReason.FilterColumnIncompatibleType,
-            SingleError(Validate(Configuration(GraphType.Histogram, new TextValueFilter(Tested.Id, ["2026"])))).Reason);
+            SingleError(Validate(Configuration(GraphType.Histogram, new TextValueSetCondition(Tested.Id, ["2026"])))).Reason);
         Assert.Equal(
             GraphValidationReason.FilterColumnIncompatibleType,
-            SingleError(Validate(Configuration(GraphType.Histogram, new TextValueFilter(Passed.Id, ["True"])))).Reason);
+            SingleError(Validate(Configuration(GraphType.Histogram, new TextValueSetCondition(Passed.Id, ["True"])))).Reason);
     }
 
     [Fact]
     public void AnEmptySelectionOfAMissingColumnReportsOnlyTheColumn()
     {
-        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueFilter(Guid.NewGuid(), []))));
+        var error = SingleError(Validate(Configuration(GraphType.Histogram, new NumericValueSetCondition(Guid.NewGuid(), []))));
 
         Assert.Equal(GraphValidationReason.FilterColumnNotFound, error.Reason);
     }
@@ -179,7 +180,7 @@ public class GraphConfigurationFilterValidationTests
     {
         var configuration = new GraphConfiguration(GraphType.Histogram, WorksheetId, [])
         {
-            Filter = new NumericValueFilter(Site.Id, [])
+            Filter = new RowFilter(new NumericValueSetCondition(Site.Id, []))
         };
 
         var reasons = Validate(configuration).Errors.Select(error => error.Reason).ToArray();

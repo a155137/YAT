@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Exceptions;
 using YAT.Application.Graphs;
@@ -30,10 +31,10 @@ public class DuckDbDistinctValuesTests
         return id;
     }
 
-    private static async Task<NumericRawDistinctValues> NumbersAsync(DuckDbWorksheetRawDataStore store, Guid column, int limit = GraphValueFilter.MaximumDistinctValues) =>
+    private static async Task<NumericRawDistinctValues> NumbersAsync(DuckDbWorksheetRawDataStore store, Guid column, int limit = ValueSetCondition.MaximumDistinctValues) =>
         Assert.IsType<NumericRawDistinctValues>(await store.GetDistinctValuesAsync(WorksheetId, column, limit, Token));
 
-    private static async Task<StringRawDistinctValues> TextsAsync(DuckDbWorksheetRawDataStore store, Guid column, int limit = GraphValueFilter.MaximumDistinctValues) =>
+    private static async Task<StringRawDistinctValues> TextsAsync(DuckDbWorksheetRawDataStore store, Guid column, int limit = ValueSetCondition.MaximumDistinctValues) =>
         Assert.IsType<StringRawDistinctValues>(await store.GetDistinctValuesAsync(WorksheetId, column, limit, Token));
 
     [Fact]
@@ -143,12 +144,12 @@ public class DuckDbDistinctValuesTests
     public async Task ExactlyTheLimitIsNotMore()
     {
         using var store = CreateStore();
-        var values = Enumerable.Range(0, GraphValueFilter.MaximumDistinctValues).Select(index => (double?)index).ToArray();
+        var values = Enumerable.Range(0, ValueSetCondition.MaximumDistinctValues).Select(index => (double?)index).ToArray();
         var site = await WriteNumericAsync(store, [.. values, .. values]);
 
         var listed = await NumbersAsync(store, site);
 
-        Assert.Equal(GraphValueFilter.MaximumDistinctValues, listed.Count);
+        Assert.Equal(ValueSetCondition.MaximumDistinctValues, listed.Count);
         Assert.False(listed.HasMore);
         Assert.Equal(values.Select(value => value!.Value), listed.Values);
     }
@@ -157,14 +158,14 @@ public class DuckDbDistinctValuesTests
     public async Task OneMoreThanTheLimitIsMoreAndNeverListedAsComplete()
     {
         using var store = CreateStore();
-        var values = Enumerable.Range(0, GraphValueFilter.MaximumDistinctValues + 1).Select(index => $"V{index:D4}").ToArray();
+        var values = Enumerable.Range(0, ValueSetCondition.MaximumDistinctValues + 1).Select(index => $"V{index:D4}").ToArray();
         var lot = await WriteTextAsync(store, [.. values, null]);
 
         var listed = await TextsAsync(store, lot);
 
-        Assert.Equal(GraphValueFilter.MaximumDistinctValues, listed.Count);
+        Assert.Equal(ValueSetCondition.MaximumDistinctValues, listed.Count);
         Assert.True(listed.HasMore);
-        Assert.Equal(values.Take(GraphValueFilter.MaximumDistinctValues), listed.Values);
+        Assert.Equal(values.Take(ValueSetCondition.MaximumDistinctValues), listed.Values);
         Assert.DoesNotContain(values[^1], listed.Values);
 
         // Missing is reported apart from the values, whatever the limit.

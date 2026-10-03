@@ -166,6 +166,14 @@ internal sealed class AnalysisSetupWindow : Window
             }
         };
 
+        // Which rows the analysis uses (Task #053): under the grouping, in room the variable list leaves anyway.
+        if (setup.SupportsFilter)
+        {
+            panel.Children.Add(new TextBlock { Text = "Rows", FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
+            panel.Children.Add(RowFilterSetupRow.Create(
+                setup, nameof(AnalysisSetupViewModel.FilterSummary), setup.CreateFilterEditor, edited => setup.Filter = edited.Filter));
+        }
+
         Grid.SetColumn(panel, 2);
         return panel;
     }

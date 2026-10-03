@@ -1,18 +1,18 @@
 using YAT.Application.Abstractions.Persistence;
 using YAT.Domain.Enums;
 
-namespace YAT.Application.Graphs;
+namespace YAT.Application.Filtering;
 
-// The values a graph's filter can be chosen from (Task #049): the distinct values of one column, in the order they
-// first occur in the worksheet, at most GraphValueFilter.MaximumDistinctValues of them, with Missing and "more than
+// The values a value-set condition of a row filter can be chosen from (Tasks #049, #053): the distinct values of one
+// column, in the order they first occur in the worksheet, at most ValueSetCondition.MaximumDistinctValues of them, with Missing and "more than
 // listed" reported apart. It is what the setup is shown - the storage's own record of the values stays below the
 // application.
 //
 // A column with more distinct values than listed (HasMore) is not a category to pick from: its values are never offered
 // as if they were all of them.
-public sealed class GraphFilterValues
+public sealed class FilterValues
 {
-    public GraphFilterValues(RawDistinctValues values)
+    public FilterValues(RawDistinctValues values)
     {
         ArgumentNullException.ThrowIfNull(values);
         Raw = values;

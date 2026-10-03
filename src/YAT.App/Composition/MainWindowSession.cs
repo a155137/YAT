@@ -7,6 +7,7 @@ using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
 using YAT.Application.Features.Worksheets.RenameWorksheet;
+using YAT.Application.Filtering;
 using YAT.Application.Graphs;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
@@ -43,7 +44,7 @@ public sealed class MainWindowSession
     private readonly WorksheetColumnsTsvExporter _columnsExporter;
     private readonly ProjectMetadataQueryService _metadataQuery;
     private readonly GraphDataQueryService _graphData;
-    private readonly GraphFilterValuesQueryService _graphFilterValues;
+    private readonly FilterValuesQueryService _filterValues;
     private readonly AnalysisDataQueryService _analysisData;
     private readonly Guid? _projectId;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -66,7 +67,7 @@ public sealed class MainWindowSession
         WorksheetColumnsTsvExporter columnsExporter,
         ProjectMetadataQueryService metadataQuery,
         GraphDataQueryService graphData,
-        GraphFilterValuesQueryService graphFilterValues,
+        FilterValuesQueryService filterValues,
         AnalysisDataQueryService analysisData,
         Guid? projectId)
     {
@@ -86,7 +87,7 @@ public sealed class MainWindowSession
         _columnsExporter = columnsExporter;
         _metadataQuery = metadataQuery;
         _graphData = graphData;
-        _graphFilterValues = graphFilterValues;
+        _filterValues = filterValues;
         _analysisData = analysisData;
         _projectId = projectId;
     }
@@ -116,11 +117,12 @@ public sealed class MainWindowSession
             () => Task.Run(() => _graphData.LoadAsync(configuration, cancellationToken), cancellationToken),
             cancellationToken);
 
-    // The values a graph's filter can be chosen from (see GraphFilterValuesQueryService), read off the UI thread: the
-    // distinct values of one column, at most GraphValueFilter.MaximumDistinctValues of them - never its rows.
-    public Task<GraphFilterValues> LoadGraphFilterValuesAsync(Guid worksheetId, Guid columnId, CancellationToken cancellationToken) =>
+    // The values a filter condition of a graph or analysis can be chosen from (see FilterValuesQueryService), read off the
+    // UI thread: the distinct values of one column, at most ValueSetCondition.MaximumDistinctValues of them - never its
+    // rows.
+    public Task<FilterValues> LoadFilterValuesAsync(Guid worksheetId, Guid columnId, CancellationToken cancellationToken) =>
         RunExclusiveAsync(
-            () => Task.Run(() => _graphFilterValues.LoadAsync(worksheetId, columnId, cancellationToken), cancellationToken),
+            () => Task.Run(() => _filterValues.LoadAsync(worksheetId, columnId, cancellationToken), cancellationToken),
             cancellationToken);
 
     // The worksheet rows of an analysis configuration (see AnalysisDataQueryService), read off the UI thread. The

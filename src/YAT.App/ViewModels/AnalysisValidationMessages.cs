@@ -50,6 +50,12 @@ public static class AnalysisValidationMessages
             AnalysisValidationReason.SpecificationLimitsOutOfOrder =>
                 $"{subject}the lower specification limit must be below the upper one.",
             AnalysisValidationReason.NoStatisticSelected => "Please select at least one statistic to display.",
+            AnalysisValidationReason.FilterColumnNotFound => "The filter column is no longer available. Edit the filter.",
+            AnalysisValidationReason.FilterColumnFromAnotherWorksheet => "The filter column belongs to another worksheet. Edit the filter.",
+            AnalysisValidationReason.FilterColumnIncompatibleType => "The filter does not match its column's data type. Edit the filter.",
+            AnalysisValidationReason.FilterSelectionEmpty =>
+                "Choose at least one value, or (Missing), for each \"is any of\" or \"is not any of\" condition of the filter.",
+            AnalysisValidationReason.FilterTooManyConditions => "A filter can have at most 20 conditions. Edit the filter.",
             _ => "This analysis cannot be run with the current settings."
         };
     }

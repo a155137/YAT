@@ -1,5 +1,6 @@
 using YAT.App.Tests.TestDoubles;
 using YAT.Application.Abstractions.Persistence;
+using YAT.Application.Filtering;
 using YAT.Application.Graphs;
 using YAT.app.ViewModels;
 using YAT.Domain.Entities;
@@ -7,8 +8,9 @@ using YAT.Domain.Enums;
 
 namespace YAT.App.Tests;
 
-// The graph setup's filter (Task #049): All rows until a filter is applied, a row of its own whatever the group, the
-// configuration carrying exactly the filter applied, and a filter that cannot be used said in the setup's words.
+// The graph setup's filter (Tasks #049, #053): All rows until a filter is applied, a row of its own whatever the group,
+// the configuration carrying exactly the filter applied, the Filter dialog opened on it, and a filter that cannot be
+// used said in the setup's words.
 public class GraphSetupFilterTests
 {
     private static readonly Worksheet Worksheet = new() { Id = Guid.NewGuid(), Name = "Sheet1" };
@@ -22,10 +24,10 @@ public class GraphSetupFilterTests
     private static WorksheetColumn Column(string name, WorksheetDataType dataType, int index) =>
         new() { Id = Guid.NewGuid(), WorksheetId = Worksheet.Id, Index = index, Name = name, DataType = dataType };
 
-    private static Task<GraphFilterValues> LoadAsync(Guid columnId, CancellationToken cancellationToken) =>
+    private static Task<FilterValues> LoadAsync(Guid columnId, CancellationToken cancellationToken) =>
         Task.FromResult(columnId == Tester.Id
-            ? new GraphFilterValues(new StringRawDistinctValues(columnId, ["T01", "T02"], false, false))
-            : new GraphFilterValues(new NumericRawDistinctValues(columnId, [1, 2, 3], true, false)));
+            ? new FilterValues(new StringRawDistinctValues(columnId, ["T01", "T02"], false, false))
+            : new FilterValues(new NumericRawDistinctValues(columnId, [1, 2, 3], true, false)));
 
     private static GraphSetupViewModel Setup(GraphType graphType = GraphType.Histogram)
     {
@@ -40,6 +42,8 @@ public class GraphSetupFilterTests
         var group = setup.Roles.Single(role => role.Role == GraphVariableRole.Group);
         group.Choose(group.Options.Single(option => option.WorksheetColumnId == column.Id));
     }
+
+    private static RowFilter Of(params RowFilterCondition[] conditions) => new(conditions);
 
     [Fact]
     public void ASetupStartsWithAllRows()
@@ -62,87 +66,92 @@ public class GraphSetupFilterTests
     }
 
     [Fact]
-    public void TheAppliedFilterIsTheConfigurationsFilter()
+    public void TheAppliedFilterIsTheConfigurationsFilterAndItsSummaryCountsItsConditions()
     {
         var setup = Setup();
-        var filter = new NumericValueFilter(Site.Id, [1, 3]);
+        var filter = Of(new NumericValueSetCondition(Site.Id, [1, 3]), new NumericComparisonCondition(Reg.Id, NumericComparison.GreaterOrEqual, 14.5));
         var changes = new List<string?>();
         setup.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
 
         setup.Filter = filter;
 
         Assert.Same(filter, setup.Confirm()!.Filter);
-        Assert.Equal("Site: 1, 3", setup.FilterSummary);
+        Assert.Equal("2 conditions", setup.FilterSummary);
         Assert.Contains(nameof(GraphSetupViewModel.FilterSummary), changes);
+        setup.Filter = Of(new NumericValueSetCondition(Site.Id, [1]));
+        Assert.Equal("1 condition", setup.FilterSummary);
     }
 
     [Fact]
     public void AFilterIsKeptWhateverTheGroupBecomes()
     {
         var setup = Setup();
-        setup.Filter = new NumericValueFilter(Site.Id, [2]);
+        setup.Filter = Of(new NumericValueSetCondition(Site.Id, [2]));
 
         Group(setup, Tester);
 
         var configuration = setup.Confirm()!;
         Assert.Equal(Tester.Id, configuration.FindColumnId(GraphVariableRole.Group));
-        Assert.Equal(Site.Id, configuration.Filter!.ColumnId);
+        Assert.Equal(Site.Id, configuration.Filter!.Conditions[0].ColumnId);
     }
 
     [Fact]
-    public void TheEditorStartsFromTheGroupColumn()
+    public void ANewConditionStartsOnTheGroupColumn()
     {
         var setup = Setup();
         Group(setup, Tester);
 
         var editor = setup.CreateFilterEditor();
+        editor.AddConditionCommand.Execute(null);
 
-        Assert.Equal(Tester.Id, editor.SelectedColumn!.WorksheetColumnId);
-        Assert.Equal(["T01", "T02"], editor.Values.Select(value => value.Label));
+        Assert.Equal(Tester.Id, Assert.Single(editor.Conditions).SelectedColumn!.Id);
     }
 
     [Fact]
-    public void TheEditorStartsFromTheFilterBeingEdited()
+    public async Task TheEditorOpensOnTheFilterBeingEdited()
     {
         var setup = Setup();
         Group(setup, Tester);
-        setup.Filter = new NumericValueFilter(Site.Id, [2], includeMissing: true);
+        setup.Filter = Of(new NumericValueSetCondition(Site.Id, [2], includeMissing: true));
 
         var editor = setup.CreateFilterEditor();
 
-        Assert.Equal(Site.Id, editor.SelectedColumn!.WorksheetColumnId);
-        Assert.Equal([false, true, false], editor.Values.Select(value => value.IsSelected));
-        Assert.True(editor.IncludeMissing);
-    }
-
-    [Fact]
-    public void WithoutAGroupTheEditorWaitsForAColumn()
-    {
-        Assert.Null(Setup().CreateFilterEditor().SelectedColumn);
+        var condition = Assert.Single(editor.Conditions);
+        Assert.Equal(Site.Id, condition.SelectedColumn!.Id);
+        Assert.Equal(RowFilterOperator.IsAnyOf, condition.SelectedOperator!.Operator);
+        Assert.Equal("2, (Missing)", condition.ValuesSummary);
+        var chooser = condition.CreateValueChooser()!;
+        await chooser.Loading;
+        Assert.Equal([false, true, false], chooser.Values.Select(value => value.IsSelected));
+        Assert.True(chooser.IncludeMissing);
     }
 
     [Fact]
     public void AnEditorThatIsNotAppliedChangesNothing()
     {
         var setup = Setup();
-        var filter = new NumericValueFilter(Site.Id, [1]);
+        var filter = Of(new NumericValueSetCondition(Site.Id, [1]));
         setup.Filter = filter;
 
         var editor = setup.CreateFilterEditor();
         editor.ClearCommand.Execute(null);
-        editor.Values[2].IsSelected = true;
 
         Assert.Same(filter, setup.Filter);
         Assert.Same(filter, setup.Confirm()!.Filter);
     }
 
     [Fact]
-    public void ApplyingEveryRowRemovesTheFilter()
+    public async Task ChoosingEveryValueOfACompleteListRemovesTheCondition()
     {
         var setup = Setup();
-        setup.Filter = new NumericValueFilter(Site.Id, [1]);
+        setup.Filter = Of(new NumericValueSetCondition(Site.Id, [1]));
         var editor = setup.CreateFilterEditor();
-        editor.SelectAllCommand.Execute(null);
+        var condition = Assert.Single(editor.Conditions);
+        var chooser = condition.CreateValueChooser()!;
+        await chooser.Loading;
+        chooser.SelectAllCommand.Execute(null);
+        Assert.True(chooser.TryApply(out var choice));
+        condition.ApplyValues(choice!);
 
         Assert.True(editor.TryApply(out var edit));
         setup.Filter = edit!.Filter;
@@ -172,9 +181,9 @@ public class GraphSetupFilterTests
             }
         }
 
-        setup.Filter = new TextValueFilter(Tester.Id, ["T02"]);
+        setup.Filter = Of(new TextComparisonCondition(Tester.Id, "T02"), new NumericBetweenCondition(Site.Id, 1, 2));
 
-        Assert.Equal(new TextValueFilter(Tester.Id, ["T02"]), setup.Confirm()!.Filter);
+        Assert.Equal(Of(new TextComparisonCondition(Tester.Id, "T02"), new NumericBetweenCondition(Site.Id, 1, 2)), setup.Confirm()!.Filter);
     }
 
     // ---- A filter that cannot be used ----
@@ -184,11 +193,11 @@ public class GraphSetupFilterTests
     {
         var setup = Setup();
 
-        setup.Filter = new NumericValueFilter(Guid.NewGuid(), [1]);
+        setup.Filter = Of(new NumericValueSetCondition(Guid.NewGuid(), [1]));
 
         Assert.False(setup.CanConfirm);
         Assert.Equal("The filter column is no longer available. Edit the filter.", setup.ValidationMessage);
-        Assert.Equal("(column not available): 1", setup.FilterSummary);
+        Assert.Equal("1 condition", setup.FilterSummary);
         Assert.Null(setup.Confirm());
     }
 
@@ -197,10 +206,10 @@ public class GraphSetupFilterTests
     {
         var setup = Setup();
 
-        setup.Filter = new NumericValueFilter(Site.Id, []);
+        setup.Filter = Of(new NumericValueSetCondition(Site.Id, []));
 
         Assert.False(setup.CanConfirm);
-        Assert.Equal("Select at least one filter value, or (Missing).", setup.ValidationMessage);
+        Assert.Equal("Choose at least one value, or (Missing), for each \"is any of\" or \"is not any of\" condition of the filter.", setup.ValidationMessage);
     }
 
     [Fact]
@@ -208,7 +217,7 @@ public class GraphSetupFilterTests
     {
         var setup = Setup();
 
-        setup.Filter = new TextValueFilter(Site.Id, ["1"]);
+        setup.Filter = Of(new TextValueSetCondition(Site.Id, ["1"]));
 
         Assert.Equal(
             "The filter's values do not match its column. Choose a Numeric or String column and its values.",
@@ -216,10 +225,21 @@ public class GraphSetupFilterTests
     }
 
     [Fact]
+    public void MoreThanTwentyConditionsAreSaidAndCannotBeConfirmed()
+    {
+        var setup = Setup();
+
+        setup.Filter = new RowFilter(Enumerable.Range(0, RowFilter.MaximumConditions + 1).Select(index => new NumericComparisonCondition(Reg.Id, NumericComparison.Greater, index)));
+
+        Assert.False(setup.CanConfirm);
+        Assert.Equal("A filter can have at most 20 conditions. Edit the filter.", setup.ValidationMessage);
+    }
+
+    [Fact]
     public void RemovingAFilterThatCannotBeUsedMakesTheSetupConfirmableAgain()
     {
         var setup = Setup();
-        setup.Filter = new NumericValueFilter(Site.Id, []);
+        setup.Filter = Of(new NumericValueSetCondition(Site.Id, []));
 
         setup.Filter = null;
 
@@ -238,10 +258,11 @@ public class GraphSetupFilterTests
             GraphValidationReason.FilterColumnNotFound,
             GraphValidationReason.FilterColumnFromAnotherWorksheet,
             GraphValidationReason.FilterColumnIncompatibleType,
-            GraphValidationReason.FilterSelectionEmpty
+            GraphValidationReason.FilterSelectionEmpty,
+            GraphValidationReason.FilterTooManyConditions
         }.Select(reason => GraphValidationMessages.For(new GraphValidationError(reason), definition)).ToArray();
 
-        Assert.Equal(4, messages.Distinct().Count());
+        Assert.Equal(5, messages.Distinct().Count());
         Assert.DoesNotContain(generic, messages);
         Assert.Equal("The filter column belongs to another worksheet. Edit the filter.", messages[1]);
     }

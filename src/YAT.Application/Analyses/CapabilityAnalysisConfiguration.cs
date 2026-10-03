@@ -1,3 +1,5 @@
+using YAT.Application.Filtering;
+
 namespace YAT.Application.Analyses;
 
 // The statistics a capability result can show. The calculation produces every one of them that its data supports;
@@ -37,6 +39,9 @@ public sealed record CapabilityAnalysisConfiguration(
     // What a capability result shows until the user says otherwise: how many observations there were, where the
     // process sits and how much it moves. The indices are opt-in, because a specification is only worth reading once
     // the data behind it has been looked at.
+    // Which worksheet rows the analysis uses (Task #053): null - every row. It travels with the generic part below.
+    public RowFilter? Filter { get; init; }
+
     public static readonly IReadOnlyList<CapabilityStatistic> DefaultDisplayStatistics =
     [
         CapabilityStatistic.Count,
@@ -59,10 +64,10 @@ public sealed record CapabilityAnalysisConfiguration(
         CapabilityStatistic.Cpk
     ];
 
-    // The generic part of this configuration: which worksheet, which columns, which group. The specifications and the
-    // display choices are capability's own business and stay here.
+    // The generic part of this configuration: which worksheet, which columns, which group, which rows. The specifications
+    // and the display choices are capability's own business and stay here.
     public AnalysisConfiguration ToAnalysisConfiguration() =>
-        new(WorksheetId, [.. Variables.Select(variable => variable.WorksheetColumnId)], GroupColumnId);
+        new(WorksheetId, [.. Variables.Select(variable => variable.WorksheetColumnId)], GroupColumnId) { Filter = Filter };
 
     public bool Shows(CapabilityStatistic statistic) => DisplayStatistics.Contains(statistic);
 }

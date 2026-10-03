@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Domain.Entities;
 
 namespace YAT.Application.Analyses;
@@ -29,7 +30,22 @@ public enum AnalysisValidationReason
     SpecificationLimitsOutOfOrder,
 
     // Capability: every optional result statistic was switched off, leaving nothing but the structural columns.
-    NoStatisticSelected
+    NoStatisticSelected,
+
+    // The row filter (Task #053, RowFilterValidator): more than RowFilter.MaximumConditions conditions.
+    FilterTooManyConditions,
+
+    // A filter condition's column is not among the worksheet's columns. WorksheetColumnId says which one.
+    FilterColumnNotFound,
+
+    // A filter condition's column belongs to another worksheet.
+    FilterColumnFromAnotherWorksheet,
+
+    // A filter condition's column is neither Numeric nor String, or not of its values' data type.
+    FilterColumnIncompatibleType,
+
+    // A value-set condition of the filter selects nothing: no value and not Missing.
+    FilterSelectionEmpty
 }
 
 // Which side of a specification an error is about. Null for errors that are not about a specification limit.
@@ -90,6 +106,21 @@ public sealed class AnalysisConfigurationValidator
         if (configuration.GroupColumnId is { } groupColumnId)
         {
             Check(errors, configuration, columnsById, AnalysisColumnRole.Group, groupColumnId);
+        }
+
+        // And the rows: the same filter rules as a graph's.
+        if (configuration.Filter is { } filter)
+        {
+            errors.AddRange(RowFilterValidator.Validate(filter, configuration.WorksheetId, columnsById).Select(problem => new AnalysisValidationError(
+                problem.Kind switch
+                {
+                    RowFilterProblemKind.TooManyConditions => AnalysisValidationReason.FilterTooManyConditions,
+                    RowFilterProblemKind.ColumnNotFound => AnalysisValidationReason.FilterColumnNotFound,
+                    RowFilterProblemKind.ColumnFromAnotherWorksheet => AnalysisValidationReason.FilterColumnFromAnotherWorksheet,
+                    RowFilterProblemKind.ColumnIncompatibleType => AnalysisValidationReason.FilterColumnIncompatibleType,
+                    _ => AnalysisValidationReason.FilterSelectionEmpty
+                },
+                WorksheetColumnId: problem.ColumnId)));
         }
 
         return errors.Count == 0 ? AnalysisValidationResult.Valid : new AnalysisValidationResult(errors);

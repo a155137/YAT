@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using YAT.Application.Analyses;
+using YAT.Application.Filtering;
 using YAT.Domain.Entities;
 
 namespace YAT.app.ViewModels;
@@ -44,14 +45,22 @@ public sealed partial class AnalysisSetupViewModel : ViewModelBase
     private static readonly AnalysisConfigurationValidator Validator = new();
 
     private readonly IReadOnlyList<WorksheetColumn> _columns;
+    private readonly Func<Guid, CancellationToken, Task<FilterValues>>? _loadFilterValues;
 
-    public AnalysisSetupViewModel(string title, Worksheet worksheet, IReadOnlyList<WorksheetColumn> columns)
+    // loadFilterValues: reads the values a filter condition can be chosen from (Task #053); without it the setup offers no
+    // filter.
+    public AnalysisSetupViewModel(
+        string title,
+        Worksheet worksheet,
+        IReadOnlyList<WorksheetColumn> columns,
+        Func<Guid, CancellationToken, Task<FilterValues>>? loadFilterValues = null)
     {
         ArgumentNullException.ThrowIfNull(title);
         ArgumentNullException.ThrowIfNull(worksheet);
         ArgumentNullException.ThrowIfNull(columns);
 
         _columns = columns;
+        _loadFilterValues = loadFilterValues;
         Title = title;
         WorksheetId = worksheet.Id;
         WorksheetName = worksheet.Name;
@@ -94,6 +103,21 @@ public sealed partial class AnalysisSetupViewModel : ViewModelBase
 
     public string WorksheetName { get; }
 
+    // Whether the setup can filter the analysis's rows (Task #053), given a way to read a column's values.
+    public bool SupportsFilter => _loadFilterValues is not null;
+
+    // Which rows the analysis uses: null - every row - until conditions are applied in the Filter dialog.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FilterSummary))]
+    public partial RowFilter? Filter { get; set; }
+
+    // The filter in a few words: "Filter: All rows", "Filter: 3 conditions".
+    public string FilterSummary => $"Filter: {RowFilterEditorViewModel.Describe(Filter)}";
+
+    // The Filter dialog's editor for the filter as it is now - the same editor graph setups use.
+    public RowFilterEditorViewModel CreateFilterEditor() =>
+        new(_columns, Filter, _loadFilterValues ?? throw new InvalidOperationException("This setup offers no filter."));
+
     // The worksheet's numeric columns, in worksheet order; the selected ones become the analysis variables in that
     // same order, whatever order they were picked in.
     public IReadOnlyList<AnalysisVariableViewModel> Variables { get; }
@@ -127,8 +151,10 @@ public sealed partial class AnalysisSetupViewModel : ViewModelBase
 
     partial void OnSelectedGroupChanged(AnalysisColumnOption? value) => OnSelectionChanged();
 
+    partial void OnFilterChanged(RowFilter? value) => OnSelectionChanged();
+
     private AnalysisConfiguration BuildConfiguration() =>
-        new(WorksheetId, SelectedVariableColumnIds, SelectedGroup?.WorksheetColumnId);
+        new(WorksheetId, SelectedVariableColumnIds, SelectedGroup?.WorksheetColumnId) { Filter = Filter };
 
     private void OnSelectionChanged()
     {

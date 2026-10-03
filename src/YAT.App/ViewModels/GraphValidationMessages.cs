@@ -65,7 +65,9 @@ public static class GraphValidationMessages
             GraphValidationReason.FilterColumnFromAnotherWorksheet => "The filter column belongs to another worksheet. Edit the filter.",
             GraphValidationReason.FilterColumnIncompatibleType =>
                 "The filter's values do not match its column. Choose a Numeric or String column and its values.",
-            GraphValidationReason.FilterSelectionEmpty => "Select at least one filter value, or (Missing).",
+            GraphValidationReason.FilterSelectionEmpty =>
+                "Choose at least one value, or (Missing), for each \"is any of\" or \"is not any of\" condition of the filter.",
+            GraphValidationReason.FilterTooManyConditions => "A filter can have at most 20 conditions. Edit the filter.",
             _ => "This graph cannot be created with the current settings."
         };
     }

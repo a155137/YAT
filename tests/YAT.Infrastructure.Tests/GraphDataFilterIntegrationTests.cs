@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Graphs;
 using YAT.Domain.Entities;
@@ -61,11 +62,11 @@ public class GraphDataFilterIntegrationTests
 
         public GraphConfiguration Configuration(
             GraphType graphType,
-            GraphValueFilter? filter,
+            ValueSetCondition? filter,
             params (GraphVariableRole Role, WorksheetColumn Column)[] assignments) =>
             new(graphType, Worksheet.Id, [.. assignments.Select(item => new GraphColumnAssignment(item.Role, item.Column.Id))])
             {
-                Filter = filter
+                Filter = filter is null ? null : new RowFilter(filter)
             };
 
         public Task<GraphData> LoadAsync(GraphConfiguration configuration) => Service.LoadAsync(configuration, Token);
@@ -88,7 +89,7 @@ public class GraphDataFilterIntegrationTests
         var site = await composition.AddNumericAsync("Site", 1, [1, 2, 3, 4, 2, 6, 2, 2]);
 
         var data = OneVariable(await composition.LoadAsync(composition.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [2]),
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [2]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site))));
 
         Assert.Equal([20, 50, 80], data.Values.ToArray());
@@ -104,7 +105,7 @@ public class GraphDataFilterIntegrationTests
         var site = await composition.AddNumericAsync("Site", 2, [1, 2, 3, 5, 7, 8]);
 
         var data = OneVariable(await composition.LoadAsync(composition.Configuration(
-            GraphType.ProbabilityPlot, new NumericValueFilter(site.Id, [1, 3, 5, 7]),
+            GraphType.ProbabilityPlot, new NumericValueSetCondition(site.Id, [1, 3, 5, 7]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, tester))));
 
         Assert.Equal([10, 30, 40, 50], data.Values.ToArray());
@@ -120,7 +121,7 @@ public class GraphDataFilterIntegrationTests
         var lot = await composition.AddStringAsync("Lot", 2, ["A", null, "B"]);
 
         var data = Assert.IsType<ScatterGraphData>(await composition.LoadAsync(composition.Configuration(
-            GraphType.ScatterPlot, new TextValueFilter(lot.Id, ["A"], includeMissing: true),
+            GraphType.ScatterPlot, new TextValueSetCondition(lot.Id, ["A"], includeMissing: true),
             (GraphVariableRole.X, x), (GraphVariableRole.Y, y))));
 
         Assert.Equal([1, 2, 4, 5], data.XValues.ToArray());
@@ -136,7 +137,7 @@ public class GraphDataFilterIntegrationTests
         var site = await composition.AddNumericAsync("Site", 2, [2, 2, 1, 2, 2]);
 
         var data = Assert.IsType<MultiVariableGraphData>(await composition.LoadAsync(composition.Configuration(
-            GraphType.BoxPlot, new NumericValueFilter(site.Id, [2]),
+            GraphType.BoxPlot, new NumericValueSetCondition(site.Id, [2]),
             (GraphVariableRole.Variable, a), (GraphVariableRole.Variable, b), (GraphVariableRole.Group, site))));
 
         Assert.Equal([1, 4, 5], data.Variables[0].Values.ToArray());
@@ -162,7 +163,7 @@ public class GraphDataFilterIntegrationTests
         var site = await composition.AddStringAsync("Site", 1, sites);
 
         var data = OneVariable(await composition.LoadAsync(composition.Configuration(
-            GraphType.EmpiricalCdf, new TextValueFilter(site.Id, ["S2", "S5"], includeMissing: true),
+            GraphType.EmpiricalCdf, new TextValueSetCondition(site.Id, ["S2", "S5"], includeMissing: true),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site))));
 
         var expected = Enumerable.Range(0, rowCount)
@@ -194,11 +195,11 @@ public class GraphDataFilterIntegrationTests
         var site = await composition.AddNumericAsync("Site", 1, [3, null, 1, 3, 2]);
 
         var available = Assert.IsType<NumericRawDistinctValues>(await composition.RawStore.GetDistinctValuesAsync(
-            composition.Worksheet.Id, site.Id, GraphValueFilter.MaximumDistinctValues, Token));
-        var everything = new NumericValueFilter(site.Id, available.Values, includeMissing: available.HasMissing);
+            composition.Worksheet.Id, site.Id, ValueSetCondition.MaximumDistinctValues, Token));
+        var everything = new NumericValueSetCondition(site.Id, available.Values, includeMissing: available.HasMissing);
 
         Assert.Equal([3, 1, 2], available.Values);
-        Assert.Null(GraphValueFilter.Canonicalize(everything, available));
+        Assert.Null(ValueSetCondition.Canonicalize(everything, available));
 
         var filtered = OneVariable(await composition.LoadAsync(composition.Configuration(
             GraphType.Histogram, everything, (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site))));

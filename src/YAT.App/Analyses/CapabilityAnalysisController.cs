@@ -1,5 +1,6 @@
 using YAT.Application.Analyses;
 using YAT.Application.Exceptions;
+using YAT.Application.Filtering;
 using YAT.app.Composition;
 using YAT.app.ViewModels;
 using YAT.Domain.Entities;
@@ -21,6 +22,9 @@ public sealed class CapabilityAnalysisController
     private const string NoColumnsMessage = "This worksheet has no numeric columns to analyse.";
     private const string ColumnsUnreadableMessage = "The worksheet columns could not be read.";
     private const string NoDataMessage = "This analysis has no data to summarise.";
+
+    // The analysis's row filter kept no row (Task #053): said apart from rows that have nothing to summarise.
+    public const string NoMatchingRowsMessage = "No rows match the filter.";
 
     private readonly ICapabilityAnalysisSetupDialogs _dialogs;
     private readonly IAnalysisResultPresenter _results;
@@ -74,7 +78,12 @@ public sealed class CapabilityAnalysisController
             return null;
         }
 
-        var configuration = await _dialogs.ShowSetupAsync(new CapabilityAnalysisSetupViewModel(SetupTitle, worksheet, columns));
+        var configuration = await _dialogs.ShowSetupAsync(new CapabilityAnalysisSetupViewModel(
+            SetupTitle,
+            worksheet,
+            columns,
+            // The Filter dialog reads a column's distinct values through the session, never its rows (Task #053).
+            (columnId, token) => session.LoadFilterValuesAsync(worksheet.Id, columnId, token)));
         if (configuration is not null)
         {
             LastConfiguration = configuration;
@@ -112,6 +121,12 @@ public sealed class CapabilityAnalysisController
             return;
         }
 
+        if (data.RowCount == 0 && configuration.Filter is not null)
+        {
+            await _dialogs.ShowErrorAsync(NoMatchingRowsMessage);
+            return;
+        }
+
         AnalysisResultTable table;
         try
         {
@@ -128,6 +143,12 @@ public sealed class CapabilityAnalysisController
         {
             await _dialogs.ShowErrorAsync(NoDataMessage);
             return;
+        }
+
+        // A filtered result says so (Task #053); a result over every row is shown exactly as before.
+        if (configuration.Filter is { } filter)
+        {
+            table = table with { Note = $"Filter: {RowFilter.Describe(filter)}" };
         }
 
         _results.ShowResult(table);

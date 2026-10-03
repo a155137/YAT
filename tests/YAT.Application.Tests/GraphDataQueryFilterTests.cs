@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Exceptions;
 using YAT.Application.Graphs;
@@ -62,11 +63,11 @@ public class GraphDataQueryFilterTests
 
         public GraphConfiguration Configuration(
             GraphType graphType,
-            GraphValueFilter? filter,
+            ValueSetCondition? filter,
             params (GraphVariableRole Role, WorksheetColumn Column)[] assignments) =>
             new(graphType, WorksheetId, [.. assignments.Select(item => new GraphColumnAssignment(item.Role, item.Column.Id))])
             {
-                Filter = filter
+                Filter = filter is null ? null : new RowFilter(filter)
             };
 
         public Task<GraphData> LoadAsync(GraphConfiguration configuration) => Service.LoadAsync(configuration, Token);
@@ -131,7 +132,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 1, 1, 2, 3, 2, 1, 2);
 
         var data = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [2]),
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [2]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site))));
 
         Assert.Equal([20, 40, 60], data.Values.ToArray());
@@ -146,7 +147,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 1, 1, 2, 3, 4, 5, 6, 7, 8);
 
         var data = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [7, 1, 5, 3]),
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [7, 1, 5, 3]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site))));
 
         Assert.Equal([10, 30, 50, 70], data.Values.ToArray());
@@ -161,7 +162,7 @@ public class GraphDataQueryFilterTests
         var tester = fixture.Text("Tester", 1, "T01", "T02", "T01", "T03");
 
         var all = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.EmpiricalCdf, new TextValueFilter(tester.Id, ["T01", "T02", "T03"]),
+            GraphType.EmpiricalCdf, new TextValueSetCondition(tester.Id, ["T01", "T02", "T03"]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, tester))));
         var none = OneVariable(await fixture.LoadAsync(fixture.Configuration(
             GraphType.EmpiricalCdf, null, (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, tester))));
@@ -178,9 +179,9 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 1, 1.0, 1.0000000000000002, 0.30000000000000004, 0.3, -0.0);
 
         var exact = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [1.0, 0.1 + 0.2]), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [1.0, 0.1 + 0.2]), (GraphVariableRole.Variable, reg))));
         var zero = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [0.0]), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [0.0]), (GraphVariableRole.Variable, reg))));
 
         Assert.Equal([1, 3], exact.Values.ToArray());
         Assert.Equal([5], zero.Values.ToArray());
@@ -194,7 +195,7 @@ public class GraphDataQueryFilterTests
         var lot = fixture.Text("Lot", 1, "a", "A", "1", "01", "a ", "");
 
         var data = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new TextValueFilter(lot.Id, ["a", "01", ""]), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new TextValueSetCondition(lot.Id, ["a", "01", ""]), (GraphVariableRole.Variable, reg))));
 
         Assert.Equal([1, 4, 6], data.Values.ToArray());
     }
@@ -207,7 +208,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Text("Site", 1, "1", "1.0", "2");
 
         var data = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new TextValueFilter(site.Id, ["1"]),
+            GraphType.Histogram, new TextValueSetCondition(site.Id, ["1"]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site))));
 
         Assert.Equal([1], data.Values.ToArray());
@@ -224,10 +225,10 @@ public class GraphDataQueryFilterTests
         var lot = fixture.Text("Lot", 1, "A", null, "B", null);
 
         var onlyMissing = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new TextValueFilter(lot.Id, [], includeMissing: true),
+            GraphType.Histogram, new TextValueSetCondition(lot.Id, [], includeMissing: true),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, lot))));
         var missingAndA = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new TextValueFilter(lot.Id, ["A"], includeMissing: true),
+            GraphType.Histogram, new TextValueSetCondition(lot.Id, ["A"], includeMissing: true),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, lot))));
 
         // Row 5 is beyond the Lot column: it has no Lot value either.
@@ -244,7 +245,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 1, 1, null, 2, null);
 
         var data = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [1, 2]), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [1, 2]), (GraphVariableRole.Variable, reg))));
 
         Assert.Equal([1, 3], data.Values.ToArray());
     }
@@ -257,9 +258,9 @@ public class GraphDataQueryFilterTests
         var site = fixture.Column("Site", WorksheetDataType.Numeric, 1);
 
         var missing = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [], includeMissing: true), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [], includeMissing: true), (GraphVariableRole.Variable, reg))));
         var values = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [1]), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [1]), (GraphVariableRole.Variable, reg))));
 
         Assert.Equal([1, 2, 3], missing.Values.ToArray());
         Assert.Empty(values.Values.ToArray());
@@ -276,7 +277,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 1, 1, 2, 1);
 
         await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [1]),
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [1]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site)));
 
         Assert.Equal([reg.Id, site.Id], Assert.Single(fixture.RawData.Reads).ColumnIds);
@@ -291,7 +292,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 2, 1, 1, 3, 3, 2, 5);
 
         var data = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [1, 3, 5, 7]),
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [1, 3, 5, 7]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, tester))));
 
         Assert.Equal([10, 20, 30, 40, 60], data.Values.ToArray());
@@ -307,7 +308,7 @@ public class GraphDataQueryFilterTests
         var y = fixture.Numeric("Y", 1, 10, 20, 30, 40);
 
         var data = Assert.IsType<ScatterGraphData>(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.ScatterPlot, new NumericValueFilter(x.Id, [1]), (GraphVariableRole.X, x), (GraphVariableRole.Y, y))));
+            GraphType.ScatterPlot, new NumericValueSetCondition(x.Id, [1]), (GraphVariableRole.X, x), (GraphVariableRole.Y, y))));
 
         Assert.Equal([(1, 10), (1, 30)], Points(data));
         Assert.Equal([x.Id, y.Id], Assert.Single(fixture.RawData.Reads).ColumnIds);
@@ -322,7 +323,7 @@ public class GraphDataQueryFilterTests
         var lot = fixture.Text("Lot", 2, "A", "A", "B", "A", "A");
 
         var data = Assert.IsType<ScatterGraphData>(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.ScatterPlot, new TextValueFilter(lot.Id, ["A"]),
+            GraphType.ScatterPlot, new TextValueSetCondition(lot.Id, ["A"]),
             (GraphVariableRole.X, x), (GraphVariableRole.Y, y), (GraphVariableRole.Group, lot))));
 
         Assert.Equal([(1, 10), (5, 50)], Points(data));
@@ -342,7 +343,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 4, 2, 2, 1, 2, 2, 1);
 
         var data = Assert.IsType<MultiVariableGraphData>(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.BoxPlot, new NumericValueFilter(site.Id, [2]),
+            GraphType.BoxPlot, new NumericValueSetCondition(site.Id, [2]),
             (GraphVariableRole.Variable, a), (GraphVariableRole.Variable, b), (GraphVariableRole.Variable, c),
             (GraphVariableRole.Group, lot))));
 
@@ -366,7 +367,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 2, 1, 2, 1);
 
         var data = Assert.IsType<MultiVariableGraphData>(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.BoxPlot, new NumericValueFilter(site.Id, [1]), (GraphVariableRole.Variable, a), (GraphVariableRole.Variable, b))));
+            GraphType.BoxPlot, new NumericValueSetCondition(site.Id, [1]), (GraphVariableRole.Variable, a), (GraphVariableRole.Variable, b))));
 
         Assert.Equal([1, 3], data.Variables[0].Values.ToArray());
         Assert.Empty(data.Variables[1].Values.ToArray());
@@ -398,7 +399,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 1, sites);
 
         var data = OneVariable(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [2]),
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [2]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site))));
 
         var expected = Enumerable.Range(0, rowCount).Where(row => sites[row] == 2).Select(row => (double)row).ToArray();
@@ -421,7 +422,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 2, 1, 2);
 
         var data = Assert.IsType<ScatterGraphData>(await fixture.LoadAsync(fixture.Configuration(
-            GraphType.ScatterPlot, new NumericValueFilter(site.Id, [9]), (GraphVariableRole.X, x), (GraphVariableRole.Y, y))));
+            GraphType.ScatterPlot, new NumericValueSetCondition(site.Id, [9]), (GraphVariableRole.X, x), (GraphVariableRole.Y, y))));
 
         Assert.Equal(0, data.Count);
         Assert.Null(data.Group);
@@ -436,7 +437,7 @@ public class GraphDataQueryFilterTests
         var reg = fixture.Numeric("Reg", 0, 1);
 
         var exception = await Assert.ThrowsAsync<GraphDataException>(() => fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(Guid.NewGuid(), [1]), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(Guid.NewGuid(), [1]), (GraphVariableRole.Variable, reg))));
 
         Assert.Equal(GraphDataError.ColumnUnavailable, exception.Error);
         Assert.Empty(fixture.RawData.Reads);
@@ -450,7 +451,7 @@ public class GraphDataQueryFilterTests
         var site = fixture.Numeric("Site", 1, 1);
 
         var exception = await Assert.ThrowsAsync<GraphDataException>(() => fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, []), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, []), (GraphVariableRole.Variable, reg))));
 
         Assert.Equal(GraphDataError.InvalidConfiguration, exception.Error);
         Assert.Empty(fixture.RawData.Reads);
@@ -464,7 +465,7 @@ public class GraphDataQueryFilterTests
         var lot = fixture.Text("Lot", 1, "1");
 
         var exception = await Assert.ThrowsAsync<GraphDataException>(() => fixture.LoadAsync(fixture.Configuration(
-            GraphType.Histogram, new NumericValueFilter(lot.Id, [1]), (GraphVariableRole.Variable, reg))));
+            GraphType.Histogram, new NumericValueSetCondition(lot.Id, [1]), (GraphVariableRole.Variable, reg))));
 
         Assert.Equal(GraphDataError.InvalidConfiguration, exception.Error);
     }

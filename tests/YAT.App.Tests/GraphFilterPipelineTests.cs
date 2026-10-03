@@ -1,3 +1,4 @@
+using YAT.Application.Filtering;
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Graphs;
 using YAT.app.Graphs.Rendering;
@@ -61,11 +62,11 @@ public class GraphFilterPipelineTests
 
         public GraphConfiguration Configuration(
             GraphType graphType,
-            GraphValueFilter? filter,
+            ValueSetCondition? filter,
             params (GraphVariableRole Role, WorksheetColumn Column)[] assignments) =>
             new(graphType, Worksheet.Id, [.. assignments.Select(item => new GraphColumnAssignment(item.Role, item.Column.Id))])
             {
-                Filter = filter
+                Filter = filter is null ? null : new RowFilter(filter)
             };
 
         public Task<GraphData> LoadAsync(GraphConfiguration configuration) =>
@@ -108,7 +109,7 @@ public class GraphFilterPipelineTests
         var reg = await composition.AddNumericAsync("PS_RAW", 0, values);
         var site = await composition.AddNumericAsync("Site", 1, sites);
         var configuration = composition.Configuration(
-            GraphType.Histogram, new NumericValueFilter(site.Id, [2]),
+            GraphType.Histogram, new NumericValueSetCondition(site.Id, [2]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, site));
 
         var data = OneVariable(await composition.LoadAsync(configuration));
@@ -131,7 +132,7 @@ public class GraphFilterPipelineTests
         var site = await composition.AddNumericAsync("Site", 2, [1, 1, 2, 3, 3, 5, 7, 8]);
 
         var data = OneVariable(await composition.LoadAsync(composition.Configuration(
-            GraphType.EmpiricalCdf, new NumericValueFilter(site.Id, [1, 3, 5, 7]),
+            GraphType.EmpiricalCdf, new NumericValueSetCondition(site.Id, [1, 3, 5, 7]),
             (GraphVariableRole.Variable, reg), (GraphVariableRole.Group, tester))));
         var panel = GraphStatisticsPanelBuilder.Build(data, Token)!;
 
@@ -142,6 +143,36 @@ public class GraphFilterPipelineTests
     }
 
     // ---- Display sampling ----
+
+    // Several conditions (Task #053): the rows every one of them keeps are the whole graph before it is sampled.
+    [Fact]
+    public async Task AScatterPlotSamplesOnlyTheRowsEveryConditionKeeps()
+    {
+        using var composition = new Composition();
+        var (values, sites) = Worksheet1000();
+        var x = await composition.AddNumericAsync("X", 0, values);
+        var y = await composition.AddNumericAsync("Y", 1, values.Select(value => value * 2).ToArray());
+        var site = await composition.AddNumericAsync("Site", 2, sites);
+        var configuration = composition.Configuration(GraphType.ScatterPlot, null, (GraphVariableRole.X, x), (GraphVariableRole.Y, y)) with
+        {
+            Filter = new RowFilter(
+            [
+                new NumericValueSetCondition(site.Id, [2, 3]),
+                new NumericBetweenCondition(x.Id, 75, 451.5),
+                new NumericComparisonCondition(y.Id, NumericComparison.NotEqual, 150)
+            ])
+        };
+
+        var data = Assert.IsType<ScatterGraphData>(await composition.LoadAsync(configuration));
+        var model = new ScatterRenderModelBuilder(maximumRenderedPoints: 10).Build(data, new ScatterPlotLabels("X", "Y", null), Token)!;
+
+        // Rows 150..903 of Site 2 or 3 (x = row / 2), without row 150 (y = 150).
+        var kept = Enumerable.Range(0, 1_000).Where(row => sites[row] is 2 or 3 && row * 0.5 is >= 75 and <= 451.5 && row != 150).ToArray();
+        Assert.Equal(kept.Length, data.FilteredRowCount);
+        Assert.Equal(kept.Select(row => row * 0.5), data.XValues.ToArray());
+        Assert.Equal(kept.Length, model.SourcePointCount);
+        Assert.True(model.Series.Sum(series => series.Points.Length) <= 10, "the budget is spent on the kept rows only");
+    }
 
     [Fact]
     public async Task AScatterPlotSamplesOnlyTheKeptRows()
@@ -155,7 +186,7 @@ public class GraphFilterPipelineTests
 
         var filtered = builder.Build(
             Assert.IsType<ScatterGraphData>(await composition.LoadAsync(composition.Configuration(
-                GraphType.ScatterPlot, new NumericValueFilter(site.Id, [2]),
+                GraphType.ScatterPlot, new NumericValueSetCondition(site.Id, [2]),
                 (GraphVariableRole.X, x), (GraphVariableRole.Y, y), (GraphVariableRole.Group, site)))),
             new ScatterPlotLabels("X", "Y", "Site"),
             Token)!;
@@ -185,7 +216,7 @@ public class GraphFilterPipelineTests
         var site = await composition.AddNumericAsync("Site", 1, sites);
 
         var data = OneVariable(await composition.LoadAsync(composition.Configuration(
-            GraphType.EmpiricalCdf, new NumericValueFilter(site.Id, [2]), (GraphVariableRole.Variable, reg))));
+            GraphType.EmpiricalCdf, new NumericValueSetCondition(site.Id, [2]), (GraphVariableRole.Variable, reg))));
         var model = new EmpiricalCdfRenderModelBuilder(maximumRenderedPoints: 10).Build(data, new EmpiricalCdfLabels("PS_RAW"), Token)!;
 
         var series = Assert.Single(model.Series);
@@ -206,7 +237,7 @@ public class GraphFilterPipelineTests
         var site = await composition.AddNumericAsync("Site", 3, [1, 2, 2, 3, 2, 1]);
 
         var data = Assert.IsType<MultiVariableGraphData>(await composition.LoadAsync(composition.Configuration(
-            GraphType.BoxPlot, new NumericValueFilter(site.Id, [2]),
+            GraphType.BoxPlot, new NumericValueSetCondition(site.Id, [2]),
             (GraphVariableRole.Variable, a), (GraphVariableRole.Variable, b), (GraphVariableRole.Variable, c),
             (GraphVariableRole.Group, site))));
         var model = new BoxPlotRenderModelBuilder().Build(data, new BoxPlotLabels(["A", "B", "C"], "Site"), Token)!;
@@ -226,7 +257,7 @@ public class GraphFilterPipelineTests
         var reg = await composition.AddNumericAsync("Reg", 0, [1, 2, 3]);
         var other = await composition.AddNumericAsync("Other", 1, [4, 5, 6]);
         var site = await composition.AddNumericAsync("Site", 2, [1, 1, 1]);
-        var nothing = new NumericValueFilter(site.Id, [2]);
+        var nothing = new NumericValueSetCondition(site.Id, [2]);
 
         var scatter = Assert.IsType<ScatterGraphData>(await composition.LoadAsync(composition.Configuration(
             GraphType.ScatterPlot, nothing, (GraphVariableRole.X, reg), (GraphVariableRole.Y, other))));

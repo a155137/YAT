@@ -6,6 +6,7 @@ using YAT.Application.Features.Worksheets.AddWorksheetColumn;
 using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
 using YAT.Application.Features.Worksheets.RenameWorksheet;
+using YAT.Application.Filtering;
 using YAT.Application.Graphs;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
@@ -117,7 +118,7 @@ public sealed class CompositionRoot
             new WorksheetColumnsTsvExporter(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             new ProjectMetadataQueryService(projectSession.Projects, projectSession.Worksheets, projectSession.WorksheetColumns),
             new GraphDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
-            new GraphFilterValuesQueryService(projectSession.WorksheetColumns, projectSession.RawDataStore),
+            new FilterValuesQueryService(projectSession.WorksheetColumns, projectSession.RawDataStore),
             new AnalysisDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             projectSession.ProjectId);
     }
