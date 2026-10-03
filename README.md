@@ -61,11 +61,10 @@ require an installer.
 
 Other operating systems are not supported at this time.
 
-## Current version
+## Download
 
-The current tagged version is
-[**v0.1.0**](https://github.com/a155137/YAT/releases/tag/v0.1.0). It is a Git tag; no packaged release download is
-published on GitHub yet.
+Download the latest release from [GitHub Releases](https://github.com/a155137/YAT/releases/latest): unzip
+`YAT-v<version>-win-x64.zip` and run `YAT.exe`. YAT can check for and install newer releases itself.
 
 ## Build from source
 
@@ -97,4 +96,4 @@ Third-party components included with YAT remain under their own licenses; see
 
 ## Project status
 
-YAT is under active development. The current public tagged version is v0.1.0.
+YAT is under active development. Releases are published on [GitHub Releases](https://github.com/a155137/YAT/releases).

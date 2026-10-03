@@ -9,8 +9,8 @@
 
   <!--
     The release identity, in one place (Task #048). Version is the only version source: the SDK derives AssemblyVersion
-    and FileVersion (0.1.0.0) and InformationalVersion (0.1.0+<commit>) from it, the About dialog reads them from the
-    assembly, and build/publish.ps1 asks MSBuild for it to name the release.
+    and FileVersion (<Version>.0) and InformationalVersion (<Version>+<commit>) from it, the About dialog reads them
+    from the assembly, and build/publish.ps1 asks MSBuild for it to name the release.
   -->
   <PropertyGroup>
     <Version>0.2.0</Version>
