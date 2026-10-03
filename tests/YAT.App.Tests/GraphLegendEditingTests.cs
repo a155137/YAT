@@ -151,7 +151,7 @@ public class GraphLegendEditingTests
 
     private sealed class NoAxesDialog : IGraphAxesDialog
     {
-        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame) =>
+        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame, GraphAxisTickOptions ticks) =>
             Task.FromResult<GraphAxisRangeOptions?>(null);
     }
 

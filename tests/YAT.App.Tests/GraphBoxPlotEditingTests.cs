@@ -192,7 +192,7 @@ public class GraphBoxPlotEditingTests
 
     private sealed class AxesDialog(GraphAxisRangeOptions options) : IGraphAxesDialog
     {
-        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame) =>
+        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame, GraphAxisTickOptions ticks) =>
             Task.FromResult<GraphAxisRangeOptions?>(options);
     }
 

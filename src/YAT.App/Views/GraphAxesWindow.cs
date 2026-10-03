@@ -119,6 +119,7 @@ internal sealed class AvaloniaGraphAxesDialog : IGraphAxesDialog
     public Task<GraphAxisRangeOptions?> EditAsync(
         GraphTypeDefinition definition,
         GraphAxisRangeOptions current,
-        GraphRenderModel autoFrame) =>
-        GraphAxesWindow.ShowAsync(_owner, new GraphAxesEditorViewModel(definition, current, autoFrame));
+        GraphRenderModel autoFrame,
+        GraphAxisTickOptions ticks) =>
+        GraphAxesWindow.ShowAsync(_owner, new GraphAxesEditorViewModel(definition, current, autoFrame, ticks));
 }

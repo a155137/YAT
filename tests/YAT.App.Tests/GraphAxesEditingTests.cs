@@ -43,7 +43,7 @@ public class GraphAxesEditingTests
     {
         public List<(GraphTypeDefinition Definition, GraphAxisRangeOptions Current, GraphRenderModel AutoFrame)> Calls { get; } = [];
 
-        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame)
+        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame, GraphAxisTickOptions ticks)
         {
             Calls.Add((definition, current, autoFrame));
             return Task.FromResult(answer(current));
@@ -173,7 +173,7 @@ public class GraphAxesEditingTests
     {
         public int Opened { get; private set; }
 
-        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame)
+        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame, GraphAxisTickOptions ticks)
         {
             Opened++;
             return answer;

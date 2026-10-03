@@ -14,6 +14,7 @@ namespace YAT.app.Graphs.Rendering;
 //     3. the statistics options (Task #045): whether the panel is shown, and which of its statistics;
 //     4. the legend options (Task #044): whether the graph type's legend is shown, and on which side of the plot;
 //     5. the axis ranges the user chose (Task #043): a viewport over what the steps before made the axes reach;
+//        then the axis ticks (Task #054), which are always Auto here: only a graph window marks its axes otherwise;
 //     6. the labels, which only rename: the graph title and the axis titles of the finished frame (a widened X axis
 //        included).
 //

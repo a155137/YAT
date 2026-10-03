@@ -20,6 +20,7 @@ public sealed partial class GraphAxesEditorViewModel : ObservableObject
 {
     private readonly GraphTypeDefinition _definition;
     private readonly GraphRenderModel? _autoFrame;
+    private readonly GraphAxisTickOptions _ticks;
 
     // Every axis Auto with nothing typed, with no graph to show automatic values from: how a new setup starts.
     public GraphAxesEditorViewModel(GraphTypeDefinition definition)
@@ -28,17 +29,20 @@ public sealed partial class GraphAxesEditorViewModel : ObservableObject
     }
 
     // The ranges as they are now, ready to be changed. autoFrame is the drawn graph's frame before any range was
-    // chosen.
+    // chosen; ticks are its axes' ticks (Task #054), kept as they are - a range an interval of them would draw too many
+    // ticks over cannot be confirmed.
     public GraphAxesEditorViewModel(
         GraphTypeDefinition definition,
         GraphAxisRangeOptions current,
-        GraphRenderModel? autoFrame)
+        GraphRenderModel? autoFrame,
+        GraphAxisTickOptions? ticks = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(current);
 
         _definition = definition;
         _autoFrame = autoFrame;
+        _ticks = ticks ?? GraphAxisTickOptions.Default;
         XMinimumText = TextOf(current.X.Minimum);
         XMaximumText = TextOf(current.X.Maximum);
         YMinimumText = TextOf(current.Y.Minimum);
@@ -113,6 +117,7 @@ public sealed partial class GraphAxesEditorViewModel : ObservableObject
             ? GraphValidationMessages.For(error, _definition)
             : _autoFrame is { } frame
                 ? GraphAxisViewportBuilder.Conflicts(frame, _definition, Options).FirstOrDefault()
+                    ?? GraphAxisTickBuilder.Problems(frame, _definition, Options, _ticks).FirstOrDefault()
                 : null;
 
     public bool IsValid => ValidationMessage is null;

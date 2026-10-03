@@ -180,16 +180,17 @@ public class GraphAxisScaleEditingTests
     {
         public List<(GraphAxisField Axis, GraphAxisRangeOptions Current, GraphRenderModel AutoFrame)> Calls { get; } = [];
 
-        public Task<GraphAxisRangeOption?> EditAsync(GraphTypeDefinition definition, GraphAxisField axis, GraphAxisRangeOptions current, GraphRenderModel autoFrame)
+        // The range the answer gives, with the axis's ticks as they are (Task #054): these tests edit ranges only.
+        public Task<GraphAxisScaleEdit?> EditAsync(GraphTypeDefinition definition, GraphAxisField axis, GraphAxisRangeOptions current, GraphAxisTickOptions currentTicks, GraphRenderModel autoFrame)
         {
             Calls.Add((axis, current, autoFrame));
-            return Task.FromResult(answer(axis, current));
+            return Task.FromResult(answer(axis, current) is { } range ? new GraphAxisScaleEdit(range, currentTicks.For(axis)) : null);
         }
     }
 
     private sealed class NoAxesDialog : IGraphAxesDialog
     {
-        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame) =>
+        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame, GraphAxisTickOptions ticks) =>
             Task.FromResult<GraphAxisRangeOptions?>(null);
     }
 
@@ -337,10 +338,10 @@ public class GraphAxisScaleEditingTests
     {
         public int Opened { get; private set; }
 
-        public Task<GraphAxisRangeOption?> EditAsync(GraphTypeDefinition definition, GraphAxisField axis, GraphAxisRangeOptions current, GraphRenderModel autoFrame)
+        public async Task<GraphAxisScaleEdit?> EditAsync(GraphTypeDefinition definition, GraphAxisField axis, GraphAxisRangeOptions current, GraphAxisTickOptions currentTicks, GraphRenderModel autoFrame)
         {
             Opened++;
-            return answer;
+            return await answer is { } range ? new GraphAxisScaleEdit(range, currentTicks.For(axis)) : null;
         }
     }
 
@@ -348,7 +349,7 @@ public class GraphAxisScaleEditingTests
     {
         public int Opened { get; private set; }
 
-        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame)
+        public Task<GraphAxisRangeOptions?> EditAsync(GraphTypeDefinition definition, GraphAxisRangeOptions current, GraphRenderModel autoFrame, GraphAxisTickOptions ticks)
         {
             Opened++;
             return Task.FromResult<GraphAxisRangeOptions?>(null);

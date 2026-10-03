@@ -14,6 +14,11 @@ namespace YAT.app.Graphs;
 // is replaced, the other's is kept, and the result goes through the same rules, the same fit to the automatic ranges and
 // the same presentation path. Both dialogs edit the one range state, one edit at a time.
 //
+// The scale dialog also marks its axis (Task #054): Auto ticks, an interval or values of the user's own, confirmed with
+// its range by the same OK (GraphPresentationState.WithAxisScale). Ranges and ticks are kept apart: the Edit Axes dialog
+// changes ranges only and keeps every axis's ticks - and refuses a range an interval of them would draw too many ticks
+// over - and the scale dialog keeps the other axis's range and ticks.
+//
 // It knows nothing of windows: the dialogs come through IGraphAxesDialog and IGraphAxisScaleDialog, so tests drive it
 // without one.
 public sealed class GraphAxesEditController
@@ -50,10 +55,8 @@ public sealed class GraphAxesEditController
         _editing = true;
         try
         {
-            var edited = await _dialog.EditAsync(Graph.Definition, Graph.AxisRangeOptions, Graph.BaseFrame);
-            if (edited is null
-                || GraphConfigurationValidator.AxisRangeErrors(edited, Graph.Definition).Count > 0
-                || GraphAxisViewportBuilder.Conflicts(Graph.BaseFrame, Graph.Definition, edited).Count > 0)
+            var edited = await _dialog.EditAsync(Graph.Definition, Graph.AxisRangeOptions, Graph.BaseFrame, Graph.AxisTickOptions);
+            if (edited is null || !Usable(edited, Graph.AxisTickOptions))
             {
                 return false;
             }
@@ -80,20 +83,20 @@ public sealed class GraphAxesEditController
         _editing = true;
         try
         {
-            var edited = await _scaleDialog.EditAsync(Graph.Definition, axis, Graph.AxisRangeOptions, Graph.BaseFrame);
+            var edited = await _scaleDialog.EditAsync(Graph.Definition, axis, Graph.AxisRangeOptions, Graph.AxisTickOptions, Graph.BaseFrame);
             if (edited is null)
             {
                 return false;
             }
 
-            var options = axis == GraphAxisField.X ? Graph.AxisRangeOptions with { X = edited } : Graph.AxisRangeOptions with { Y = edited };
-            if (GraphConfigurationValidator.AxisRangeErrors(options, Graph.Definition).Count > 0
-                || GraphAxisViewportBuilder.Conflicts(Graph.BaseFrame, Graph.Definition, options).Count > 0)
+            var options = axis == GraphAxisField.X ? Graph.AxisRangeOptions with { X = edited.Range } : Graph.AxisRangeOptions with { Y = edited.Range };
+            var ticks = Graph.AxisTickOptions.With(axis, edited.Ticks);
+            if (!Usable(options, ticks))
             {
                 return false;
             }
 
-            Graph = Graph.WithAxisRanges(options);
+            Graph = Graph.WithAxisScale(options, ticks);
             GraphChanged?.Invoke(this, EventArgs.Empty);
             return true;
         }
@@ -109,27 +112,41 @@ public sealed class GraphAxesEditController
         ArgumentNullException.ThrowIfNull(graph);
         Graph = graph;
     }
+
+    // Whether the graph can be shown over these ranges and marked with these ticks: the range rules, the fit to the
+    // automatic ends, then the ticks over the ranges that makes.
+    private bool Usable(GraphAxisRangeOptions ranges, GraphAxisTickOptions ticks) =>
+        GraphConfigurationValidator.AxisRangeErrors(ranges, Graph.Definition).Count == 0
+        && GraphAxisViewportBuilder.Conflicts(Graph.BaseFrame, Graph.Definition, ranges).Count == 0
+        && GraphAxisTickBuilder.Problems(Graph.BaseFrame, Graph.Definition, ranges, ticks).Count == 0;
 }
 
-// The Edit Axes dialog of a drawn graph. Returns the ranges the user confirmed - which the axis range rules accept and
-// which fit the graph's automatic ranges - or null when the edit was cancelled. autoFrame is the graph's frame before
-// any range was chosen: what Auto shows, and what a range with one end chosen is checked against.
+// What the Edit Scale dialog confirms for its axis (Task #054): its range and its ticks.
+public sealed record GraphAxisScaleEdit(GraphAxisRangeOption Range, GraphAxisTickOption Ticks);
+
+// The Edit Axes dialog of a drawn graph. Returns the ranges the user confirmed - which the axis range rules accept, which
+// fit the graph's automatic ranges and over which the axes' ticks can be drawn - or null when the edit was cancelled.
+// autoFrame is the graph's frame before any range was chosen: what Auto shows, and what a range with one end chosen is
+// checked against. ticks are the axes' ticks as they are: kept, never edited here.
 public interface IGraphAxesDialog
 {
     Task<GraphAxisRangeOptions?> EditAsync(
         GraphTypeDefinition definition,
         GraphAxisRangeOptions current,
-        GraphRenderModel autoFrame);
+        GraphRenderModel autoFrame,
+        GraphAxisTickOptions ticks);
 }
 
-// The Edit X Scale / Edit Y Scale dialog of a drawn graph (Task #052): the range of one axis. Returns the range the user
-// confirmed for that axis, or null when the edit was cancelled. current holds both axes' ranges as they are (the other
-// axis is kept, and a range is checked with it); autoFrame is the graph's frame before any range was chosen.
+// The Edit X Scale / Edit Y Scale dialog of a drawn graph (Tasks #052, #054): the range and the ticks of one axis.
+// Returns what the user confirmed for that axis, or null when the edit was cancelled. currentRanges and currentTicks
+// hold both axes' as they are (the other axis's are kept, and this axis's are checked with them); autoFrame is the
+// graph's frame before any range was chosen.
 public interface IGraphAxisScaleDialog
 {
-    Task<GraphAxisRangeOption?> EditAsync(
+    Task<GraphAxisScaleEdit?> EditAsync(
         GraphTypeDefinition definition,
         GraphAxisField axis,
-        GraphAxisRangeOptions current,
+        GraphAxisRangeOptions currentRanges,
+        GraphAxisTickOptions currentTicks,
         GraphRenderModel autoFrame);
 }
