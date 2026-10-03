@@ -109,7 +109,7 @@ public class GraphAxisTickTests
     }
 
     [Fact]
-    public void AHundredTicksAreDrawnButNotOneMore()
+    public void AHundredTicksAreDrawnAndAnEditorRefusesOneMore()
     {
         var graph = Present(GraphType.ScatterPlot).Graph;
 
@@ -118,7 +118,12 @@ public class GraphAxisTickTests
         var ranges = XRange(0, 100);
         var problem = Assert.Single(GraphAxisTickBuilder.Problems(graph.BaseFrame, graph.Definition, ranges, XTicks(Interval(1))));
         Assert.Equal("The X-axis tick interval 1 would draw more than 100 ticks over the range shown. Enter a larger interval.", problem);
-        Assert.Throws<ArgumentException>(() => graph.WithAxisScale(ranges, XTicks(Interval(1))));
+        // The graph itself never refuses it (Task #055: a zoomed-out view must not be refused): it draws every 2nd multiple,
+        // and the interval stays 1.
+        var thinned = graph.WithAxisScale(ranges, XTicks(Interval(1)));
+        Assert.Equal(XTicks(Interval(1)), thinned.AxisTickOptions);
+        Assert.Equal(51, thinned.Frame.XAxis.Ticks.Count);
+        Assert.All(thinned.Frame.XAxis.Ticks, tick => Assert.Equal(0, tick.Value % 2));
     }
 
     [Fact]
@@ -375,7 +380,9 @@ public class GraphAxisTickTests
             foreach (var option in options)
             {
                 var ticks = GraphAxisTickOptions.Default.With(field, option);
-                if (GraphAxisTickBuilder.Problems(graph.BaseFrame, graph.Definition, GraphAxisRangeOptions.Default, ticks).Count > 0)
+                // What the rules refuse is refused; an interval too dense for the range is thinned (Task #055).
+                var problems = GraphAxisTickBuilder.Problems(graph.BaseFrame, graph.Definition, GraphAxisRangeOptions.Default, ticks);
+                if (problems.Any(problem => !problem.Contains("would draw more than", StringComparison.Ordinal)))
                 {
                     Assert.Throws<ArgumentException>(() => graph.WithAxisScale(GraphAxisRangeOptions.Default, ticks));
                     continue;

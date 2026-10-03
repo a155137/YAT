@@ -19,6 +19,10 @@ namespace YAT.app.Graphs;
 // changes ranges only and keeps every axis's ticks - and refuses a range an interval of them would draw too many ticks
 // over - and the scale dialog keeps the other axis's range and ticks.
 //
+// Both edit the configured ranges, never the view the window is zoomed or panned to (Task #055): a dialog shows and
+// confirms the configured range, Auto or chosen. Committing a different range for an axis ends that axis's view, so the
+// axis shows what was chosen; confirming its ticks alone, or the same range again, keeps the view.
+//
 // It knows nothing of windows: the dialogs come through IGraphAxesDialog and IGraphAxisScaleDialog, so tests drive it
 // without one.
 public sealed class GraphAxesEditController
@@ -61,7 +65,7 @@ public sealed class GraphAxesEditController
                 return false;
             }
 
-            Graph = Graph.WithAxisRanges(edited);
+            Graph = Graph.WithAxisRanges(edited).WithView(Unviewed(Graph.ViewOptions, Graph.AxisRangeOptions, edited));
             GraphChanged?.Invoke(this, EventArgs.Empty);
             return true;
         }
@@ -96,7 +100,7 @@ public sealed class GraphAxesEditController
                 return false;
             }
 
-            Graph = Graph.WithAxisScale(options, ticks);
+            Graph = Graph.WithAxisScale(options, ticks).WithView(Unviewed(Graph.ViewOptions, Graph.AxisRangeOptions, options));
             GraphChanged?.Invoke(this, EventArgs.Empty);
             return true;
         }
@@ -111,6 +115,21 @@ public sealed class GraphAxesEditController
     {
         ArgumentNullException.ThrowIfNull(graph);
         Graph = graph;
+    }
+
+    // The view (Task #055) once these ranges are committed: an axis whose configured range really changed is shown over
+    // its new range, so its view ends; every other axis - and an axis whose ticks alone were edited - keeps its view.
+    private static GraphViewOptions Unviewed(GraphViewOptions view, GraphAxisRangeOptions before, GraphAxisRangeOptions after)
+    {
+        foreach (var axis in new[] { GraphAxisField.X, GraphAxisField.Y })
+        {
+            if (before.For(axis) != after.For(axis))
+            {
+                view = view.With(axis, null);
+            }
+        }
+
+        return view;
     }
 
     // Whether the graph can be shown over these ranges and marked with these ticks: the range rules, the fit to the

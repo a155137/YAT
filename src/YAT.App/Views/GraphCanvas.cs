@@ -117,6 +117,37 @@ internal sealed class GraphCanvas : Control
         return GraphAxisHitTest.Find(SkiaGraphRenderer.AxisGeometry(model, bounds, CurrentTheme), new SKPoint((float)point.X, (float)point.Y));
     }
 
+    // The plot area of the graph as it is laid out now at this control's size in its theme, or null when the control is
+    // too small for one (Task #055): what a wheel step or a drag is measured against.
+    internal SKRect? PlotArea
+    {
+        get
+        {
+            if (Model is not { } model)
+            {
+                return null;
+            }
+
+            var layout = SkiaGraphRenderer.Layout(model, new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height), CurrentTheme);
+            return layout.HasPlotArea ? layout.PlotArea : null;
+        }
+    }
+
+    // Whether a point of this control is in the plot's body (Task #055): inside the plot area and on none of the parts
+    // that are never navigated - the title, the legend, the statistics panel, the reference line labels.
+    internal bool InPlot(Point point)
+    {
+        if (Model is not { } model || PlotArea is not { } plotArea)
+        {
+            return false;
+        }
+
+        var at = new SKPoint((float)point.X, (float)point.Y);
+        var bounds = new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height);
+        return plotArea.Contains(at)
+            && !SkiaGraphRenderer.AxisGeometry(model, bounds, CurrentTheme).Excluded.Any(area => area.Contains(at));
+    }
+
     public override void Render(DrawingContext context)
     {
         base.Render(context);

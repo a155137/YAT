@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.Input;
+using SkiaSharp;
 using YAT.Application.Graphs;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Export;
@@ -45,6 +46,13 @@ namespace YAT.app.Views;
 // And a box plot's own options (Task #047): right-click and choose Edit Box Plot... to change its box width or to mark
 // its means and outliers or not. Those change only the plot renderer the window draws, copies and exports with - the
 // same boxes under the same presented graph - so they and the graph's other edits keep each other too.
+//
+// And it can be zoomed and panned (Task #055): the mouse wheel zooms about the cursor - in the plot on every axis the graph
+// type lets the user navigate (a box plot's Y only), over an axis on that axis alone - and a left-button drag in the plot
+// pans it; a double-click in the plot is Reset View, back to the configured ranges. The view is the graph's like
+// everything above: shown, copied and exported, kept by every other edit, and never its ranges or its ticks. The
+// title, the legend, the statistics panel and the reference line labels are never navigated, and right-click keeps its
+// menu.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
@@ -56,6 +64,11 @@ internal sealed class GraphWindow : Window
     private readonly GraphExportController _export;
     private readonly GraphLabelEditController _labels;
     private readonly GraphAxesEditController _axes;
+    private readonly GraphViewController _view;
+
+    // Where a left-button press in the plot was, and the plot area it was measured against, until it becomes a pan or
+    // is released (Task #055).
+    private (SKRect PlotArea, SKPoint From)? _press;
     private readonly GraphLegendEditController _legend;
     private readonly GraphStatisticsEditController _statistics;
     private readonly GraphAppearanceEditController _appearance;
@@ -84,6 +97,8 @@ internal sealed class GraphWindow : Window
         _labels.GraphChanged += (_, _) => Show(_labels.Graph);
         _axes = new GraphAxesEditController(graph, new AvaloniaGraphAxesDialog(this), new AvaloniaGraphAxisScaleDialog(this));
         _axes.GraphChanged += (_, _) => Show(_axes.Graph);
+        _view = new GraphViewController(graph);
+        _view.GraphChanged += (_, _) => Show(_view.Graph);
         _legend = new GraphLegendEditController(graph, new AvaloniaGraphLegendDialog(this));
         _legend.GraphChanged += (_, _) => Show(_legend.Graph);
         _statistics = new GraphStatisticsEditController(graph, new AvaloniaGraphStatisticsDialog(this));
@@ -128,6 +143,18 @@ internal sealed class GraphWindow : Window
 
         var graphArea = GraphArea(_canvas, contextMenu);
         graphArea.DoubleTapped += OnGraphAreaDoubleTapped;
+        graphArea.PointerWheelChanged += OnGraphAreaWheel;
+        graphArea.PointerPressed += OnGraphAreaPressed;
+        graphArea.PointerMoved += OnGraphAreaMoved;
+        graphArea.PointerReleased += OnGraphAreaReleased;
+        graphArea.PointerCaptureLost += (_, _) => EndPan();
+        _canvas.SizeChanged += (_, _) =>
+        {
+            if (_canvas.PlotArea is { } plotArea)
+            {
+                _view.Resize(plotArea);
+            }
+        };
         Content = new DockPanel { Children = { menu, graphArea } };
     }
 
@@ -220,23 +247,113 @@ internal sealed class GraphWindow : Window
 
     // A double-click on a title the graph shows edits the labels, opened on that title. Elsewhere on an axis - its ticks,
     // its tick labels, its line - it edits that axis's scale (Task #052), when the graph type gives the axis a range: not
-    // a box plot's categories. Anywhere else - the plot, the legend, the statistics panel, the reference line labels, a
-    // hidden title's empty place - it does nothing.
+    // a box plot's categories. In the plot's body it is Reset View (Task #055). Anywhere else - the legend, the
+    // statistics panel, the reference line labels, a hidden title's empty place - it does nothing.
     private async void OnGraphAreaDoubleTapped(object? sender, TappedEventArgs e)
     {
+        EndPan();
         var point = e.GetPosition(_canvas);
         var label = _canvas.LabelAt(point);
-        switch (DoubleClickTarget(label, label is null ? _canvas.AxisAt(point) : null, _axes.Graph.Definition))
+        var axis = label is null ? _canvas.AxisAt(point) : null;
+        switch (DoubleClickTarget(label, axis, _axes.Graph.Definition))
         {
             case (GraphLabelField field, _):
                 e.Handled = true;
                 await _labels.EditAsync(field);
                 break;
-            case (null, GraphAxisField axis):
+            case (null, GraphAxisField picked):
                 e.Handled = true;
-                await _axes.EditScaleAsync(axis);
+                await _axes.EditScaleAsync(picked);
+                break;
+            default:
+                if (_canvas.InPlot(point))
+                {
+                    e.Handled = true;
+                    _view.Reset();
+                }
+
                 break;
         }
+    }
+
+    // What a wheel step zooms (Task #055): nothing over a title; over an axis the graph type lets the user navigate, that
+    // axis alone; in the plot's body - including where an axis that cannot be navigated reaches into it - every axis that
+    // can be; anywhere else nothing.
+    internal static (bool Zooms, GraphAxisField? Axis) WheelTarget(
+        GraphLabelField? label,
+        GraphAxisField? axis,
+        bool inPlot,
+        GraphTypeDefinition definition) =>
+        label is not null ? (false, null)
+        : axis is { } picked && definition.SupportsAxisRange(picked) ? (true, picked)
+        : inPlot ? (true, null)
+        : (false, null);
+
+    private void OnGraphAreaWheel(object? sender, PointerWheelEventArgs e)
+    {
+        var point = e.GetPosition(_canvas);
+        var label = _canvas.LabelAt(point);
+        var (zooms, axis) = WheelTarget(label, label is null ? _canvas.AxisAt(point) : null, _canvas.InPlot(point), _view.Graph.Definition);
+        if (zooms && _canvas.PlotArea is { } plotArea)
+        {
+            e.Handled = true;
+            _view.ZoomAt(axis, plotArea, new SKPoint((float)point.X, (float)point.Y), e.Delta.Y);
+        }
+    }
+
+    // A left-button press in the plot's body may start a pan; it does once the pointer has moved past the drag threshold,
+    // so a click or a double-click never moves the graph. Other buttons - the right-click menu - are left alone.
+    private void OnGraphAreaPressed(object? sender, PointerPressedEventArgs e)
+    {
+        EndPan();
+        var point = e.GetPosition(_canvas);
+        if (e.GetCurrentPoint(_canvas).Properties.IsLeftButtonPressed && _canvas.InPlot(point) && _canvas.PlotArea is { } plotArea)
+        {
+            _press = (plotArea, new SKPoint((float)point.X, (float)point.Y));
+        }
+    }
+
+    // The pan follows the pointer from where the drag began, wherever the pointer goes once it is captured.
+    private void OnGraphAreaMoved(object? sender, PointerEventArgs e)
+    {
+        if (_press is not { } press)
+        {
+            return;
+        }
+
+        var position = e.GetPosition(_canvas);
+        var point = new SKPoint((float)position.X, (float)position.Y);
+        if (!_view.IsPanning)
+        {
+            if (!GraphViewNavigator.IsDrag(press.From, point))
+            {
+                return;
+            }
+
+            e.Pointer.Capture(sender as IInputElement);
+            _view.BeginPan(press.PlotArea, press.From);
+        }
+
+        e.Handled = true;
+        _view.PanTo(point);
+    }
+
+    private void OnGraphAreaReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        var panned = _view.IsPanning;
+        EndPan();
+        if (panned)
+        {
+            e.Pointer.Capture(null);
+            e.Handled = true;
+        }
+    }
+
+    // A pan ends where the pointer was released, or lost: the graph stays as it was moved.
+    private void EndPan()
+    {
+        _press = null;
+        _view.EndPan();
     }
 
     // What a double-click edits: the title under it first; else the axis under it, when the graph type gives that axis a
@@ -255,6 +372,7 @@ internal sealed class GraphWindow : Window
     {
         _labels.Show(graph);
         _axes.Show(graph);
+        _view.Show(graph);
         _legend.Show(graph);
         _statistics.Show(graph);
         _appearance.Show(graph);

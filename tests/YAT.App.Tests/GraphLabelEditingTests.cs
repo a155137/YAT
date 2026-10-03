@@ -220,11 +220,11 @@ public class GraphLabelEditingTests
         Assert.DoesNotContain(kept, type => typeof(GraphData).IsAssignableFrom(type));
         Assert.DoesNotContain(typeof(GraphConfiguration), kept);
 
-        // The frame before the statistics, legend, axis ranges and labels, the frame before the labels and the frame after
-        // them, the graph type, and the label, axis range (#043), legend (#044), statistics (#045), appearance (#046) and
-        // axis tick (#054) options: nothing else.
-        Assert.Equal(10, kept.Count);
-        Assert.Equal(3, kept.Count(type => type == typeof(GraphRenderModel)));
+        // The frame before the statistics, legend, axis ranges and labels, the frame over the configured ranges (#055),
+        // the frame before the labels and the frame after them, the graph type, and the label, axis range (#043), legend
+        // (#044), statistics (#045), appearance (#046), axis tick (#054) and view (#055) options: nothing else.
+        Assert.Equal(12, kept.Count);
+        Assert.Equal(4, kept.Count(type => type == typeof(GraphRenderModel)));
         Assert.Contains(typeof(GraphTypeDefinition), kept);
         Assert.Contains(typeof(GraphLabelOptions), kept);
         Assert.Contains(typeof(GraphAxisRangeOptions), kept);
@@ -232,6 +232,7 @@ public class GraphLabelEditingTests
         Assert.Contains(typeof(GraphStatisticsOptions), kept);
         Assert.Contains(typeof(GraphAppearanceOptions), kept);
         Assert.Contains(typeof(GraphAxisTickOptions), kept);
+        Assert.Contains(typeof(GraphViewOptions), kept);
     }
 
     // ---- Where the titles are ----

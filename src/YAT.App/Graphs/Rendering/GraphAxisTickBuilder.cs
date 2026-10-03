@@ -5,9 +5,9 @@ using YAT.app.Analyses;
 namespace YAT.app.Graphs.Rendering;
 
 // Puts the ticks the user chose on a presented frame (Task #054): the step right after the axis ranges
-// (GraphAxisViewportBuilder), so an axis is first given its range and then marked. An axis on Auto ticks keeps the
-// ticks its own scale gave it over that range; an axis with an interval or values of its own is marked with exactly
-// those of them that lie on the range it shows. Its range never changes here.
+// (GraphAxisViewportBuilder) and the view (GraphViewBuilder, Task #055), so an axis is first given the range it shows and
+// then marked. An axis on Auto ticks keeps the ticks its own scale gave it over that range; an axis with an interval or
+// values of its own is marked with exactly those of them that lie on the range it shows. Its range never changes here.
 //
 // Only the ticks that lie on the range go into the frame. The others are kept with the options, not the frame, so they
 // cannot change how wide the tick labels are measured and so the layout; they are drawn as soon as a range reaches them.
@@ -31,10 +31,15 @@ public static class GraphAxisTickBuilder
     private const double LargeValue = 1e6;
     private const string ScientificFormat = "0.######E+0";
 
+    // How far apart, in pixels, the thinned ticks of an interval on a navigated axis must at least be (Task #055): not a
+    // measure of the labels, just a spacing at which numbers of the usual width stay apart.
+    public const double MinimumTickSpacing = 50;
+
     public static GraphRenderModel Attach(
         GraphRenderModel frame,
         GraphTypeDefinition definition,
-        GraphAxisTickOptions options)
+        GraphAxisTickOptions options,
+        GraphViewOptions? view = null)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(definition);
@@ -45,18 +50,21 @@ public static class GraphAxisTickBuilder
             return frame;
         }
 
-        if (Problems(frame, definition, options) is [var problem, ..])
+        // Only what the rules refuse is refused here. An interval that would draw too many ticks over the range shown is
+        // thinned instead (Ticks): a zoomed-out view (Task #055) must never be refused, and an editor refuses such an
+        // interval over a configured range before it gets here (Problems).
+        if (RuleProblems(frame, definition, options) is [var problem, ..])
         {
             throw new ArgumentException($"The axis ticks cannot be used: {problem}", nameof(options));
         }
 
         var result = frame;
-        if (Marked(frame.XAxis, definition, GraphAxisField.X, options.X) is { } x)
+        if (Marked(frame.XAxis, definition, GraphAxisField.X, options.X, view?.PixelsFor(GraphAxisField.X)) is { } x)
         {
             result = result.WithXAxis(x);
         }
 
-        if (Marked(frame.YAxis, definition, GraphAxisField.Y, options.Y) is { } y)
+        if (Marked(frame.YAxis, definition, GraphAxisField.Y, options.Y, view?.PixelsFor(GraphAxisField.Y)) is { } y)
         {
             result = result.WithYAxis(y);
         }
@@ -121,7 +129,7 @@ public static class GraphAxisTickBuilder
         }
 
         if (option is GraphAxisTickOption.FixedInterval { Interval: var interval }
-            && IntervalValues(axis, interval) is not { } values)
+            && IntervalValues(axis, interval, every: 1) is null)
         {
             return [$"The {GraphAxisViewportBuilder.AxisName(field)} tick interval {Text(interval)} would draw more " +
                 $"than {GraphAxisTickRules.MaximumIntervalTicks} ticks over the range shown. Enter a larger interval."];
@@ -138,9 +146,12 @@ public static class GraphAxisTickBuilder
         return values.Values.Count(value => !IsShown(axis, value));
     }
 
-    // The ticks of an axis under an interval or values of the user's own, over the range it shows: only those on it.
-    // The option has to be one Problems accepts.
-    public static IReadOnlyList<GraphAxisTick> Ticks(GraphAxisModel axis, GraphAxisTickOption option)
+    // The ticks of an axis under an interval or values of the user's own, over the range it shows: only those on it. An
+    // interval that would draw more than GraphAxisTickRules.MaximumIntervalTicks there (a zoomed-out view, Task #055) is
+    // drawn every 2nd, 5th, 10th, 20th ... multiple - the fewest skipped that bring it within the limit and, on a
+    // navigated axis spanning pixels, MinimumTickSpacing apart - so its ticks stay on the user's own zero-anchored grid,
+    // labelled as the interval is, and the interval itself is never changed. The option has to be one the rules accept.
+    public static IReadOnlyList<GraphAxisTick> Ticks(GraphAxisModel axis, GraphAxisTickOption option, double? pixels = null)
     {
         ArgumentNullException.ThrowIfNull(axis);
         ArgumentNullException.ThrowIfNull(option);
@@ -148,9 +159,7 @@ public static class GraphAxisTickBuilder
         return option switch
         {
             GraphAxisTickOption.FixedInterval { Interval: var interval } =>
-                Label(axis, IntervalValues(axis, interval)
-                    ?? throw new ArgumentException("The interval draws too many ticks over this range.", nameof(option)),
-                    DecimalsOf(interval)),
+                Label(axis, Thinned(axis, interval, pixels), DecimalsOf(interval)),
             GraphAxisTickOption.CustomValues { Values: var values } =>
                 Label(axis, [.. values.Where(value => IsShown(axis, value))], decimals: null),
             _ => axis.Ticks
@@ -162,25 +171,97 @@ public static class GraphAxisTickBuilder
         GraphAxisModel axis,
         GraphTypeDefinition definition,
         GraphAxisField field,
-        GraphAxisTickOption option)
+        GraphAxisTickOption option,
+        double? pixels)
     {
         if (!definition.SupportsAxisRange(field) || option.IsAuto)
         {
             return null;
         }
 
-        return new GraphAxisModel(axis.Range, Ticks(axis, option), axis.Title) { Scale = axis.Scale };
+        return new GraphAxisModel(axis.Range, Ticks(axis, option, pixels), axis.Title) { Scale = axis.Scale };
     }
 
-    // The multiples of an interval the axis shows, in the units the axis is typed in (percent on a probability axis),
-    // or null when they are more than an axis may draw. Counted, never walked: a loop over the multiples themselves
-    // would not end where adding the interval no longer changes a double.
-    private static IReadOnlyList<double>? IntervalValues(GraphAxisModel axis, double interval)
+    // What the rules refuse in these ticks, whatever the range: the problems Attach will not draw.
+    private static IReadOnlyList<GraphAxisTickProblem> RuleProblems(
+        GraphRenderModel frame,
+        GraphTypeDefinition definition,
+        GraphAxisTickOptions options)
+    {
+        var problems = new List<GraphAxisTickProblem>();
+        foreach (var field in new[] { GraphAxisField.X, GraphAxisField.Y })
+        {
+            if (definition.SupportsAxisRange(field))
+            {
+                problems.AddRange(GraphAxisTickRules.Check(field, definition.AxisKind(field), options.For(field)));
+            }
+        }
+
+        return problems;
+    }
+
+    // The multiples of an interval drawn on an axis: all of them where they are few enough, else every 2nd, 5th, 10th,
+    // 20th, ... - the first of these steps that brings them within the limit and, on an axis the user has navigated and
+    // whose pixels are known (pixels), at least MinimumTickSpacing apart on screen. Empty only where the values are too
+    // large for their multiples to be counted at all.
+    private static IReadOnlyList<double> Thinned(GraphAxisModel axis, double interval, double? pixels)
+    {
+        for (var decade = 1d; decade < 1e300; decade *= 10)
+        {
+            foreach (var step in new[] { 1d, 2d, 5d })
+            {
+                if (IntervalValues(axis, interval, step * decade) is { } values && IsReadable(axis, values, pixels))
+                {
+                    return values;
+                }
+
+                if (Uncountable(axis, interval))
+                {
+                    return [];
+                }
+            }
+        }
+
+        return [];
+    }
+
+    // Whether ticks at these values are far enough apart to be read on an axis spanning pixels: the closest two at least
+    // MinimumTickSpacing apart where they are placed (a probability axis's percentages at their scores). Always, where the
+    // pixels are not known or there are fewer than two ticks.
+    private static bool IsReadable(GraphAxisModel axis, IReadOnlyList<double> values, double? pixels)
+    {
+        if (pixels is not { } span || values.Count < 2)
+        {
+            return true;
+        }
+
+        var closest = double.PositiveInfinity;
+        for (var index = 1; index < values.Count; index++)
+        {
+            closest = Math.Min(closest, Place(axis, values[index]) - Place(axis, values[index - 1]));
+        }
+
+        return closest / axis.Range.Span * span >= MinimumTickSpacing - 1e-9;
+    }
+
+    // Whether the multiples of an interval over the range an axis shows lie past where a double holds every whole number.
+    private static bool Uncountable(GraphAxisModel axis, double interval)
     {
         var (lowest, highest) = Shown(axis);
-        var first = Math.Ceiling((lowest / interval) - Slack);
-        var last = Math.Floor((highest / interval) + Slack);
-        var count = last - first + 1;
+        return !(Math.Abs(lowest / interval) < WholeNumberLimit && Math.Abs(highest / interval) < WholeNumberLimit);
+    }
+
+    // Every multiple of an interval - or, with every above 1, every multiple of every times the interval, which is one
+    // of them - that the axis shows, in the units the axis is typed in (percent on a probability axis); null when they
+    // are more than an axis may draw. Counted, never walked: a loop over the multiples themselves would not end where
+    // adding the interval no longer changes a double. With every = 1 these are exactly the interval's own ticks (#054).
+    private static IReadOnlyList<double>? IntervalValues(GraphAxisModel axis, double interval, double every)
+    {
+        var (lowest, highest) = Shown(axis);
+        var first = Math.Ceiling(Math.Ceiling((lowest / interval) - Slack) / every) * every;
+        var last = Math.Floor(Math.Floor((highest / interval) + Slack) / every) * every;
+        var count = ((last - first) / every) + 1;
+
         // A multiple or two at the very ends may still fall a rounding error off the range, so the count is only an
         // upper bound of what is drawn; past it by more than that, the interval is too small for the range.
         if (!double.IsFinite(count) || count > GraphAxisTickRules.MaximumIntervalTicks + 2
@@ -192,7 +273,7 @@ public static class GraphAxisTickBuilder
         var values = new List<double>();
         for (var index = 0d; index < count; index++)
         {
-            var value = (first + index) * interval;
+            var value = (first + (index * every)) * interval;
             if (IsShown(axis, value))
             {
                 values.Add(value == 0 ? 0 : value);

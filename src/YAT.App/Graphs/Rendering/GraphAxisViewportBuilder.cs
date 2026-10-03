@@ -154,8 +154,9 @@ public static class GraphAxisViewportBuilder
             option.Maximum is { } maximum ? Place(maximum) : axis.Range.Maximum);
     }
 
-    // The ticks an axis of this scale reads on over the range.
-    private static IReadOnlyList<GraphAxisTick> Ticks(GraphAxisScale scale, GraphAxisRange range) => scale switch
+    // The ticks an axis of this scale reads on over the range: its Auto ticks, here and wherever an axis is given
+    // another range (GraphViewBuilder, Task #055).
+    internal static IReadOnlyList<GraphAxisTick> Ticks(GraphAxisScale scale, GraphAxisRange range) => scale switch
     {
         GraphAxisScale.Count => GraphAxisTicks.NiceCountsWithin(range),
         GraphAxisScale.Probability => ProbabilityAxis.Ticks(range),
