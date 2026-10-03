@@ -13,7 +13,7 @@
     from the assembly, and build/publish.ps1 asks MSBuild for it to name the release.
   -->
   <PropertyGroup>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Product>YAT</Product>
     <Description>YuXiang Analysis Tool</Description>
     <!-- What Windows shows as the file description of YAT.exe and of every YAT assembly. -->
