@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.Input;
 using SkiaSharp;
 using YAT.Application.Graphs;
 using YAT.app.Graphs.Rendering;
@@ -21,15 +22,33 @@ namespace YAT.app.Graphs;
 public sealed class GraphViewController
 {
     private (SKRect PlotArea, SKPoint From, GraphRenderModel Start)? _pan;
+    private GraphPresentationState _graph;
 
     public GraphViewController(GraphPresentationState graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        Graph = graph;
+        ResetCommand = new RelayCommand(() => Reset(), () => CanReset);
+        _graph = graph;
     }
 
     // The graph as it is shown now.
-    public GraphPresentationState Graph { get; private set; }
+    public GraphPresentationState Graph
+    {
+        get => _graph;
+        private set
+        {
+            _graph = value;
+            ResetCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    // Reset View as a command (Task #056): what the right-click menu's Reset View and the Home key run, and the very
+    // Reset a double-click in the plot runs. Available only while the graph is zoomed or panned, which it follows as the
+    // graph changes - here or by another edit shown to this controller.
+    public IRelayCommand ResetCommand { get; }
+
+    // Whether the graph is zoomed or panned: whether Reset View has anything to reset.
+    public bool CanReset => !Graph.ViewOptions.IsDefault;
 
     // Raised after the view changed Graph.
     public event EventHandler? GraphChanged;

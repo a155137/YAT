@@ -12,6 +12,7 @@ namespace YAT.App.Tests;
 //
 // Filling a menu's item list needs Avalonia's UI thread, which a unit test does not have; the window puts the item in the
 // menu, and that step is checked in the running application.
+[Collection(GraphMenuItemCollection.Name)]
 public class GraphContextMenuTests
 {
     // 1

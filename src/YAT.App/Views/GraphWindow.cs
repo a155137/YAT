@@ -49,10 +49,11 @@ namespace YAT.app.Views;
 //
 // And it can be zoomed and panned (Task #055): the mouse wheel zooms about the cursor - in the plot on every axis the graph
 // type lets the user navigate (a box plot's Y only), over an axis on that axis alone - and a left-button drag in the plot
-// pans it; a double-click in the plot is Reset View, back to the configured ranges. The view is the graph's like
-// everything above: shown, copied and exported, kept by every other edit, and never its ranges or its ticks. The
-// title, the legend, the statistics panel and the reference line labels are never navigated, and right-click keeps its
-// menu.
+// pans it; a double-click in the plot is Reset View, back to the configured ranges. So are right-click > Reset View and
+// the Home key (Task #056), both available while the graph is zoomed or panned; all three run the one Reset. The view is
+// the graph's like everything above: shown, copied and exported, kept by every other edit, and never its ranges or its
+// ticks. The title, the legend, the statistics panel and the reference line labels are never navigated, and right-click
+// keeps its menu.
 internal sealed class GraphWindow : Window
 {
     // Comfortable for a first graph, and small enough for a 1280x720 screen.
@@ -78,6 +79,9 @@ internal sealed class GraphWindow : Window
     // Ctrl+C copies the graph while this window is active. The binding belongs to this window alone, so the worksheet's
     // own Ctrl+C in the main window is untouched.
     internal static readonly KeyGesture CopyImageGesture = new(Key.C, KeyModifiers.Control);
+
+    // Home is Reset View (Task #056) while this window is active: no modifier, nothing else in the window uses it.
+    internal static readonly KeyGesture ResetViewGesture = new(Key.Home);
 
     // palettes: the user's palettes for Edit Appearance... (Task #050) - their choices and the Palette Manager, never
     // where they are kept. A graph takes a palette's colours, never the palette, so nothing the library does reaches it.
@@ -114,6 +118,7 @@ internal sealed class GraphWindow : Window
         // in progress.
         _copyImage = new AsyncRelayCommand(() => _export.CopyImageAsync(Snapshot()));
         KeyBindings.Add(new KeyBinding { Gesture = CopyImageGesture, Command = _copyImage });
+        KeyBindings.Add(new KeyBinding { Gesture = ResetViewGesture, Command = _view.ResetCommand });
         var editLabels = new AsyncRelayCommand(() => _labels.EditAsync(focus: null));
         var editAxes = new AsyncRelayCommand(() => _axes.EditAsync());
 
@@ -136,7 +141,7 @@ internal sealed class GraphWindow : Window
         DockPanel.SetDock(menu, Dock.Top);
         var contextMenu = new ContextMenu();
         foreach (var item in ContextMenuItems(
-            graph.Definition, _copyImage, editLabels, editAxes, editLegend, editStatistics, editBoxPlot, editAppearance))
+            graph.Definition, _copyImage, editLabels, editAxes, editLegend, editStatistics, editBoxPlot, editAppearance, _view.ResetCommand))
         {
             contextMenu.Items.Add(item);
         }
@@ -168,8 +173,9 @@ internal sealed class GraphWindow : Window
         ContextMenu = contextMenu
     };
 
-    // The right-click menu of a graph of this type, in order: Copy Image, then the editors the graph type offers -
-    // labels, axes, legend, statistics, box plot, appearance.
+    // The right-click menu of a graph of this type, in order: Copy Image and - for a graph the user can zoom and pan -
+    // Reset View (Task #056), then the editors the graph type offers - labels, axes, legend, statistics, box plot,
+    // appearance.
     internal static IReadOnlyList<Control> ContextMenuItems(
         GraphTypeDefinition definition,
         ICommand copyImage,
@@ -178,11 +184,18 @@ internal sealed class GraphWindow : Window
         ICommand editLegend,
         ICommand editStatistics,
         ICommand editBoxPlot,
-        ICommand editAppearance)
+        ICommand editAppearance,
+        ICommand? resetView = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
-        List<Control> items = [CopyImageItem(copyImage), new Separator(), EditLabelsItem(editLabels)];
+        List<Control> items = [CopyImageItem(copyImage)];
+        if (resetView is not null && definition.Supports(GraphCapability.AxisRange))
+        {
+            items.Add(ResetViewItem(resetView));
+        }
+
+        items.AddRange([new Separator(), EditLabelsItem(editLabels)]);
         if (definition.Supports(GraphCapability.AxisRange))
         {
             items.Add(EditAxesItem(editAxes));
@@ -215,6 +228,11 @@ internal sealed class GraphWindow : Window
     // Ctrl+C runs.
     internal static MenuItem CopyImageItem(ICommand copyImage) =>
         new() { Header = "_Copy Image", Command = copyImage, InputGesture = CopyImageGesture };
+
+    // Reset View (Task #056): back to the configured ranges, as a double-click in the plot is; unavailable while the graph
+    // is not zoomed or panned, which the command it runs says.
+    internal static MenuItem ResetViewItem(ICommand resetView) =>
+        new() { Header = "_Reset View", Command = resetView, InputGesture = ResetViewGesture };
 
     // Right-click > Edit Labels...: every label of the graph, hidden ones included.
     internal static MenuItem EditLabelsItem(ICommand editLabels) =>

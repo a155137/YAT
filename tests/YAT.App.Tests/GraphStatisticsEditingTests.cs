@@ -15,6 +15,7 @@ namespace YAT.App.Tests;
 // go onto the frame the graph had before its statistics, whose panel was worked out whole with the graph - so a panel
 // hidden from the start can be shown without the data, and the default brings the panel back exactly. A graph without
 // a panel has nothing to edit.
+[Collection(GraphMenuItemCollection.Name)]
 public class GraphStatisticsEditingTests
 {
     private static CancellationToken Token => TestContext.Current.CancellationToken;
