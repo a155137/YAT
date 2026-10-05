@@ -111,6 +111,22 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
+        <!-- Graphs list (Task #061): compact rows; the graph last activated in semibold, with an accent bar. -->
+        <Style Selector="ListBox#GraphsList ListBoxItem">
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="ListBox#GraphsList TextBlock.active">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="ListBox#GraphsList Border.yat-graph-marker">
+            <Setter Property="Width" Value="3" />
+            <Setter Property="Margin" Value="0,1,6,1" />
+            <Setter Property="CornerRadius" Value="1" />
+            <Setter Property="Background" Value="{DynamicResource ProjectExplorerActiveIconBrush}" />
+        </Style>
+
         <Style Selector="Button.yat-pager">
             <Setter Property="Padding" Value="8,2" />
             <Setter Property="FontSize" Value="12" />
@@ -135,6 +151,11 @@
                           ToggleType="CheckBox"
                           IsChecked="{Binding Project.IsProjectPanelVisible, Mode=OneWay, FallbackValue=True}"
                           Command="{Binding Project.ToggleProjectPanelCommand, FallbackValue={x:Null}}" />
+                <!-- The graph windows open now (Task #061). -->
+                <MenuItem Header="_Graphs"
+                          ToggleType="CheckBox"
+                          IsChecked="{Binding OpenGraphs.IsPanelVisible, Mode=OneWay}"
+                          Command="{Binding OpenGraphs.TogglePanelCommand}" />
             </MenuItem>
             <!-- Graph setup for the active worksheet; a confirmed setup opens a graph window (Task #026 draws the
                  sample render model there, Task #027 the scatter plot itself). -->
@@ -194,8 +215,8 @@
                        TextWrapping="Wrap" />
         </Border>
 
-        <!-- Project Explorer | splitter | worksheet workspace. The explorer column width is user-resizable; while the
-             explorer is hidden the window collapses that column (see MainWindow.ApplyProjectExplorerVisibility). -->
+        <!-- Project Explorer and Graphs | splitter | worksheet workspace. The left column width is user-resizable; while both
+             of its panels are hidden the window collapses that column (see MainWindow.ApplyLeftPanelVisibility). -->
         <Grid x:Name="WorkspaceGrid"
               DataContext="{Binding Project}"
               x:DataType="vm:MainWindowViewModel">
@@ -204,8 +225,16 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
+            <!-- The left column (Task #061): Project Explorer - the data - over the Graphs list - the output -, each shown
+                 or hidden from the View menu, with a splitter between them while both are shown. -->
             <Border Grid.Column="0"
+                    Grid.Row="0"
                     BorderThickness="0,0,1,0"
                     BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                     IsVisible="{Binding IsProjectPanelVisible}">
@@ -281,13 +310,74 @@
                 </DockPanel>
             </Border>
 
-            <GridSplitter Grid.Column="1"
+            <GridSplitter x:Name="LeftPanelSplitter"
+                          Grid.Column="0"
+                          Grid.Row="1"
+                          Height="4"
+                          ResizeDirection="Rows"
+                          Background="Transparent" />
+
+            <!-- The graph windows open now (Task #061): click or Enter brings one back - restored, in view, active. The
+                 graph last activated is marked. Only navigation: nothing here is kept or renamed. -->
+            <Border x:Name="GraphsPanel"
+                    Grid.Column="0"
+                    Grid.Row="2"
+                    BorderThickness="0,1,1,0"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                    DataContext="{Binding $parent[Window].((vm:MainWindowShellViewModel)DataContext).OpenGraphs}"
+                    x:DataType="vm:OpenGraphsViewModel"
+                    IsVisible="{Binding IsPanelVisible}">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="10,4,4,2">
+                        <TextBlock Text="{Binding Header}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Opacity="0.8"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Content="×"
+                                Padding="6,0"
+                                ToolTip.Tip="Hide Graphs"
+                                Background="Transparent"
+                                Command="{Binding TogglePanelCommand}" />
+                    </Grid>
+
+                    <TextBlock DockPanel.Dock="Top"
+                               Margin="12,4"
+                               Text="No graphs open"
+                               Opacity="0.6"
+                               IsVisible="{Binding !HasGraphs}" />
+
+                    <ListBox x:Name="GraphsList"
+                             ItemsSource="{Binding Items}"
+                             SelectionMode="Single"
+                             Background="Transparent"
+                             Tapped="OnGraphsListTapped">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:OpenGraphItem">
+                                <DockPanel Background="Transparent" ToolTip.Tip="{Binding Title}">
+                                    <Border DockPanel.Dock="Left"
+                                            Classes="yat-graph-marker"
+                                            IsVisible="{Binding IsActive}" />
+                                    <TextBlock Text="{Binding Title}"
+                                               Classes.active="{Binding IsActive}"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter x:Name="WorkspaceSplitter"
+                          Grid.Column="1"
+                          Grid.RowSpan="3"
                           Width="4"
                           ResizeDirection="Columns"
-                          Background="Transparent"
-                          IsVisible="{Binding IsProjectPanelVisible}" />
+                          Background="Transparent" />
 
-            <Panel Grid.Column="2">
+            <Panel Grid.Column="2" Grid.RowSpan="3">
                 <StackPanel HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             Spacing="6"

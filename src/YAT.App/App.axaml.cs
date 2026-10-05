@@ -41,9 +41,11 @@ public partial class App : AvaloniaApplication
             // default.
             // Graph windows offer the same palettes in Edit Appearance... - their choices and the Palette Manager only.
             var palettes = Composition.CreateGraphPaletteLibrary();
+            // The Graphs list (Task #061): every graph window the presenter opens is listed there while it is open.
+            var openGraphs = new OpenGraphsViewModel();
             var graphs = Composition.CreateGraphSetup(
                 new AvaloniaGraphSetupDialogs(mainWindow),
-                new AvaloniaGraphWindowPresenter(mainWindow, exports, Composition.GraphPaletteAccess(palettes)),
+                new AvaloniaGraphWindowPresenter(mainWindow, exports, Composition.GraphPaletteAccess(palettes), openGraphs),
                 palettes);
             // Analyses show their results in the shared analysis result window, which the presenter opens.
             var results = new AvaloniaAnalysisResultPresenter(mainWindow);
@@ -56,7 +58,7 @@ public partial class App : AvaloniaApplication
             var updates = Composition.CreateUpdateCheck(new AvaloniaUpdateDialogs(mainWindow, desktop), updateConnection);
             // Started by the updater after it installed this version (Task #051.C): said once.
             var updated = Composition.TakeInstalledUpdateNotice();
-            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates);
+            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates, openGraphs);
 
             mainWindow.DataContext = shell;
             desktop.MainWindow = mainWindow;

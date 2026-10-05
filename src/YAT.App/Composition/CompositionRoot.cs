@@ -210,8 +210,9 @@ public sealed class CompositionRoot
         GraphSetupController graphs,
         DescriptiveStatisticsController statistics,
         CapabilityAnalysisController capability,
-        UpdateCheckController? updates = null) =>
-        new(lifecycle, graphs, statistics, capability, updates);
+        UpdateCheckController? updates = null,
+        OpenGraphsViewModel? openGraphs = null) =>
+        new(lifecycle, graphs, statistics, capability, updates, openGraphs);
 
     // The update connection for the application's lifetime (Task #051.B): one HttpClient, the update information at
     // manifestUrl (by default the address Directory.Build.props gives the build) and packages kept under updatesRoot (by

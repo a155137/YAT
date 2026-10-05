@@ -33,7 +33,10 @@ public partial class MainWindow : Window
     private bool _closeDecisionRunning;
 
     // The explorer column's width and minimum while the Project Explorer is hidden; null while it is shown.
-    private (GridLength Width, double MinWidth)? _hiddenProjectExplorerColumn;
+    private (GridLength Width, double MinWidth)? _hiddenLeftColumn;
+    private GridLength? _hiddenExplorerRow;
+    private GridLength? _hiddenGraphsRow;
+    private OpenGraphsViewModel? _openGraphs;
 
     public MainWindow()
     {
@@ -42,6 +45,8 @@ public partial class MainWindow : Window
         WorksheetGrid.AddHandler(PointerMovedEvent, OnWorksheetGridPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
         WorksheetGrid.AddHandler(PointerReleasedEvent, OnWorksheetGridPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
         WorksheetGrid.AddHandler(PointerCaptureLostEvent, OnWorksheetGridPointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
+        // The list marks Enter handled as it selects; the Graphs list (Task #061) still takes it to bring the graph back.
+        GraphsList.AddHandler(KeyDownEvent, OnGraphsListKeyDown, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void OnExitClick(object? sender, RoutedEventArgs e) => Close();
@@ -157,13 +162,25 @@ public partial class MainWindow : Window
             _shell.PropertyChanged -= OnShellPropertyChanged;
         }
 
+        if (_openGraphs is not null)
+        {
+            _openGraphs.PropertyChanged -= OnOpenGraphsPropertyChanged;
+        }
+
         _shell = DataContext as MainWindowShellViewModel;
+        _openGraphs = _shell?.OpenGraphs;
         if (_shell is not null)
         {
             _shell.PropertyChanged += OnShellPropertyChanged;
         }
 
+        if (_openGraphs is not null)
+        {
+            _openGraphs.PropertyChanged += OnOpenGraphsPropertyChanged;
+        }
+
         AttachProject(_shell?.Project);
+        ApplyLeftPanelVisibility();
     }
 
     private void OnShellPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -197,7 +214,7 @@ public partial class MainWindow : Window
         _headerDrag.End();
         _shownGridColumns = null;
         RebuildGridColumns();
-        ApplyProjectExplorerVisibility();
+        ApplyLeftPanelVisibility();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -205,7 +222,7 @@ public partial class MainWindow : Window
         switch (e.PropertyName)
         {
             case nameof(MainWindowViewModel.IsProjectPanelVisible):
-                ApplyProjectExplorerVisibility();
+                ApplyLeftPanelVisibility();
                 break;
             case nameof(MainWindowViewModel.SelectedWorksheet):
                 // A rename can change the worksheet title in the same layout pass that hides the error bar. Avalonia then
@@ -224,24 +241,88 @@ public partial class MainWindow : Window
         }
     }
 
-    // The explorer column keeps its (user-resized) width while shown. Hiding the explorer collapses the column, since a
-    // hidden panel would otherwise leave that width empty; showing it again restores the width and its limits.
-    private void ApplyProjectExplorerVisibility()
+    private void OnOpenGraphsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(OpenGraphsViewModel.IsPanelVisible))
+        {
+            ApplyLeftPanelVisibility();
+        }
+        else if (e.PropertyName == nameof(OpenGraphsViewModel.ActiveItem) && _openGraphs?.ActiveItem is { } active)
+        {
+            // The selection follows the graph last activated; selecting never activates anything (only a click or Enter).
+            GraphsList.SelectedItem = active;
+        }
+    }
+
+    // The left column holds the Project Explorer over the Graphs list (Task #061), each shown or hidden on its own. A
+    // hidden one gives its row to the other (and the splitter between them goes), keeping its own (user-resized) height
+    // for when it is shown again. Only with both hidden does the column collapse, since it would otherwise leave its width
+    // empty; showing either again restores the width and its limits.
+    private void ApplyLeftPanelVisibility()
+    {
+        var explorer = _viewModel?.IsProjectPanelVisible ?? true;
+        var graphs = _openGraphs?.IsPanelVisible ?? true;
+
+        _hiddenExplorerRow = Collapse(WorkspaceGrid.RowDefinitions[0], explorer, _hiddenExplorerRow);
+        _hiddenGraphsRow = Collapse(WorkspaceGrid.RowDefinitions[2], graphs, _hiddenGraphsRow);
+        LeftPanelSplitter.IsVisible = explorer && graphs;
+        WorkspaceSplitter.IsVisible = explorer || graphs;
+        ApplyLeftColumnVisibility(explorer || graphs);
+    }
+
+    // A row of the left column hidden (height 0, its height kept) or shown again (its height back); what is kept now.
+    private static GridLength? Collapse(RowDefinition row, bool isVisible, GridLength? hidden)
+    {
+        if (!isVisible && hidden is null)
+        {
+            var height = row.Height;
+            row.Height = new GridLength(0);
+            return height;
+        }
+
+        if (isVisible && hidden is { } shown)
+        {
+            row.Height = shown;
+            return null;
+        }
+
+        return hidden;
+    }
+
+    private void ApplyLeftColumnVisibility(bool isVisible)
     {
         var column = WorkspaceGrid.ColumnDefinitions[0];
-        var isVisible = _viewModel?.IsProjectPanelVisible ?? true;
 
-        if (!isVisible && _hiddenProjectExplorerColumn is null)
+        if (!isVisible && _hiddenLeftColumn is null)
         {
-            _hiddenProjectExplorerColumn = (column.Width, column.MinWidth);
+            _hiddenLeftColumn = (column.Width, column.MinWidth);
             column.MinWidth = 0;
             column.Width = new GridLength(0);
         }
-        else if (isVisible && _hiddenProjectExplorerColumn is { } shown)
+        else if (isVisible && _hiddenLeftColumn is { } shown)
         {
-            _hiddenProjectExplorerColumn = null;
+            _hiddenLeftColumn = null;
             column.Width = shown.Width;
             column.MinWidth = shown.MinWidth;
+        }
+    }
+
+    // A click on a graph in the Graphs list brings its window back (Task #061); so does Enter on the selected one.
+    private void OnGraphsListTapped(object? sender, TappedEventArgs e)
+    {
+        if (e.Source is Visual source
+            && source.FindAncestorOfType<ListBoxItem>(includeSelf: true) is { DataContext: OpenGraphItem item })
+        {
+            _openGraphs?.BringToFrontCommand.Execute(item);
+        }
+    }
+
+    private void OnGraphsListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && GraphsList.SelectedItem is OpenGraphItem item)
+        {
+            e.Handled = true;
+            _openGraphs?.BringToFrontCommand.Execute(item);
         }
     }
 

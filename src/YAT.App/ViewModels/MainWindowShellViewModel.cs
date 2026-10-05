@@ -21,7 +21,8 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         GraphSetupController graphs,
         DescriptiveStatisticsController statistics,
         CapabilityAnalysisController capability,
-        UpdateCheckController? updates = null)
+        UpdateCheckController? updates = null,
+        OpenGraphsViewModel? openGraphs = null)
     {
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(graphs);
@@ -32,6 +33,7 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         Statistics = statistics;
         Capability = capability;
         Updates = updates;
+        OpenGraphs = openGraphs ?? new OpenGraphsViewModel();
         Lifecycle.ProjectReplaced += OnProjectReplaced;
         ObserveProject();
     }
@@ -49,6 +51,10 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     // Help menu: check for an update (Task #051.B); null when this composition has no update check.
     public UpdateCheckController? Updates { get; }
+
+    // The Graphs list (Task #061): the graph windows open now, which the graph window presenter lists; empty when this
+    // composition opens no graph windows.
+    public OpenGraphsViewModel OpenGraphs { get; }
 
     public MainWindowViewModel? Project => Lifecycle.Project;
 

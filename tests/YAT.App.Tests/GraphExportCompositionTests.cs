@@ -52,8 +52,9 @@ public class GraphExportCompositionTests
     {
         var constructor = Assert.Single(typeof(AvaloniaGraphWindowPresenter).GetConstructors());
 
+        // And, since Task #061, the Graphs list it lists every window in.
         Assert.Equal(
-            ["Window", "IGraphExportWorkflowFactory", "IGraphPaletteLibraryAccess"],
+            ["Window", "IGraphExportWorkflowFactory", "IGraphPaletteLibraryAccess", "OpenGraphsViewModel"],
             constructor.GetParameters().Select(parameter => parameter.ParameterType.Name));
     }
 
