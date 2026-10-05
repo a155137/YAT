@@ -200,7 +200,16 @@ internal sealed class GraphSetupWindow : Window
             // A role that takes several columns is picked from a list; one that takes a single column keeps its
             // selector. Which of the two is read from the role, so no graph type is named here.
             var selector = role.AllowsMultiple ? MultipleSelector(role) : SingleSelector(role);
-            AddRoleRow(panel, row++, role.DisplayName, selector);
+            if (role.AllowsMultiple)
+            {
+                // The count and Select All / Clear Selection (Task #060) stand under the role's name, beside its list, where the
+                // list leaves room: the setup keeps its size.
+                AddRoleRow(panel, row++, RoleLabel(role.DisplayName, SelectionBar(role)), selector);
+            }
+            else
+            {
+                AddRoleRow(panel, row++, role.DisplayName, selector);
+            }
 
             if (role.AllowsMultiple && setup.SupportsVariableLayout)
             {
@@ -219,17 +228,22 @@ internal sealed class GraphSetupWindow : Window
         return panel;
     }
 
-    private static void AddRoleRow(Grid panel, int row, string text, Control selector)
+    private static void AddRoleRow(Grid panel, int row, string text, Control selector) =>
+        AddRoleRow(panel, row, new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center }, selector);
+
+    // A role's name with what goes under it: the selection bar of a role that takes several columns (Task #060).
+    private static Control RoleLabel(string text, Control below) => new StackPanel
+    {
+        Spacing = 6,
+        VerticalAlignment = VerticalAlignment.Center,
+        Children = { new TextBlock { Text = text }, below }
+    };
+
+    private static void AddRoleRow(Grid panel, int row, Control label, Control selector)
     {
         panel.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
 
-        var label = new TextBlock
-        {
-            Text = text,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 5, 12, 5)
-        };
-
+        label.Margin = new Thickness(0, 5, 12, 5);
         Grid.SetRow(label, row);
         Grid.SetColumn(label, 0);
         panel.Children.Add(label);
@@ -513,21 +527,82 @@ internal sealed class GraphSetupWindow : Window
             SelectionMode = SelectionMode.Multiple | SelectionMode.Toggle
         };
 
+        // The two stay in step both ways: the list's clicks go to the role, and the role's own changes - Select All and
+        // Clear Selection (Task #060) - come back to the list. Each side's echo of the other's change is ignored.
+        var mirroring = false;
         list.SelectionChanged += (_, _) =>
         {
-            var selected = list.SelectedItems?.OfType<GraphColumnOption>().ToArray() ?? [];
-            foreach (var option in role.SelectedOptions.Except(selected).ToArray())
+            if (mirroring)
             {
-                role.SelectedOptions.Remove(option);
+                return;
             }
 
-            foreach (var option in selected.Where(option => !role.SelectedOptions.Contains(option)))
+            mirroring = true;
+            try
             {
-                role.SelectedOptions.Add(option);
+                var selected = list.SelectedItems?.OfType<GraphColumnOption>().ToArray() ?? [];
+                foreach (var option in role.SelectedOptions.Except(selected).ToArray())
+                {
+                    role.SelectedOptions.Remove(option);
+                }
+
+                foreach (var option in selected.Where(option => !role.SelectedOptions.Contains(option)))
+                {
+                    role.SelectedOptions.Add(option);
+                }
+            }
+            finally
+            {
+                mirroring = false;
+            }
+        };
+
+        role.SelectedOptions.CollectionChanged += (_, _) =>
+        {
+            if (mirroring || list.SelectedItems is not { } items)
+            {
+                return;
+            }
+
+            mirroring = true;
+            try
+            {
+                foreach (var option in items.OfType<GraphColumnOption>().Except(role.SelectedOptions).ToArray())
+                {
+                    items.Remove(option);
+                }
+
+                foreach (var option in role.SelectedOptions.Where(option => !items.Contains(option)))
+                {
+                    items.Add(option);
+                }
+            }
+            finally
+            {
+                mirroring = false;
             }
         };
 
         return list;
+    }
+
+    // What a role that takes several columns has picked, and the two ways to pick them all or none (Task #060):
+    // "Selected: 3 / 50", Select All - the first GraphRoleDefinition.MaximumColumns columns - and Clear Selection.
+    private static Control SelectionBar(GraphRoleViewModel role)
+    {
+        var summary = new TextBlock { Name = "SelectionSummary", Opacity = 0.7, FontSize = 12 };
+        summary.Bind(TextBlock.TextProperty, new Binding(nameof(GraphRoleViewModel.SelectionSummary)) { Source = role });
+
+        var all = new Button { Name = "SelectAll", Content = "Select All", Padding = new Thickness(10, 2) };
+        all.Click += (_, _) => role.SelectAll();
+        var none = new Button { Name = "ClearSelection", Content = "Clear Selection", Padding = new Thickness(10, 2) };
+        none.Click += (_, _) => role.ClearSelection();
+
+        return new StackPanel
+        {
+            Spacing = 4,
+            Children = { summary, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { all, none } } }
+        };
     }
 
     // Name, with the column's data type beside it; ids are never shown.

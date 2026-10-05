@@ -56,11 +56,18 @@ public sealed class SkiaGraphRenderer
         fill.Color = theme.PlotBackground;
         canvas.DrawRect(layout.PlotArea, fill);
 
-        DrawGrid(canvas, model, layout, transform, theme, stroke);
+        // A categorical axis (a box plot's) labels only the categories it has room for (Task #060); any other, all its ticks.
+        var xTicks = GraphCategoryLabels.Shown(
+            model.XAxis,
+            value => (float)transform.ToScreenX(value),
+            label => GraphTextFallback.MeasureText(tickFont, label),
+            theme.TickLabelFontSize / 2);
+
+        DrawGrid(canvas, model, xTicks, layout, transform, theme, stroke);
         DrawPlot(canvas, layout, transform, theme, plot);
         DrawReferenceLines(canvas, model, layout, transform, theme);
         DrawAxisLines(canvas, layout, theme, stroke);
-        DrawTicks(canvas, model, layout, metrics, transform, theme, stroke, fill, tickFont);
+        DrawTicks(canvas, model, xTicks, layout, metrics, transform, theme, stroke, fill, tickFont);
         DrawAxisTitles(canvas, model, layout, theme, fill, axisTitleFont);
         DrawTitle(canvas, model, layout, theme, fill, titleFont);
         DrawReferenceLabels(canvas, model, layout, transform, theme, fill, tickFont);
@@ -158,6 +165,7 @@ public sealed class SkiaGraphRenderer
     private static void DrawGrid(
         SKCanvas canvas,
         GraphRenderModel model,
+        IReadOnlyList<GraphAxisTick> xTicks,
         GraphLayout layout,
         GraphCoordinateTransform transform,
         GraphTheme theme,
@@ -175,7 +183,7 @@ public sealed class SkiaGraphRenderer
         var restore = canvas.Save();
         canvas.ClipRect(layout.PlotArea);
 
-        foreach (var tick in model.XAxis.Ticks)
+        foreach (var tick in xTicks)
         {
             var x = (float)transform.ToScreenX(tick.Value);
             if (IsVisible(x, layout.PlotArea.Left, layout.PlotArea.Right))
@@ -229,6 +237,7 @@ public sealed class SkiaGraphRenderer
     private static void DrawTicks(
         SKCanvas canvas,
         GraphRenderModel model,
+        IReadOnlyList<GraphAxisTick> xTicks,
         GraphLayout layout,
         GraphLayoutMetrics metrics,
         GraphCoordinateTransform transform,
@@ -245,7 +254,7 @@ public sealed class SkiaGraphRenderer
         var labelBaseline = layout.PlotArea.Bottom + metrics.TickLength + metrics.Gap - fontMetrics.Ascent;
         var labelRight = layout.PlotArea.Left - metrics.TickLength - metrics.Gap;
 
-        foreach (var tick in model.XAxis.Ticks)
+        foreach (var tick in xTicks)
         {
             var x = (float)transform.ToScreenX(tick.Value);
             if (!IsVisible(x, layout.PlotArea.Left, layout.PlotArea.Right))

@@ -32,8 +32,20 @@ public static class GraphVariablesTogether
     private const string MissingGroupLabel = "(Missing)";
     private const string GroupValueFormat = "0.####";
 
-    // The name the variables share on the graph: "Reg1, Reg2".
-    public static string Name(IEnumerable<string> variables) => string.Join(", ", variables);
+    // Up to this many variables are named one by one where they share a name - the graph's title, its window - and more
+    // are counted instead (Task #060), so the title of fifty variables is not cut off at both ends. Ten is as many as a
+    // graph could have before, so every graph that could be drawn then keeps its title.
+    public const int MaximumNamedVariables = 10;
+
+    // The name the variables share on the graph: "Reg1, Reg2", or "50 variables" for more than MaximumNamedVariables.
+    public static string Name(IEnumerable<string> variables)
+    {
+        ArgumentNullException.ThrowIfNull(variables);
+        var names = variables as IReadOnlyCollection<string> ?? [.. variables];
+        return names.Count > MaximumNamedVariables
+            ? string.Create(CultureInfo.InvariantCulture, $"{names.Count} variables")
+            : string.Join(", ", names);
+    }
 
     // The header of the series: "Variable", or "Variable / Lot" when the series are groups of the variables.
     public static string Header(string? groupColumn) =>

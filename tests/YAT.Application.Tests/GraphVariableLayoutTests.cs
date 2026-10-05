@@ -14,8 +14,8 @@ public class GraphVariableLayoutTests
 
     private static readonly IReadOnlyList<WorksheetColumn> Columns =
     [
-        .. Enumerable.Range(1, 12).Select(index => Column($"Reg{index}", WorksheetDataType.Numeric, index - 1)),
-        Column("Lot", WorksheetDataType.String, 12)
+        .. Enumerable.Range(1, 55).Select(index => Column($"Reg{index}", WorksheetDataType.Numeric, index - 1)),
+        Column("Lot", WorksheetDataType.String, 55)
     ];
 
     private static WorksheetColumn Column(string name, WorksheetDataType type, int index) => new()
@@ -41,18 +41,19 @@ public class GraphVariableLayoutTests
 
     [Theory]
     [MemberData(nameof(GraphsOfVariables))]
-    public void UpToTenVariablesCanBeGraphed(GraphType type)
+    public void UpToFiftyVariablesCanBeGraphed(GraphType type)
     {
         var validator = new GraphConfigurationValidator();
 
-        Assert.Equal(10, GraphRoleDefinition.MaximumColumns);
-        foreach (var count in new[] { 1, 2, 10 })
+        // Task #060: fifty, from ten.
+        Assert.Equal(50, GraphRoleDefinition.MaximumColumns);
+        foreach (var count in new[] { 1, 2, 10, 11, 20, 50 })
         {
             Assert.True(validator.Validate(Configuration(type, count, grouped: true), Columns).IsValid, $"{count} variables");
         }
 
-        var eleven = validator.Validate(Configuration(type, 11), Columns);
-        var error = Assert.Single(eleven.Errors);
+        var fiftyOne = validator.Validate(Configuration(type, 51), Columns);
+        var error = Assert.Single(fiftyOne.Errors);
         Assert.Equal(GraphValidationReason.TooManyColumns, error.Reason);
         Assert.Equal(GraphVariableRole.Variable, error.Role);
     }

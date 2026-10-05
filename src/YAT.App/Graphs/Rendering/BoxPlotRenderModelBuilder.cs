@@ -349,7 +349,8 @@ public sealed class BoxPlotRenderModelBuilder
         return sampled;
     }
 
-    private static string Title(BoxPlotLabels labels) => $"Boxplot of {string.Join(", ", labels.Variables)}";
+    // "Boxplot of Reg1, Reg2", or "Boxplot of 50 variables" for many (GraphVariablesTogether.Name, Task #060).
+    private static string Title(BoxPlotLabels labels) => $"Boxplot of {GraphVariablesTogether.Name(labels.Variables)}";
 
     // The observations of one box, gathered in worksheet row order and sorted in place by Analytics afterwards.
     private sealed class SeriesBuffer(string label)

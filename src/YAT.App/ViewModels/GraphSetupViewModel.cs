@@ -36,6 +36,7 @@ public sealed partial class GraphRoleViewModel : ObservableObject
     {
         Definition = definition;
         Options = options;
+        SelectedOptions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(SelectionSummary));
     }
 
     internal GraphRoleDefinition Definition { get; }
@@ -60,6 +61,40 @@ public sealed partial class GraphRoleViewModel : ObservableObject
     public ObservableCollection<GraphColumnOption> SelectedOptions { get; } = [];
 
     public Guid? SelectedColumnId => SelectedOption?.WorksheetColumnId;
+
+    // How many of the most a role that takes several columns may be given are picked (Task #060): "Selected: 3 / 50".
+    public string SelectionSummary =>
+        string.Create(CultureInfo.InvariantCulture, $"Selected: {SelectedOptions.Count} / {GraphRoleDefinition.MaximumColumns}");
+
+    // Picks the role's columns in the order the worksheet lists them, as many as the role may be given
+    // (GraphRoleDefinition.MaximumColumns) and no more, so Select All never asks for a graph the setup would refuse.
+    public void SelectAll()
+    {
+        if (!AllowsMultiple)
+        {
+            return;
+        }
+
+        var wanted = Options.Where(option => !option.IsNone).Take(GraphRoleDefinition.MaximumColumns).ToArray();
+        foreach (var option in SelectedOptions.Except(wanted).ToArray())
+        {
+            SelectedOptions.Remove(option);
+        }
+
+        foreach (var option in wanted.Where(option => !SelectedOptions.Contains(option)))
+        {
+            SelectedOptions.Add(option);
+        }
+    }
+
+    // Picks none of the role's columns.
+    public void ClearSelection()
+    {
+        if (AllowsMultiple)
+        {
+            SelectedOptions.Clear();
+        }
+    }
 
     // Every column this role is assigned, in worksheet order.
     public IReadOnlyList<Guid> SelectedColumnIds => AllowsMultiple

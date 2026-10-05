@@ -238,29 +238,29 @@ public partial class GraphCommandTests
         Assert.Contains("Wide: ", message, StringComparison.Ordinal);
     }
 
-    // ---- Ten variables ----
+    // ---- Fifty variables (Task #060, from ten) ----
 
     [Fact]
-    public async Task TenVariablesOpenTenCascadingWindowsAndElevenAreRefused()
+    public async Task FiftyVariablesOpenFiftyCascadingWindowsAndFiftyOneAreRefused()
     {
         using var runtime = new Runtime();
         await runtime.StartAsync();
-        var header = string.Join("\t", Enumerable.Range(1, 11).Select(index => $"V{index}"));
-        var rows = Enumerable.Range(0, 5).Select(row => string.Join("\t", Enumerable.Range(1, 11).Select(column => (column * 10 + row).ToString(CultureInfo.InvariantCulture))));
+        var header = string.Join("\t", Enumerable.Range(1, 51).Select(index => $"V{index}"));
+        var rows = Enumerable.Range(0, 5).Select(row => string.Join("\t", Enumerable.Range(1, 51).Select(column => (column * 10 + row).ToString(CultureInfo.InvariantCulture))));
         await runtime.PasteAsync(header + "\n" + string.Join("\n", rows) + "\n");
-        string[] ten = [.. Enumerable.Range(1, 10).Select(index => $"V{index}")];
+        string[] fifty = [.. Enumerable.Range(1, 50).Select(index => $"V{index}")];
 
-        var frames = await DrawAsync(runtime, GraphType.EmpiricalCdf, GraphVariableLayout.Separate, ten);
+        var frames = await DrawAsync(runtime, GraphType.EmpiricalCdf, GraphVariableLayout.Separate, fifty);
 
-        Assert.Equal(ten.Select(variable => $"Empirical CDF of {variable}"), frames.Select(frame => frame.Title));
-        Assert.Equal(Enumerable.Range(0, 10), runtime.GraphWindows.Cascades);
+        Assert.Equal(fifty.Select(variable => $"Empirical CDF of {variable}"), frames.Select(frame => frame.Title));
+        Assert.Equal(Enumerable.Range(0, 50), runtime.GraphWindows.Cascades);
 
-        runtime.GraphDialogs.Answer = setup => ConfirmWithVariables(setup, [.. ten, "V11"], null);
+        runtime.GraphDialogs.Answer = setup => ConfirmWithVariables(setup, [.. fifty, "V51"], null);
         await runtime.Shell.EmpiricalCdfCommand.ExecuteAsync(null);
 
-        Assert.Equal(10, runtime.GraphWindows.Shown.Count);
+        Assert.Equal(50, runtime.GraphWindows.Shown.Count);
         Assert.False(runtime.GraphDialogs.LastSetup.CanConfirm);
-        Assert.Equal("Select at most 10 variables.", runtime.GraphDialogs.LastSetup.ValidationMessage);
+        Assert.Equal("Select at most 50 variables.", runtime.GraphDialogs.LastSetup.ValidationMessage);
     }
 
     // ---- The setup ----

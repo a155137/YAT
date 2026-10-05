@@ -44,8 +44,11 @@ public sealed record GraphRoleDefinition(
     IReadOnlyList<WorksheetDataType> AllowedDataTypes,
     bool AllowsMultiple = false)
 {
-    // The most columns a role that takes several may be given: enough to compare, few enough to read.
-    public const int MaximumColumns = 10;
+    // The most columns a role that takes several may be given (Task #060: 50, from 10): enough for a set of engineering
+    // parameters in one box plot or distribution graph. Measured at 50 variables, a graph of a million rows reads in
+    // under ten seconds and draws as fast as one of a single variable (drawing is capped by DisplaySampling), while the
+    // memory a read takes grows with variables times rows - which is why there is a limit at all.
+    public const int MaximumColumns = 50;
 
     public bool Allows(WorksheetDataType dataType) => AllowedDataTypes.Contains(dataType);
 }

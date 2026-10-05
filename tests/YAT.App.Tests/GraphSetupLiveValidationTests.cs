@@ -15,7 +15,7 @@ public class GraphSetupLiveValidationTests
     private static readonly IReadOnlyList<WorksheetColumn> Columns =
     [
         Column("Lot", WorksheetDataType.String, 0),
-        .. Enumerable.Range(1, 11).Select(index => Column($"V{index}", WorksheetDataType.Numeric, index))
+        .. Enumerable.Range(1, 55).Select(index => Column($"V{index}", WorksheetDataType.Numeric, index))
     ];
 
     private static WorksheetColumn Column(string name, WorksheetDataType dataType, int index) => new()
@@ -77,17 +77,17 @@ public class GraphSetupLiveValidationTests
     }
 
     [Fact]
-    public void MoreThanTenVariablesAreRefusedAsTheyArePicked()
+    public void MoreThanFiftyVariablesAreRefusedAsTheyArePicked()
     {
         var setup = Setup(GraphType.BoxPlot);
-        Pick(setup, 10);
+        Pick(setup, 50);
         AssertValid(setup);
 
-        Variables(setup).SelectedOptions.Add(Variables(setup).Options[10]);
+        Variables(setup).SelectedOptions.Add(Variables(setup).Options[50]);
         Assert.False(setup.CanConfirm);
-        Assert.Equal("Select at most 10 variables.", setup.ValidationMessage);
+        Assert.Equal("Select at most 50 variables.", setup.ValidationMessage);
 
-        Variables(setup).SelectedOptions.RemoveAt(10);
+        Variables(setup).SelectedOptions.RemoveAt(50);
         AssertValid(setup);
     }
 

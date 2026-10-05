@@ -16,7 +16,7 @@ public class GraphSetupColumnPickerTests
 
     // Eleven numeric columns: one more than a role may take.
     private static readonly IReadOnlyList<WorksheetColumn> Numeric =
-        [.. Enumerable.Range(1, 11).Select(index => Column($"V{index}", WorksheetDataType.Numeric, index))];
+        [.. Enumerable.Range(1, 55).Select(index => Column($"V{index}", WorksheetDataType.Numeric, index))];
 
     private static readonly IReadOnlyList<WorksheetColumn> Columns = [Lot, .. Numeric];
 
@@ -88,7 +88,7 @@ public class GraphSetupColumnPickerTests
         Assert.True(variables.AllowsMultiple);
         Assert.True(variables.IsRequired);
         Assert.True(setup.SupportsVariableLayout);
-        Assert.Equal(11, variables.Options.Count);
+        Assert.Equal(Numeric.Count, variables.Options.Count);
     }
 
     [Theory]
@@ -156,10 +156,10 @@ public class GraphSetupColumnPickerTests
         Assert.Equal(together.Configuration.Assignments, separate.Configuration.Assignments);
     }
 
-    // At most ten variables, as before.
+    // At most fifty variables (Task #060, from ten).
     [Theory]
     [MemberData(nameof(SeveralVariableGraphTypes))]
-    public void TenGraphVariablesAreAllowedAndAnEleventhIsRefused(GraphType graphType)
+    public void FiftyGraphVariablesAreAllowedAndAFiftyFirstIsRefused(GraphType graphType)
     {
         var setup = Setup(graphType);
         var variables = Role(setup, GraphVariableRole.Variable);
@@ -169,13 +169,53 @@ public class GraphSetupColumnPickerTests
         }
 
         Assert.NotNull(setup.Confirm());
-        Assert.Equal(10, setup.Confirm()!.FindColumnIds(GraphVariableRole.Variable).Count);
+        Assert.Equal(50, setup.Confirm()!.FindColumnIds(GraphVariableRole.Variable).Count);
 
-        Pick(variables, Numeric[10]);
+        Pick(variables, Numeric[50]);
 
         Assert.Null(setup.Confirm());
         Assert.False(setup.CanConfirm);
-        Assert.Equal("Select at most 10 variables.", setup.ValidationMessage);
+        Assert.Equal("Select at most 50 variables.", setup.ValidationMessage);
+    }
+
+    // Select All picks the first fifty columns, however many there are, so it never asks for a graph the setup refuses;
+    // Clear Selection picks none; the counter says how many of the fifty are picked (Task #060).
+    [Theory]
+    [MemberData(nameof(SeveralVariableGraphTypes))]
+    public void SelectAllPicksTheFirstFiftyAndClearSelectionPicksNone(GraphType graphType)
+    {
+        var setup = Setup(graphType);
+        var variables = Role(setup, GraphVariableRole.Variable);
+        Assert.Equal("Selected: 0 / 50", variables.SelectionSummary);
+        Pick(variables, Numeric[54]);
+        Assert.Equal("Selected: 1 / 50", variables.SelectionSummary);
+
+        variables.SelectAll();
+
+        Assert.Equal(55, Numeric.Count);
+        Assert.Equal(Numeric.Take(50).Select(column => column.Id), setup.Confirm()!.FindColumnIds(GraphVariableRole.Variable));
+        Assert.True(setup.CanConfirm);
+        Assert.Equal("Selected: 50 / 50", variables.SelectionSummary);
+
+        variables.ClearSelection();
+
+        Assert.Empty(variables.SelectedOptions);
+        Assert.False(setup.CanConfirm);
+        Assert.Equal("Please select a variable.", setup.ValidationMessage);
+        Assert.Equal("Selected: 0 / 50", variables.SelectionSummary);
+    }
+
+    [Fact]
+    public void SelectAllPicksEveryColumnWhenThereAreFewerThanFifty()
+    {
+        var setup = new GraphSetupViewModel(GraphTypeDefinitions.For(GraphType.BoxPlot), Worksheet, [Lot, .. Numeric.Take(7)]);
+        var variables = Role(setup, GraphVariableRole.Variable);
+
+        variables.SelectAll();
+
+        Assert.Equal(7, variables.SelectedOptions.Count);
+        Assert.Equal("Selected: 7 / 50", variables.SelectionSummary);
+        Assert.True(setup.CanConfirm);
     }
 
     [Theory]
