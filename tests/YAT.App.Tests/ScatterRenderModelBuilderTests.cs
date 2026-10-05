@@ -62,7 +62,8 @@ public class ScatterRenderModelBuilderTests
     {
         var model = Build(Data([1, 2, 3], [10, 20, 30], Numbers(2, 1.5, 2)));
 
-        Assert.Equal(["2", "1.5"], model.Series.Select(series => series.Label));
+        // From the smallest value up, whatever order the rows hold them in (Task #059).
+        Assert.Equal(["1.5", "2"], model.Series.Select(series => series.Label));
         Assert.Equal([new ScatterPoint(1, 10), new ScatterPoint(3, 30)], PointsOf(model, "2"));
         Assert.Equal([new ScatterPoint(2, 20)], PointsOf(model, "1.5"));
     }
@@ -84,7 +85,8 @@ public class ScatterRenderModelBuilderTests
     {
         var model = Build(Data([1, 2], [10, 20], Numbers(null, 7)));
 
-        Assert.Equal([ScatterRenderModelBuilder.MissingGroupLabel, "7"], model.Series.Select(series => series.Label));
+        // Seen first, but drawn last: "(Missing)" follows every number (Task #059).
+        Assert.Equal(["7", ScatterRenderModelBuilder.MissingGroupLabel], model.Series.Select(series => series.Label));
     }
 
     // 6

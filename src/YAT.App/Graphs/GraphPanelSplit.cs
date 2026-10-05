@@ -101,13 +101,16 @@ public static class GraphPanelSplit
     }
 
     // The panels in the order they are drawn, as ranks: a numeric column's values from the smallest up and "(Missing)"
-    // last; a text column's where they are first seen, "(Missing)" included.
+    // last; a text column's where they are first seen, "(Missing)" included - as a group column's groups are drawn
+    // (Rendering.GraphGroupOrder, Task #059).
     private static int[] Order(List<PanelKey> keys, bool numeric)
     {
-        var ranks = Enumerable.Range(0, keys.Count);
-        return numeric
-            ? [.. ranks.OrderBy(rank => keys[rank].IsMissing).ThenBy(rank => keys[rank].Number)]
-            : [.. ranks];
+        var byNumber = numeric
+            ? keys.Select((key, rank) => (key, rank))
+                .Where(item => !item.key.IsMissing)
+                .ToDictionary(item => item.key.Number, item => item.rank)
+            : null;
+        return Rendering.GraphGroupOrder.Order(keys.Count, byNumber, keys.FindIndex(key => key.IsMissing));
     }
 
     private static IReadOnlyList<int> RowsOf(List<int>[] byRank, int rank) => rank < byRank.Length ? byRank[rank] : [];

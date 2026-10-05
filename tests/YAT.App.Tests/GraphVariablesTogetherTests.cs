@@ -64,7 +64,8 @@ public class GraphVariablesTogetherTests
 
         var combined = GraphVariablesTogether.Combine(Several(GraphType.ProbabilityPlot, reg1), Token);
 
-        Assert.Equal([("Reg1 / 2", 1d), ("Reg1 / 2", 3d), ("Reg1 / 1.2346", 2d), ("Reg1 / (Missing)", 4d)], Rows(combined));
+        // Numeric groups from the smallest up, "(Missing)" last (Task #059).
+        Assert.Equal([("Reg1 / 1.2346", 2d), ("Reg1 / 2", 1d), ("Reg1 / 2", 3d), ("Reg1 / (Missing)", 4d)], Rows(combined));
         Assert.Equal("Variable / Site", combined.Group!.Column.Name);
     }
 

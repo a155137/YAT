@@ -28,7 +28,7 @@ public sealed class EmpiricalCdfRenderModelBuilder
     private readonly GraphSeriesOrder? _seriesOrder;
 
     // seriesOrder: the whole graph's series order, for a panel of a graph drawn in panels (Task #058); none numbers the
-    // series in the order they are found.
+    // series in the order they are found (GraphGroupOrder).
     public EmpiricalCdfRenderModelBuilder(int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints, GraphSeriesOrder? seriesOrder = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumRenderedPoints, 1);
@@ -247,13 +247,15 @@ public sealed class EmpiricalCdfRenderModelBuilder
             partition.Extend();
         }
 
+        // Numeric groups from the smallest up, "(Missing)" last; text groups as first seen (GraphGroupOrder, Task #059).
+        partition.Arrange(byNumber, missing);
         return partition;
     }
 
     // One series after its distribution has been worked out.
     private sealed record PreparedSeries(string Label, EmpiricalCdfPoint[] Points, int ObservationCount);
 
-    // The series found so far, in first-observed order.
+    // The series found so far, in first-observed order until arranged in the order they are drawn (GraphGroupOrder).
     private sealed class Partition
     {
         private readonly List<SeriesBuffer> _series = [];
@@ -261,6 +263,17 @@ public sealed class EmpiricalCdfRenderModelBuilder
         public IReadOnlyList<SeriesBuffer> Series => _series;
 
         public int ObservationCount { get; private set; }
+
+        // The series put in the order they are drawn (GraphGroupOrder).
+        public void Arrange(Dictionary<double, SeriesBuffer>? byNumber, SeriesBuffer? missing)
+        {
+            var ordered = GraphGroupOrder.Arrange(_series, byNumber, missing);
+            if (!ReferenceEquals(ordered, _series))
+            {
+                _series.Clear();
+                _series.AddRange(ordered);
+            }
+        }
 
         public SeriesBuffer Add(string label)
         {

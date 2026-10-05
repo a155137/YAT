@@ -12,7 +12,8 @@ namespace YAT.app.Graphs.Rendering;
 // The statistics are YAT.Analytics' own (Descriptives), over the observations the graph uses: rows without a value
 // were dropped when the data was read, so they are not counted; a value that is not finite is skipped, as every graph
 // skips it; a row without a group value belongs to "(Missing)".
-// Series follow the graph's own order - groups in the order they were first observed - and keep its colours.
+// Series follow the graph's own order - groups in the order they were first observed, or for a numeric group column from
+// the smallest value up with "(Missing)" last (GraphGroupOrder) - and keep its colours.
 //
 // Nothing is read again from storage and nothing is sorted: an ungrouped graph is summarised where its values are,
 // and a grouped one in one pass that gathers each group's values together.
@@ -161,8 +162,8 @@ public static class GraphStatisticsPanelBuilder
             standardDeviation is null ? UndefinedText : AnalysisNumberFormat.Statistic(standardDeviation));
     }
 
-    // The groups in first-observed order, the group of every observation (-1 for a value that is not finite), and how
-    // many observations each holds - the same groups, labels and colours as the graph's own series.
+    // The groups in the order the graph draws them, the group of every observation (-1 for a value that is not finite),
+    // and how many observations each holds - the same groups, labels and colours as the graph's own series.
     private static (List<string> Labels, int[] IndexByRow, int[] Counts) Groups(UnivariateGraphData data, CancellationToken cancellationToken)
     {
         var group = data.Group!;
@@ -218,6 +219,27 @@ public static class GraphStatisticsPanelBuilder
 
             indexByRow[row] = index;
             counts[index]++;
+        }
+
+        // Numeric groups from the smallest up, "(Missing)" last; text groups as first seen (GraphGroupOrder, Task #059).
+        if (byNumber is not null)
+        {
+            var order = GraphGroupOrder.Order(labels.Count, byNumber, missing);
+            var placeOf = new int[order.Length];
+            for (var place = 0; place < order.Length; place++)
+            {
+                placeOf[order[place]] = place;
+            }
+
+            for (var row = 0; row < indexByRow.Length; row++)
+            {
+                if (indexByRow[row] >= 0)
+                {
+                    indexByRow[row] = placeOf[indexByRow[row]];
+                }
+            }
+
+            return ([.. order.Select(index => labels[index])], indexByRow, [.. order.Select(index => counts[index])]);
         }
 
         return (labels, indexByRow, counts.ToArray());

@@ -13,7 +13,8 @@ namespace YAT.app.Graphs.Rendering;
 //
 // A series is labelled "Variable", or "Variable / Group" ("Variable / (Missing)" for rows without a group value). The
 // series follow the order the variables were selected in and, within a variable, the order the groups were first seen
-// in anywhere - across all variables - so a group has the same place in every variable. Within a series the
+// in anywhere - across all variables - so a group has the same place in every variable; the groups of a numeric column
+// go from the smallest value up instead, "(Missing)" last (GraphGroupOrder, Task #059). Within a series the
 // observations keep their worksheet order, so a series holds exactly the observations, in the same order, that the
 // variable's own graph would give that group.
 public static class GraphVariablesTogether
@@ -89,6 +90,35 @@ public static class GraphVariablesTogether
             }
 
             rankOf[index] = rows;
+        }
+
+        // Numeric groups from the smallest up, "(Missing)" last; text groups as first seen (GraphGroupOrder, Task #059).
+        var byNumber = ranks.Where(entry => entry.Key.IsNumber).ToDictionary(entry => entry.Key.Number, entry => entry.Value);
+        if (byNumber.Count > 0)
+        {
+            var missing = ranks.Where(entry => entry.Key.IsMissing).Select(entry => entry.Value).DefaultIfEmpty(-1).First();
+            var order = GraphGroupOrder.Order(ranks.Count, byNumber, missing);
+            var placeOf = new int[order.Length];
+            for (var place = 0; place < order.Length; place++)
+            {
+                placeOf[order[place]] = place;
+            }
+
+            foreach (var key in ranks.Keys.ToArray())
+            {
+                ranks[key] = placeOf[ranks[key]];
+            }
+
+            foreach (var rows in rankOf)
+            {
+                for (var row = 0; row < rows.Length; row++)
+                {
+                    if (rows[row] >= 0)
+                    {
+                        rows[row] = placeOf[rows[row]];
+                    }
+                }
+            }
         }
 
         var labelsByRank = new string?[ranks.Count];
@@ -167,6 +197,10 @@ public static class GraphVariablesTogether
         private const int Missing = 1;
         private const int TextValue = 2;
         private const int NumberValue = 3;
+
+        public bool IsNumber => Kind == NumberValue;
+
+        public bool IsMissing => Kind == Missing;
 
         public string? Label => Kind switch
         {

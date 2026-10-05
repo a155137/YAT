@@ -10,7 +10,8 @@ namespace YAT.app.Graphs.Rendering;
 //
 // The X axis is categories, not values: every variable (or variable and group) gets a slot of its own, one unit wide,
 // and the boxes are drawn in those slots. Categories follow the order the variables were selected in, and within a
-// variable the order its groups were first observed in - the same grouping order the other graphs use.
+// variable the order its groups were first observed in - or, for a numeric group column, from the smallest value up
+// with "(Missing)" last (Task #059) - the same grouping order the other graphs use.
 //
 // A group keeps its colour across variables: SITE 1 is the same colour in Reg1 and in Reg2, which is what makes a
 // grouped box plot comparable at a glance.
@@ -70,10 +71,18 @@ public sealed class BoxPlotRenderModelBuilder
         var categories = new List<string>();
         var summaries = new List<(int CategoryIndex, int SeriesIndex, string Label, BoxPlotSummary Summary)>();
 
-        // Group colours are decided once for the whole graph, in the order the groups are first observed anywhere.
+        // Group colours are decided once for the whole graph, in the order the groups are first observed anywhere - or,
+        // for a numeric group column, from the smallest value up with "(Missing)" last (GraphGroupOrder, Task #059).
         var seriesByGroup = new Dictionary<string, int>(StringComparer.Ordinal);
         var legendEntries = new List<GraphLegendEntry>();
         var isGrouped = data.Variables.Any(variable => variable.Group is not null);
+        foreach (var label in NumericGroupLabels(data, cancellationToken))
+        {
+            if (seriesByGroup.TryAdd(label, seriesByGroup.Count))
+            {
+                legendEntries.Add(new GraphLegendEntry(label, seriesByGroup[label]));
+            }
+        }
 
         for (var index = 0; index < data.Variables.Count; index++)
         {
@@ -193,8 +202,8 @@ public sealed class BoxPlotRenderModelBuilder
     private static IReadOnlyList<GraphAxisTick> CategoryTicks(IReadOnlyList<string> categories) =>
         [.. categories.Select((label, index) => new GraphAxisTick(CategoryPosition(index), label))];
 
-    // The observations of one variable, split into the series a box is drawn for: one per group in first-observed
-    // order, or a single unnamed series when the graph has no group column.
+    // The observations of one variable, split into the series a box is drawn for: one per group in the order they are
+    // drawn (GraphGroupOrder), or a single unnamed series when the graph has no group column.
     private static List<SeriesBuffer> Split(UnivariateGraphData data, CancellationToken cancellationToken)
     {
         var series = new List<SeriesBuffer>();
@@ -259,7 +268,56 @@ public sealed class BoxPlotRenderModelBuilder
             buffer.Add(value);
         }
 
-        return series;
+        // Numeric groups from the smallest up, "(Missing)" last; text groups as first seen (GraphGroupOrder, Task #059).
+        return GraphGroupOrder.Arrange(series, byNumber, missing);
+    }
+
+    // The labels of a numeric group column's groups across every variable, in the order they are drawn: every value a
+    // kept observation has, from the smallest up, then "(Missing)" if any kept observation has none. Empty for a text
+    // group column, whose groups keep the order they are first observed in.
+    private static IEnumerable<string> NumericGroupLabels(MultiVariableGraphData data, CancellationToken cancellationToken)
+    {
+        if (!data.Variables.Any(variable => variable.Group is NumericGroupData))
+        {
+            return [];
+        }
+
+        var numbers = new HashSet<double>();
+        var anyMissing = false;
+        foreach (var variable in data.Variables)
+        {
+            if (variable.Group is not NumericGroupData group)
+            {
+                continue;
+            }
+
+            var values = variable.Values.Span;
+            var groups = group.Values.Span;
+            for (var row = 0; row < variable.Count; row++)
+            {
+                if ((row & CancellationCheckMask) == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
+                if (!double.IsFinite(values[row]))
+                {
+                    continue;
+                }
+
+                if (group.IsMissing(row))
+                {
+                    anyMissing = true;
+                }
+                else
+                {
+                    numbers.Add(groups[row]!.Value);
+                }
+            }
+        }
+
+        return [.. numbers.Order().Select(number => number.ToString(GroupValueFormat, CultureInfo.InvariantCulture)),
+            .. anyMissing ? [MissingGroupLabel] : Array.Empty<string>()];
     }
 
     private static SeriesBuffer Add(List<SeriesBuffer> series, string label)

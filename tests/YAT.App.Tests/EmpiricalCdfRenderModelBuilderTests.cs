@@ -135,7 +135,8 @@ public class EmpiricalCdfRenderModelBuilderTests
     {
         var model = Build(Data([1, 2, 3], Numbers(2, 1.5, 2)));
 
-        Assert.Equal(["2", "1.5"], model.Series.Select(series => series.Label));
+        // From the smallest value up, whatever order the rows hold them in (Task #059).
+        Assert.Equal(["1.5", "2"], model.Series.Select(series => series.Label));
         Assert.Equal([1, 3], SeriesOf(model, "2").Points.ToArray().Select(point => point.Value));
     }
 

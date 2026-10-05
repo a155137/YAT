@@ -121,11 +121,12 @@ public class ProbabilityPlotRenderModelBuilderTests
 
     // 6
     [Fact]
-    public void ANumericGroupBecomesOneSeriesPerValueInFirstObservedOrder()
+    public void ANumericGroupBecomesOneSeriesPerValueFromTheSmallestUp()
     {
         var model = Build(Data([1, 2, 3], Numbers(2, 1.5, 2)));
 
-        Assert.Equal(["2", "1.5"], model.Series.Select(series => series.Label));
+        // Seen as 2, 1.5; drawn from the smallest value up (Task #059).
+        Assert.Equal(["1.5", "2"], model.Series.Select(series => series.Label));
         Assert.Equal([0, 1], model.Series.Select(series => series.SeriesIndex));
     }
 

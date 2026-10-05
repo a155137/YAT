@@ -264,6 +264,8 @@ public sealed class HistogramRenderModelBuilder
             partition.Extend(value);
         }
 
+        // Numeric groups from the smallest up, "(Missing)" last; text groups as first seen (GraphGroupOrder, Task #059).
+        partition.Arrange(byNumber, missing);
         return partition;
     }
 
@@ -493,7 +495,8 @@ public sealed class HistogramRenderModelBuilder
         }
     }
 
-    // The series found so far, in first-observed order, with the extremes of the counted values.
+    // The series found so far, in first-observed order until arranged in the order they are drawn (GraphGroupOrder),
+    // with the extremes of the counted values.
     private sealed class Partition
     {
         private readonly List<SeriesBuffer> _series = [];
@@ -505,6 +508,17 @@ public sealed class HistogramRenderModelBuilder
         public double Minimum { get; private set; } = double.PositiveInfinity;
 
         public double Maximum { get; private set; } = double.NegativeInfinity;
+
+        // The series put in the order they are drawn (GraphGroupOrder).
+        public void Arrange(Dictionary<double, SeriesBuffer>? byNumber, SeriesBuffer? missing)
+        {
+            var ordered = GraphGroupOrder.Arrange(_series, byNumber, missing);
+            if (!ReferenceEquals(ordered, _series))
+            {
+                _series.Clear();
+                _series.AddRange(ordered);
+            }
+        }
 
         public SeriesBuffer Add(string label)
         {

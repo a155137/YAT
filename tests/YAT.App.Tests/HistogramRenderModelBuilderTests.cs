@@ -157,7 +157,8 @@ public class HistogramRenderModelBuilderTests
     {
         var model = Build(Data([1, 2, 3], Numbers(2, 1.5, null)));
 
-        Assert.Equal(["2", "1.5", HistogramRenderModelBuilder.MissingGroupLabel], model.Series.Select(series => series.Label));
+        // Numeric groups from the smallest up, "(Missing)" last (Task #059).
+        Assert.Equal(["1.5", "2", HistogramRenderModelBuilder.MissingGroupLabel], model.Series.Select(series => series.Label));
     }
 
     // 11

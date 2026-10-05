@@ -27,7 +27,7 @@ public sealed class ScatterRenderModelBuilder
     private readonly GraphSeriesOrder? _seriesOrder;
 
     // seriesOrder: the whole graph's series order, for a panel of a graph drawn in panels (Task #058); none numbers the
-    // series in the order they are found.
+    // series in the order they are found (GraphGroupOrder).
     public ScatterRenderModelBuilder(int maximumRenderedPoints = DefaultMaximumRenderedPoints, GraphSeriesOrder? seriesOrder = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumRenderedPoints, 1);
@@ -156,6 +156,8 @@ public sealed class ScatterRenderModelBuilder
             partition.Extend(xValue, yValue);
         }
 
+        // Numeric groups from the smallest up, "(Missing)" last; text groups as first seen (GraphGroupOrder, Task #059).
+        partition.Arrange(byNumber, missing);
         return partition;
     }
 
@@ -189,7 +191,8 @@ public sealed class ScatterRenderModelBuilder
         return sampled;
     }
 
-    // The series found so far, in first-observed order, with the extremes of the plotted values.
+    // The series found so far, in first-observed order until arranged in the order they are drawn (GraphGroupOrder),
+    // with the extremes of the plotted values.
     private sealed class Partition
     {
         private readonly List<SeriesBuffer> _series = [];
@@ -205,6 +208,17 @@ public sealed class ScatterRenderModelBuilder
         public double MinimumY { get; private set; } = double.PositiveInfinity;
 
         public double MaximumY { get; private set; } = double.NegativeInfinity;
+
+        // The series put in the order they are drawn (GraphGroupOrder).
+        public void Arrange(Dictionary<double, SeriesBuffer>? byNumber, SeriesBuffer? missing)
+        {
+            var ordered = GraphGroupOrder.Arrange(_series, byNumber, missing);
+            if (!ReferenceEquals(ordered, _series))
+            {
+                _series.Clear();
+                _series.AddRange(ordered);
+            }
+        }
 
         public SeriesBuffer Add(string label)
         {

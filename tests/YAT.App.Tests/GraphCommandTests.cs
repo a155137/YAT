@@ -904,12 +904,13 @@ public partial class GraphCommandTests
         var model = Assert.IsType<EmpiricalCdfRenderer>(plot).Model;
         var panel = Assert.IsType<GraphStatisticsPanel>(frame.StatisticsPanel);
 
-        Assert.Equal(["1", GraphStatisticsPanelBuilder.MissingGroupLabel, "2"], panel.Rows.Select(row => row.Label));
+        // The numeric groups from the smallest up, "(Missing)" last (Task #059), in the panel as in the plot.
+        Assert.Equal(["1", "2", GraphStatisticsPanelBuilder.MissingGroupLabel], panel.Rows.Select(row => row.Label));
         Assert.Equal(model.Series.Select(series => series.Label), panel.Rows.Select(row => row.Label));
-        Assert.Equal([2, 2, 1], panel.Rows.Select(row => row.Count));
+        Assert.Equal([2, 1, 2], panel.Rows.Select(row => row.Count));
 
         // Constant decimals: exactly no spread where there are two or more, none at all where there is one.
-        Assert.Equal([0d, 0d, null], panel.Rows.Select(row => row.StandardDeviation));
+        Assert.Equal([0d, null, 0d], panel.Rows.Select(row => row.StandardDeviation));
         Assert.All(panel.Rows, row => Assert.Equal("0.1", row.MeanText));
     }
 
