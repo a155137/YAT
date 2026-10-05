@@ -800,8 +800,10 @@ public sealed class SkiaGraphRenderer
     // The statistics beside the plot, in a box styled like the legend. Ungrouped, it is a title and a row per
     // statistic - Mean, StDev, N, or those of them the panel shows - with the value right-aligned. Grouped, it is a
     // table: a header with the grouping column's name and the statistic names, then one row per group with the group's
-    // colour swatch, its label on the left and its numbers on the right. Every text was decided when the model was
-    // built; this only places it.
+    // colour swatch, its label on the left and its numbers on the right - or, when the table is too wide for the panel
+    // (Task #062: up to eight statistics), a block per group: its swatch and label, then a line per statistic. Which of
+    // the two is decided from the panel's width each time it is drawn. Every text was decided when the model was built;
+    // this only places it.
     //
     // Nothing scrolls and no font shrinks: a label that does not fit the panel's width ends in an ellipsis, and when
     // not every group fits the panel's height, the last row that does says how many more there are.
@@ -815,7 +817,12 @@ public sealed class SkiaGraphRenderer
     {
         GraphStatisticsItem.Mean => "Mean",
         GraphStatisticsItem.StandardDeviation => "StDev",
-        _ => "N"
+        GraphStatisticsItem.Count => "N",
+        GraphStatisticsItem.Minimum => "Min",
+        GraphStatisticsItem.FirstQuartile => "Q1",
+        GraphStatisticsItem.Median => "Median",
+        GraphStatisticsItem.ThirdQuartile => "Q3",
+        _ => "Max"
     };
 
     // A row's text for each statistic, as it was decided when the row was built.
@@ -823,8 +830,17 @@ public sealed class SkiaGraphRenderer
     {
         GraphStatisticsItem.Mean => row.MeanText,
         GraphStatisticsItem.StandardDeviation => row.StandardDeviationText,
-        _ => row.CountText
+        GraphStatisticsItem.Count => row.CountText,
+        GraphStatisticsItem.Minimum => FiveNumberText(row, five => five.MinimumText),
+        GraphStatisticsItem.FirstQuartile => FiveNumberText(row, five => five.FirstQuartileText),
+        GraphStatisticsItem.Median => FiveNumberText(row, five => five.MedianText),
+        GraphStatisticsItem.ThirdQuartile => FiveNumberText(row, five => five.ThirdQuartileText),
+        _ => FiveNumberText(row, five => five.MaximumText)
     };
+
+    // A five-number summary text (Task #062), or "—" for a row made without the summary.
+    private static string FiveNumberText(GraphStatisticsRow row, Func<GraphFiveNumberSummary, string> text) =>
+        row.FiveNumbers is { } five ? text(five) : GraphStatisticsPanelBuilder.UndefinedText;
 
     // The names of the statistics the panel shows (Task #045), in the order it shows them.
     private static string[] StatisticsNames(GraphStatisticsPanel panel) => [.. panel.Items.Select(StatisticName)];
@@ -891,11 +907,30 @@ public sealed class SkiaGraphRenderer
         var rowHeight = Math.Max(LineHeight(font), LegendSwatchSize);
         var fontMetrics = font.Metrics;
 
-        var headerLines = panel.IsGrouped ? 2 : 1;
+        // A grouped table too wide for the panel - more statistics than its columns have room for (Task #062) - is
+        // drawn as a block per series instead, decided here from the width the panel has, every time it is drawn.
+        var stacked = panel.IsGrouped && !FitsAsTable(panel, font, area.Width - (LegendPadding * 2f));
+        var headerLines = panel.IsGrouped && !stacked ? 2 : 1;
         var dataLines = panel.IsGrouped ? panel.Rows.Count : panel.Items.Count;
-        var (shownData, _) = FitStatisticsLines(panel, area.Height, rowHeight);
-        var overflow = shownData < dataLines;
-        var lines = headerLines + shownData;
+        int shownData;
+        int lines;
+        bool overflow;
+        var partial = 0;
+        var more = 0;
+        if (stacked)
+        {
+            (shownData, partial, more) = FitStatisticsBlocks(panel, area.Height, rowHeight);
+            overflow = more > 0;
+            // A first series shown in part takes its label, its statistics shown and "…".
+            lines = headerLines + (shownData * (1 + panel.Items.Count)) + (partial > 0 ? partial + 2 : 0)
+                + (overflow ? 1 : 0);
+        }
+        else
+        {
+            (shownData, _) = FitStatisticsLines(panel, area.Height, rowHeight);
+            overflow = shownData < dataLines;
+            lines = headerLines + shownData;
+        }
 
         var box = area;
         box.Bottom = Math.Min(box.Top + (LegendPadding * 2f) + (lines * rowHeight) + (Math.Max(lines - 1, 0) * LegendEntrySpacing), area.Bottom);
@@ -922,7 +957,12 @@ public sealed class SkiaGraphRenderer
             fill);
         top += rowHeight + LegendEntrySpacing;
 
-        if (panel.IsGrouped)
+        if (stacked)
+        {
+            DrawStatisticsBlocks(
+                canvas, panel, theme, fill, font, left, right, top, rowHeight, shownData, partial, more);
+        }
+        else if (panel.IsGrouped)
         {
             DrawStatisticsTable(canvas, panel, theme, fill, font, left, right, top, rowHeight, shownData, overflow);
         }
@@ -963,6 +1003,121 @@ public sealed class SkiaGraphRenderer
         var fitting = Math.Max(0, (int)Math.Floor(available / (rowHeight + LegendEntrySpacing)) - headerLines);
         var lines = Math.Min(dataLines, fitting);
         return (lines, lines > 0 && lines < dataLines ? dataLines - lines + 1 : 0);
+    }
+
+    // Whether a grouped panel's table fits this width: every statistic's column at its own width, and the labels
+    // whole or at least StatisticsMinimumLabelWidth wide - the least the table has ever given them.
+    internal static bool FitsAsTable(GraphStatisticsPanel panel, SKFont font, float width)
+    {
+        var (labelWidth, numberWidths) = StatisticsColumns(panel, font);
+        var needed = LegendSwatchSize + LegendEntrySpacing + Math.Min(labelWidth, StatisticsMinimumLabelWidth)
+            + numberWidths.Sum(column => StatisticsColumnGap + column);
+        // A panel sized to its table gets that width back from the layout's arithmetic, give or take a rounding error.
+        return needed <= width + 0.5f;
+    }
+
+    // How a stacked panel (Task #062) fits a panel area this tall: how many whole series blocks - a block is the
+    // series' swatch and label, then a line per statistic - and how many series the "… k more" line under them stands
+    // in for (0 when every block fits). The title takes the first line.
+    //
+    // When not even one whole block fits, the first series is still shown as far as it goes - its label and as many of
+    // its statistics as there is room for, then "…" - when that is at least one statistic (Partial: how many); only
+    // when there is room for less than that is the panel just "… k more".
+    internal static (int Blocks, int Partial, int More) FitStatisticsBlocks(
+        GraphStatisticsPanel panel, float height, float rowHeight)
+    {
+        var available = height - (LegendPadding * 2f) + LegendEntrySpacing;
+        var lines = Math.Max(0, (int)Math.Floor(available / (rowHeight + LegendEntrySpacing)) - 1);
+        var block = 1 + panel.Items.Count;
+        var rows = panel.Rows.Count;
+        if (lines >= rows * block)
+        {
+            return (rows, 0, 0);
+        }
+
+        // Not every block fits: the last line says how many series are left out.
+        var blocks = Math.Min(rows, Math.Max(0, (lines - 1) / block));
+        if (blocks > 0 || lines < 1)
+        {
+            return (blocks, 0, lines >= 1 ? rows - blocks : 0);
+        }
+
+        // Not one whole block: the first series' label, what fits of its statistics, "…" for the rest, and - with
+        // more series - "… k more" for them.
+        var more = rows > 1 ? 1 : 0;
+        var partial = Math.Min(panel.Items.Count - 1, lines - 1 - 1 - more);
+        return partial >= 1 ? (0, partial, rows - 1) : (0, 0, rows);
+    }
+
+    // A grouped panel too wide for a table (Task #062): a block per series - its colour swatch and label, then each
+    // statistic's name on the left and its value on the right - and, when not every block fits, "… k more". With room
+    // for no whole block, the first series as far as it fits (partial of its statistics), then "…".
+    private static void DrawStatisticsBlocks(
+        SKCanvas canvas,
+        GraphStatisticsPanel panel,
+        GraphTheme theme,
+        SKPaint fill,
+        SKFont font,
+        float left,
+        float right,
+        float top,
+        float rowHeight,
+        int shownBlocks,
+        int partial,
+        int more)
+    {
+        var fontMetrics = font.Metrics;
+        var labelLeft = left + LegendSwatchSize + LegendEntrySpacing;
+        var names = StatisticsNames(panel);
+        for (var index = 0; index < shownBlocks + (partial > 0 ? 1 : 0); index++)
+        {
+            var row = panel.Rows[index];
+            var statistics = index < shownBlocks ? panel.Items.Count : partial;
+            var centerY = top + (rowHeight / 2f);
+            if (row.SeriesIndex is { } series)
+            {
+                fill.Color = theme.SeriesColor(series);
+                var half = LegendSwatchSize / 2f;
+                canvas.DrawRect(new SKRect(left, centerY - half, left + LegendSwatchSize, centerY + half), fill);
+            }
+
+            fill.Color = theme.Text;
+            GraphTextFallback.DrawText(
+                canvas,
+                Ellipsize(row.Label, font, right - labelLeft),
+                labelLeft,
+                CenteredBaseline(centerY, fontMetrics),
+                SKTextAlign.Left,
+                font,
+                fill);
+            top += rowHeight + LegendEntrySpacing;
+
+            for (var item = 0; item < statistics; item++)
+            {
+                var baseline = CenteredBaseline(top + (rowHeight / 2f), fontMetrics);
+                fill.Color = theme.SecondaryText;
+                GraphTextFallback.DrawText(canvas, names[item], labelLeft, baseline, SKTextAlign.Left, font, fill);
+                fill.Color = theme.Text;
+                GraphTextFallback.DrawText(
+                    canvas, StatisticText(row, panel.Items[item]), right, baseline, SKTextAlign.Right, font, fill);
+                top += rowHeight + LegendEntrySpacing;
+            }
+
+            if (statistics < panel.Items.Count)
+            {
+                // The statistics of the series that did not fit.
+                fill.Color = theme.SecondaryText;
+                var baseline = CenteredBaseline(top + (rowHeight / 2f), fontMetrics);
+                GraphTextFallback.DrawText(canvas, "…", labelLeft, baseline, SKTextAlign.Left, font, fill);
+                top += rowHeight + LegendEntrySpacing;
+            }
+        }
+
+        if (more > 0)
+        {
+            var baseline = CenteredBaseline(top + (rowHeight / 2f), fontMetrics);
+            DrawMore(canvas, theme, fill, font, left, baseline, more);
+        }
     }
 
     private static void DrawStatisticsTable(

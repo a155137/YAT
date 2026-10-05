@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
 using YAT.Application.Graphs;
 using YAT.App.Tests.TestDoubles;
 using YAT.app.Graphs;
@@ -348,16 +349,51 @@ public class GraphStatisticsEditingTests
     // are not editable while the panel is hidden is the view model's AreItemsEnabled, bound here and checked in the
     // running application.)
     [Fact]
-    public void TheEditorIsOneRowOfNamedControls()
+    public void TheSetupsEditorIsOneRowOfNamedControlsEndingInMore()
     {
         var statistics = new GraphStatisticsEditorViewModel(HistogramDefinition);
-        var row = Assert.IsType<StackPanel>(GraphStatisticsEditor.Create(statistics));
+        var row = Assert.IsType<StackPanel>(GraphStatisticsEditor.Create(statistics, compact: true));
 
+        // Task #062: the five-number summary is behind More..., so the setup's row stays as it was.
         Assert.Equal(Avalonia.Layout.Orientation.Horizontal, row.Orientation);
+        Assert.Equal(["Statistics", GraphStatisticsEditor.ModeName, null, "MoreStatistics"], row.Children.Select(child => child is TextBlock text ? text.Text : child.Name));
+        var items = row.GetLogicalDescendants().OfType<CheckBox>().ToList();
+        Assert.Equal(["ShowMean", "ShowStandardDeviation", "ShowCount"], items.Select(item => item.Name));
+        Assert.Equal(["Mean", "StDev", "N"], items.Select(item => (string)item.Content!));
+        Assert.Equal("More...", statistics.MoreSummary);
+
+        statistics.ShowMedian = true;
+        statistics.ShowMaximum = true;
+        Assert.Equal("More (2)...", statistics.MoreSummary);
+    }
+
+    // The Edit Statistics dialog's editor: every statistic, the five-number summary on a second line, in panel order.
+    [Fact]
+    public void TheFullEditorHasEveryStatisticInPanelOrder()
+    {
+        var statistics = new GraphStatisticsEditorViewModel(HistogramDefinition);
+
+        var items = GraphStatisticsEditor.Create(statistics).GetLogicalDescendants().OfType<CheckBox>().ToList();
+
+        Assert.Equal(["Mean", "StDev", "N", "Min", "Q1", "Median", "Q3", "Max"], items.Select(item => (string)item.Content!));
+        Assert.Equal(GraphStatisticsOptions.DefaultItems, statistics.Options.Items);
+    }
+
+    [Fact]
+    public void ApplyTakesEveryStatisticAndCopyEditsASeparateOne()
+    {
+        var statistics = new GraphStatisticsEditorViewModel(HistogramDefinition);
+        var chosen = new GraphStatisticsOptions(GraphStatisticsMode.Show, false, true, false, true, false, true, false, true);
+
+        var copy = statistics.Copy();
+        copy.ShowMedian = true;
+        Assert.False(statistics.ShowMedian);
+
+        statistics.Apply(chosen);
+        Assert.Equal(chosen, statistics.Options);
         Assert.Equal(
-            ["Statistics", GraphStatisticsEditor.ModeName, "ShowMean", "ShowStandardDeviation", "ShowCount"],
-            row.Children.Select(child => child is TextBlock text ? text.Text : child.Name));
-        Assert.Equal(["Mean", "StDev", "N"], row.Children.OfType<CheckBox>().Select(item => (string)item.Content!));
+            [GraphStatisticsItem.StandardDeviation, GraphStatisticsItem.Minimum, GraphStatisticsItem.Median, GraphStatisticsItem.Maximum],
+            statistics.Options.Items);
     }
 
     // ---- The setup ----

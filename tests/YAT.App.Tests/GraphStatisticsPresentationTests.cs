@@ -106,7 +106,7 @@ public class GraphStatisticsPresentationTests
             var frame = built.State.BaseFrame;
 
             Assert.NotNull(frame.StatisticsPanel);
-            Assert.Same(GraphStatisticsOptions.AllItems, frame.StatisticsPanel!.Items);
+            Assert.Same(GraphStatisticsOptions.DefaultItems, frame.StatisticsPanel!.Items);
             Assert.Same(frame, Attach(frame, type, GraphStatisticsOptions.Default));
             Assert.Same(frame, Attach(frame, type, new GraphStatisticsOptions(GraphStatisticsMode.Show)));
             Assert.Same(frame, Attach(frame, type, new GraphStatisticsOptions()));
@@ -245,8 +245,8 @@ public class GraphStatisticsPresentationTests
         Assert.Throws<ArgumentException>(() => new GraphStatisticsPanel("Statistics", null, rows, []));
         Assert.Throws<ArgumentException>(() => new GraphStatisticsPanel("Statistics", null, rows, [GraphStatisticsItem.Count, GraphStatisticsItem.Mean]));
         Assert.Throws<ArgumentException>(() => new GraphStatisticsPanel("Statistics", null, rows, [GraphStatisticsItem.Mean, GraphStatisticsItem.Mean]));
-        Assert.Throws<ArgumentException>(() => new GraphStatisticsPanel("Statistics", null, rows, [(GraphStatisticsItem)5]));
-        Assert.Same(GraphStatisticsOptions.AllItems, new GraphStatisticsPanel("Statistics", null, rows).Items);
+        Assert.Throws<ArgumentException>(() => new GraphStatisticsPanel("Statistics", null, rows, [(GraphStatisticsItem)99]));
+        Assert.Same(GraphStatisticsOptions.DefaultItems, new GraphStatisticsPanel("Statistics", null, rows).Items);
     }
 
     // Any number of changes, in any order, and back to the default: the graph as it was first shown, to the pixel.

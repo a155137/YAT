@@ -346,14 +346,6 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
     // The statistics options, edited the way the Edit Statistics dialog of a drawn graph edits them.
     public GraphStatisticsEditorViewModel Statistics { get; }
 
-    // Whether the statistics options apply (Task #058): not while a Panel column is chosen - a graph drawn in panels shows
-    // no statistics panel - which the setup says rather than leaving the options to look as if they did.
-    public bool StatisticsAvailable =>
-        SupportsStatisticsPanel && Roles.FirstOrDefault(role => role.Role == GraphVariableRole.Panel)?.SelectedColumnId is null;
-
-    // What the setup says in place of the statistics while they do not apply.
-    public const string StatisticsUnavailableMessage = "Statistics are not shown for a graph drawn in panels.";
-
     // Whether the graph type has an appearance the user may change; the setup offers Appearance... only when it does.
     public bool SupportsAppearance => _definition.Supports(GraphCapability.Appearance);
 
@@ -570,7 +562,6 @@ public sealed partial class GraphSetupViewModel : ViewModelBase
         var result = Build().Result;
         CanConfirm = result.IsValid;
         OnPropertyChanged(nameof(IsLayoutEnabled));
-        OnPropertyChanged(nameof(StatisticsAvailable));
         ValidationMessage = GraphValidationMessages.For(result, _definition);
     }
 

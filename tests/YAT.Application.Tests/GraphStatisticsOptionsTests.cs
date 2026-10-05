@@ -37,7 +37,9 @@ public class GraphStatisticsOptionsTests
         Assert.True(options.ShowCount);
         Assert.Equal(new GraphStatisticsOptions(), options);
         Assert.True(options.IsValid);
-        Assert.Equal(GraphStatisticsOptions.AllItems, options.Items);
+        // Mean, StDev and N; since Task #062 the five-number summary is there to choose, off by default.
+        Assert.Equal(GraphStatisticsOptions.DefaultItems, options.Items);
+        Assert.False(options.ShowMinimum || options.ShowFirstQuartile || options.ShowMedian || options.ShowThirdQuartile || options.ShowMaximum);
     }
 
     [Fact]

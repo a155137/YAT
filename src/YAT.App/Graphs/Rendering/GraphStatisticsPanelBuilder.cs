@@ -6,8 +6,8 @@ using YAT.app.Analyses;
 namespace YAT.app.Graphs.Rendering;
 
 // Works out the statistics panel of a graph from the graph data the graph was prepared from: Mean, sample standard
-// deviation and N of every series. It is the only place the panel's numbers come from, so a histogram, a probability
-// plot and an empirical CDF of the same data show the same statistics.
+// deviation and N of every series, and (Task #062) its Min, Q1, Median, Q3 and Max. It is the only place the panel's
+// numbers come from, so a histogram, a probability plot and an empirical CDF of the same data show the same statistics.
 //
 // The statistics are YAT.Analytics' own (Descriptives), over the observations the graph uses: rows without a value
 // were dropped when the data was read, so they are not counted; a value that is not finite is skipped, as every graph
@@ -15,8 +15,9 @@ namespace YAT.app.Graphs.Rendering;
 // Series follow the graph's own order - groups in the order they were first observed, or for a numeric group column from
 // the smallest value up with "(Missing)" last (GraphGroupOrder) - and keep its colours.
 //
-// Nothing is read again from storage and nothing is sorted: an ungrouped graph is summarised where its values are,
-// and a grouped one in one pass that gathers each group's values together.
+// Nothing is read again from storage: an ungrouped graph is summarised where its values are, and a grouped one in one
+// pass that gathers each group's values together. Only the five-number summary sorts - the group's gathered values, or
+// a copy of an ungrouped graph's - after Mean and StDev are worked out as they always were.
 public static class GraphStatisticsPanelBuilder
 {
     public const string Title = "Statistics";
@@ -47,7 +48,9 @@ public static class GraphStatisticsPanelBuilder
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(definition);
 
-        if (!definition.Supports(GraphCapability.StatisticsPanel) || data is not UnivariateGraphData univariate)
+        // A frame that has its statistics already keeps them: a graph in panels comes with its panels' own (Task #062).
+        if (!definition.Supports(GraphCapability.StatisticsPanel) || frame.StatisticsPanel is not null
+            || data is not UnivariateGraphData univariate)
         {
             return frame;
         }
@@ -101,7 +104,11 @@ public static class GraphStatisticsPanelBuilder
         var rows = new GraphStatisticsRow[counts.Length];
         for (var group = 0; group < counts.Length; group++)
         {
-            rows[group] = Row(labels[group], group, buffer.AsSpan(offsets[group], counts[group]));
+            // Mean, StDev and N first, from the values in row order as always; then the five-number summary, from the
+            // same values sorted in place - this buffer is the builder's own (Task #062).
+            cancellationToken.ThrowIfCancellationRequested();
+            var series = buffer.AsSpan(offsets[group], counts[group]);
+            rows[group] = Row(labels[group], group, series) with { FiveNumbers = FiveNumbers(series) };
         }
 
         return new GraphStatisticsPanel(Title, data.Group.Column.Name, rows);
@@ -142,7 +149,28 @@ public static class GraphStatisticsPanelBuilder
             values = kept;
         }
 
-        return new GraphStatisticsPanel(Title, null, [Row(string.Empty, null, values)]);
+        // The five-number summary from a sorted copy: these values are the graph data's own and stay as they are
+        // (Task #062).
+        var row = Row(string.Empty, null, values) with { FiveNumbers = FiveNumbers(values.ToArray()) };
+        return new GraphStatisticsPanel(Title, null, [row]);
+    }
+
+    // Min, Q1, Median, Q3 and Max of one series (Task #062), WHICH SORTS THE VALUES IN PLACE: Analytics' descriptive
+    // summary, so the quartiles are those of the Descriptive Statistics table and the box plot (R-7).
+    private static GraphFiveNumberSummary FiveNumbers(Span<double> values)
+    {
+        var summary = DescriptiveSummary.ComputeInPlaceSorting(values, 0);
+        return new GraphFiveNumberSummary(
+            summary.Minimum!.Value,
+            summary.FirstQuartile!.Value,
+            summary.Median!.Value,
+            summary.ThirdQuartile!.Value,
+            summary.Maximum!.Value,
+            AnalysisNumberFormat.Statistic(summary.Minimum),
+            AnalysisNumberFormat.Statistic(summary.FirstQuartile),
+            AnalysisNumberFormat.Statistic(summary.Median),
+            AnalysisNumberFormat.Statistic(summary.ThirdQuartile),
+            AnalysisNumberFormat.Statistic(summary.Maximum));
     }
 
     // One series: its Mean, its sample standard deviation when it has one, and N - the statistics of Analytics.

@@ -124,7 +124,7 @@ public sealed class GraphRobustnessStatisticsTests
                     where, "the panel shown is not the graph's own, with the statistics chosen");
             }
 
-            if (options.Items.SequenceEqual(GraphStatisticsOptions.AllItems) && options.Mode != GraphStatisticsMode.Hide)
+            if (options.Items.SequenceEqual(GraphStatisticsOptions.DefaultItems) && options.Mode != GraphStatisticsMode.Hide)
             {
                 GraphRobustnessInvariants.That(
                     ReferenceEquals(state.WithLegend(GraphLegendOptions.Default).Frame, frame), where,

@@ -71,9 +71,22 @@ public partial class GraphCommandTests
         Assert.Single(runtime.GraphWindows.Graphs);
         Assert.Equal(["Site = S2", "Site = S1", "Site = (Missing)", "Site = S3"], panels!.Select(panel => panel.Title));
         Assert.Equal(["A", "B", "C"], graph.Frame.Legend!.Entries.Select(entry => entry.Label));
-        Assert.Null(graph.Frame.StatisticsPanel);
-        Assert.False(graph.Definition.Supports(GraphCapability.StatisticsPanel));
         Assert.Empty(runtime.GraphDialogs.Errors);
+
+        // Each panel's own statistics (Task #062), a row per panel and group, in panel order then the legend's; a scatter
+        // plot has none.
+        if (type == GraphType.ScatterPlot)
+        {
+            Assert.Null(graph.Frame.StatisticsPanel);
+            return;
+        }
+
+        var statistics = graph.Frame.StatisticsPanel!;
+        Assert.Equal("Site / Lot", statistics.GroupHeader);
+        Assert.Equal(
+            [("Site S2 / A", 0, 2), ("Site S2 / C", 2, 1), ("Site S1 / A", 0, 2), ("Site S1 / B", 1, 1), ("Site (Missing) / B", 1, 1), ("Site S3 / B", 1, 2), ("Site S3 / C", 2, 1)],
+            statistics.Rows.Select(row => (row.Label, row.SeriesIndex!.Value, row.Count)));
+        Assert.True(graph.Definition.Supports(GraphCapability.StatisticsPanel));
     }
 
     [Fact]
@@ -155,31 +168,32 @@ public partial class GraphCommandTests
         Assert.Equal([0, 1], runtime.GraphWindows.Cascades);
     }
 
+    // Task #062: a graph in panels has statistics again - each panel's own, chosen in the setup as for any graph.
     [Fact]
-    public async Task TheSetupSaysStatisticsAreUnavailableWhileAPanelColumnIsChosen()
+    public async Task TheSetupsStatisticsApplyToAGraphInPanels()
     {
         using var runtime = new Runtime();
         await runtime.StartAsync();
         await runtime.PasteAsync(PanelData);
-        GraphSetupViewModel? seen = null;
-        var states = new List<bool>();
-        runtime.GraphDialogs.Answer = setup =>
+
+        var (graph, _) = await DrawInPanelsAsync(runtime, GraphType.Histogram, "Site", options: setup =>
         {
-            seen = setup;
-            states.Add(setup.StatisticsAvailable);
-            Choose(setup, GraphVariableRole.Panel, "Site");
-            states.Add(setup.StatisticsAvailable);
-            var panel = setup.Roles.Single(role => role.Role == GraphVariableRole.Panel);
-            panel.SelectedOption = GraphColumnOption.None;
-            states.Add(setup.StatisticsAvailable);
-            return null;
-        };
+            setup.Statistics.ShowStandardDeviation = false;
+            setup.Statistics.ShowMedian = true;
+        });
 
-        await Command(runtime, GraphType.Histogram).ExecuteAsync(null);
+        var statistics = graph.Frame.StatisticsPanel!;
+        Assert.Equal([GraphStatisticsItem.Mean, GraphStatisticsItem.Count, GraphStatisticsItem.Median], statistics.Items);
+        Assert.Equal("Site", statistics.GroupHeader);
+        Assert.Equal(["Site S2", "Site S1", "Site (Missing)", "Site S3"], statistics.Rows.Select(row => row.Label));
+        Assert.All(statistics.Rows, row => Assert.Null(row.SeriesIndex));
 
-        Assert.Equal([true, false, true], states);
-        Assert.Equal("Statistics are not shown for a graph drawn in panels.", GraphSetupViewModel.StatisticsUnavailableMessage);
-        Assert.NotNull(seen);
+        // Site S2 is rows 1, 3 and 8: 15.02, 15.10, 15.12 - its own numbers, not every panel's.
+        var s2 = statistics.Rows[0];
+        Assert.Equal(3, s2.Count);
+        Assert.Equal("15.1", s2.FiveNumbers!.MedianText);
+        Assert.Equal(15.02, s2.FiveNumbers.Minimum);
+        Assert.Equal(15.12, s2.FiveNumbers.Maximum);
     }
 
     [Fact]

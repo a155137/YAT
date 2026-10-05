@@ -348,23 +348,51 @@ public class GraphPanelTests
         Assert.Equal(GraphVariablesTogether.AxisTitle, prepared.Frame.XAxis.Title);
     }
 
+    // Task #062: a graph in panels has every panel's own statistics - never the whole graph's - a row per panel and
+    // group, in panel order and then the legend's, each group in its colour.
     [Fact]
-    public void AGraphInPanelsHasNoStatisticsPanel()
+    public void AGraphInPanelsHasEachPanelsOwnStatistics()
     {
         foreach (var type in new[] { GraphType.Histogram, GraphType.ProbabilityPlot, GraphType.EmpiricalCdf })
         {
-            Assert.True(GraphTypeDefinitions.For(type).Supports(GraphCapability.StatisticsPanel));
             var definition = GraphPanelPreparation.Definition(type);
-            Assert.False(definition.Supports(GraphCapability.StatisticsPanel));
-            Assert.Equal(GraphTypeDefinitions.For(type).Capabilities.Count - 1, definition.Capabilities.Count);
+            Assert.True(definition.Supports(GraphCapability.StatisticsPanel));
 
-            var data = Data(type);
-            var prepared = GraphPanelPreparation.Prepare(data, Configuration(type), null, Token)!;
+            var prepared = GraphPanelPreparation.Prepare(Data(type), Configuration(type), null, Token)!;
             var graph = GraphPresentation.Present(prepared.Frame, prepared.Whole, Configuration(type), definition, Token);
-            Assert.Null(graph.Frame.StatisticsPanel);
-            Assert.Null(graph.BaseFrame.StatisticsPanel);
+            var statistics = graph.Frame.StatisticsPanel!;
+            Assert.Same(prepared.Frame.StatisticsPanel, graph.BaseFrame.StatisticsPanel);
+
+            // Sites B, A, (Missing), C as first seen; lots x, y, z in the legend's order - z only at C.
+            Assert.Equal("Site / Lot", statistics.GroupHeader);
+            Assert.Equal(
+                [("Site B / x", 0, 3), ("Site A / x", 0, 1), ("Site A / y", 1, 2), ("Site (Missing) / y", 1, 2), ("Site C / x", 0, 1), ("Site C / y", 1, 1), ("Site C / z", 2, 2)],
+                statistics.Rows.Select(row => (row.Label, row.SeriesIndex!.Value, row.Count)));
+
+            // Site B's own numbers: 15.0, 15.2, 14.95.
+            var b = statistics.Rows[0];
+            Assert.Equal((15.0 + 15.2 + 14.95) / 3, b.Mean, 12);
+            Assert.Equal((14.95, 15.0, 15.2), (b.FiveNumbers!.Minimum, b.FiveNumbers.Median, b.FiveNumbers.Maximum));
         }
     }
+
+    [Fact]
+    public void APanelOfOneSeriesIsOneRowUnderItsPanelsName()
+    {
+        var prepared = GraphPanelPreparation.Prepare(
+            Univariate(GraphType.EmpiricalCdf, Values, null, Numbers("Site", [2, 1, 2, null, 1, 2, 1, 2, null, 1, 2, 1])), Configuration(GraphType.EmpiricalCdf), null, Token)!;
+
+        var statistics = prepared.Frame.StatisticsPanel!;
+
+        Assert.Equal("Site", statistics.GroupHeader);
+        Assert.Equal([("Site 1", 5), ("Site 2", 5), ("Site (Missing)", 2)], statistics.Rows.Select(row => (row.Label, row.Count)));
+        Assert.All(statistics.Rows, row => Assert.Null(row.SeriesIndex));
+        Assert.Equal(12, statistics.Rows.Sum(row => row.Count));
+    }
+
+    [Fact]
+    public void AScatterPlotInPanelsHasNoStatistics() =>
+        Assert.Null(GraphPanelPreparation.Prepare(Data(GraphType.ScatterPlot), Configuration(GraphType.ScatterPlot), null, Token)!.Frame.StatisticsPanel);
 
     // ---- Drawing, copying, exporting ----
 
@@ -443,7 +471,9 @@ public class GraphPanelTests
     [Fact]
     public void ASmallPanelLabelsOnlyTheSharedTicksItHasRoomFor()
     {
-        var (graph, panels) = SevenSites(GraphType.ProbabilityPlot);
+        // The panels with the room they have without a statistics panel (which a graph in panels has since Task #062).
+        var (shown, panels) = SevenSites(GraphType.ProbabilityPlot);
+        var graph = shown.WithStatistics(new GraphStatisticsOptions(GraphStatisticsMode.Hide));
         var cells = GraphPanelLayout.Cells(graph.Frame, panels.Count, new SKRect(0, 0, 800, 600), GraphThemes.Light);
 
         var shared = graph.Frame.YAxis.Ticks;

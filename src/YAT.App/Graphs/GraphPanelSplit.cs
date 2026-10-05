@@ -3,8 +3,12 @@ using YAT.Application.Graphs;
 
 namespace YAT.app.Graphs;
 
-// The observations of one panel of a graph drawn in panels (Task #058), and the title it is drawn under.
-public sealed record GraphPanelData(string Title, GraphData Data);
+// The observations of one panel of a graph drawn in panels (Task #058), and the title it is drawn under. Its label
+// names it where the panels are listed - in the statistics (Task #062): "Site 1", "Site (Missing)".
+public sealed record GraphPanelData(string Title, GraphData Data)
+{
+    public string Label { get; init; } = Title;
+}
 
 // Splits a graph's observations by the values of its Panel column (Task #058). The rows were filtered when they were
 // read, so only the rows the filter kept are split. A numeric column's panels go from its smallest value up; a text
@@ -36,6 +40,9 @@ public static class GraphPanelSplit
 
     // "Site = 1", "Lot = A", "Site = (Missing)".
     public static string Title(string column, string value) => $"{column} = {value}";
+
+    // "Site 1", "Lot A", "Site (Missing)": a panel where the panels are listed - in its statistics (Task #062).
+    public static string Label(string column, string value) => $"{column} {value}";
 
     public static IReadOnlyList<GraphPanelData> Split(GraphData data, CancellationToken cancellationToken = default)
     {
@@ -87,14 +94,14 @@ public static class GraphPanelSplit
             cancellationToken.ThrowIfCancellationRequested();
             var rank = order[place];
             var title = Title(column, keys[rank].Label);
-            panels[place] = data switch
+            panels[place] = (data switch
             {
                 MultiVariableGraphData several => new GraphPanelData(title, new MultiVariableGraphData(
                     several.GraphType,
                     several.WorksheetId,
                     [.. several.Variables.Select((variable, set) => Subset(variable, RowsOf(rowsOf[set], rank)))])),
                 _ => new GraphPanelData(title, Subset(data, RowsOf(rowsOf[0], rank)))
-            };
+            }) with { Label = Label(column, keys[rank].Label) };
         }
 
         return panels;

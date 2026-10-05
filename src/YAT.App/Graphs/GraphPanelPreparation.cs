@@ -15,20 +15,18 @@ namespace YAT.app.Graphs;
 //
 // The result is one frame - the whole graph's, over the shared axes - presented once (GraphPresentation), so the
 // configured ranges, ticks, view, labels, legend and appearance are the graph's, and the panels: each a title and what
-// its graph type draws. A graph in panels shows no statistics panel (its capability is taken away here); a later task
-// (#059) gives the panels statistics of their own, from the panel observations this works from.
+// its graph type draws. Its statistics (Task #062) are the panels' own: a row for each panel - or panel and series -
+// worked out from that panel's observations alone, never over every panel together, in one statistics panel of the
+// whole graph.
 public static class GraphPanelPreparation
 {
     public sealed record Prepared(GraphRenderModel Frame, IReadOnlyList<GraphPanel> Panels, GraphData Whole);
 
     private sealed record Built(GraphRenderModel Frame, IGraphPlotRenderer Plot, IReadOnlyList<string> SeriesLabels, IReadOnlyList<HistogramBin>? Bins);
 
-    // The graph type of a graph drawn in panels: what it always offers, but not its statistics panel.
-    public static GraphTypeDefinition Definition(GraphType graphType)
-    {
-        var definition = GraphTypeDefinitions.For(graphType);
-        return definition with { Capabilities = [.. definition.Capabilities.Where(capability => capability != GraphCapability.StatisticsPanel)] };
-    }
+    // The graph type of a graph drawn in panels: everything it always offers - since Task #062 its statistics panel
+    // too, which holds the panels' statistics.
+    public static GraphTypeDefinition Definition(GraphType graphType) => GraphTypeDefinitions.For(graphType);
 
     // The graph in panels, or null when nothing in it can be drawn. Throws GraphPreparationException for a panel column
     // with too many values, and for what the graph type's own builder refuses.
@@ -60,8 +58,67 @@ public static class GraphPanelPreparation
             ? global.Frame
             : global.Frame.WithXAxis(Union(global.Frame.XAxis, [.. frames.Select(item => item.XAxis)]))
                 .WithYAxis(Union(global.Frame.YAxis, [.. frames.Select(item => item.YAxis)]));
+        frame = WithStatistics(frame, data, panels, order, cancellationToken);
 
         return new Prepared(frame, [.. built.Select(panel => new GraphPanel(panel.Title, panel.Model?.Plot))], whole);
+    }
+
+    // The statistics of a graph in panels (Task #062), for a graph type with a statistics panel: every panel's own,
+    // worked out from its observations alone - a row per panel ("Site 1"), or per panel and series ("Site 1 / Lot A",
+    // or with variables together "Site 1 / Reg1 / Lot A") - in the order of the panels and, within one, of the whole
+    // graph's series, in their colours. Nothing is worked out over every panel together.
+    private static GraphRenderModel WithStatistics(
+        GraphRenderModel frame,
+        GraphData data,
+        IReadOnlyList<GraphPanelData> panels,
+        GraphSeriesOrder order,
+        CancellationToken cancellationToken)
+    {
+        if (!GraphTypeDefinitions.For(data.GraphType).Supports(GraphCapability.StatisticsPanel))
+        {
+            return frame;
+        }
+
+        var rows = new List<GraphStatisticsRow>();
+        string? seriesHeader = null;
+        foreach (var panel in panels)
+        {
+            if (Combined(panel.Data, cancellationToken) is not UnivariateGraphData observations
+                || GraphStatisticsPanelBuilder.Build(observations, cancellationToken) is not { } statistics)
+            {
+                continue;
+            }
+
+            if (statistics.GroupHeader is null)
+            {
+                rows.Add(statistics.Rows[0].Relabelled(panel.Label, null));
+                continue;
+            }
+
+            seriesHeader ??= statistics.GroupHeader;
+            rows.AddRange(statistics.Rows
+                .OrderBy(row => order.IndexOf(row.Label, int.MaxValue))
+                .Select(row => row.Relabelled(
+                    $"{panel.Label} / {row.Label}", order.IndexOf(row.Label, row.SeriesIndex ?? 0))));
+        }
+
+        if (rows.Count == 0)
+        {
+            return frame;
+        }
+
+        var column = PanelColumn(data);
+        var header = seriesHeader is null ? column : $"{column} / {seriesHeader}";
+        return frame.WithStatisticsPanel(new GraphStatisticsPanel(GraphStatisticsPanelBuilder.Title, header, rows));
+    }
+
+    // The name of the graph's panel column.
+    private static string PanelColumn(GraphData data)
+    {
+        var panel = data is MultiVariableGraphData several
+            ? several.Variables.Select(variable => variable.Panel).First(panel => panel is not null)
+            : data.Panel;
+        return panel!.Column.Name;
     }
 
     // Several variables in one panel are drawn together, as they are without panels.

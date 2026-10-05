@@ -64,7 +64,34 @@ public sealed record GraphStatisticsRow
     public string MeanText { get; }
 
     public string StandardDeviationText { get; }
+
+    // Min, Q1, Median, Q3 and Max of the series (Task #062), worked out with the rest; null for a row made without
+    // them, whose panel shows "—" for each.
+    public GraphFiveNumberSummary? FiveNumbers { get; init; }
+
+    // The same statistics under another label and colour: a panel's row in the statistics of a graph drawn in panels
+    // (Task #062), named after its panel and coloured as its series is in the whole graph.
+    public GraphStatisticsRow Relabelled(string label, int? seriesIndex) =>
+        new(label, seriesIndex, Count, Mean, StandardDeviation, CountText, MeanText, StandardDeviationText)
+        {
+            FiveNumbers = FiveNumbers
+        };
 }
+
+// The five-number summary of one series of a statistics panel (Task #062): its smallest and largest observations and
+// its quartiles - in YAT's one quantile convention (Analytics' Quantiles, R-7), as the Descriptive Statistics table
+// and the box plot give them - each with the text it is shown as.
+public sealed record GraphFiveNumberSummary(
+    double Minimum,
+    double FirstQuartile,
+    double Median,
+    double ThirdQuartile,
+    double Maximum,
+    string MinimumText,
+    string FirstQuartileText,
+    string MedianText,
+    string ThirdQuartileText,
+    string MaximumText);
 
 // The statistics of a graph, shown in a panel beside its plot: one block of Mean, StDev and N when the graph is not
 // grouped, a compact table with one row per group when it is.
@@ -72,8 +99,9 @@ public sealed record GraphStatisticsRow
 // It is part of the graph frame, like the legend, so it is drawn by the frame renderer and appears the same on screen,
 // in a PNG and in a presentation. The rows are all kept here even when the panel has room to draw only some of them.
 //
-// Every row holds all three statistics; Items says which of them the panel shows (Task #045), in the order it shows
-// them - all three unless the user chose fewer (GraphStatisticsPresentationBuilder).
+// Every row holds every statistic - Mean, StDev and N, and since Task #062 the five-number summary; Items says which of
+// them the panel shows (Task #045), in the order it shows them - Mean, StDev and N unless the user chose otherwise
+// (GraphStatisticsPresentationBuilder).
 public sealed record GraphStatisticsPanel
 {
     public GraphStatisticsPanel(
@@ -84,7 +112,7 @@ public sealed record GraphStatisticsPanel
     {
         ArgumentNullException.ThrowIfNull(title);
         ArgumentNullException.ThrowIfNull(rows);
-        items ??= GraphStatisticsOptions.AllItems;
+        items ??= GraphStatisticsOptions.DefaultItems;
 
         // At least one statistic, each a defined one and in the order a panel shows them, none twice.
         if (items.Count == 0 || items.Any(item => !Enum.IsDefined(item))
@@ -112,7 +140,7 @@ public sealed record GraphStatisticsPanel
         Title = title;
         GroupHeader = groupHeader;
         Rows = [.. rows];
-        Items = ReferenceEquals(items, GraphStatisticsOptions.AllItems) ? items : [.. items];
+        Items = ReferenceEquals(items, GraphStatisticsOptions.DefaultItems) ? items : [.. items];
     }
 
     public string Title { get; }

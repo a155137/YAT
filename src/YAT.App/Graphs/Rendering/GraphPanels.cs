@@ -5,7 +5,7 @@ namespace YAT.app.Graphs.Rendering;
 // One panel of a graph drawn in panels (Task #058): its generated title ("Site = 1") and what its graph type draws
 // inside it - the panel's own observations, built against the whole graph's series order and, for a histogram, its bins.
 // Everything else a panel shows - its axes, ranges, ticks, reference lines - is the whole graph's, shared by every
-// panel. A later task (#059) gives a panel statistics of its own here, beside its plot.
+// panel. A panel's statistics are not here: they are the rows of the whole graph's statistics panel (Task #062).
 public sealed record GraphPanel
 {
     public GraphPanel(string title, IGraphPlotRenderer? plot)
@@ -41,20 +41,20 @@ public static class GraphPanelLayout
         return (columns, (int)Math.Ceiling(count / (double)columns));
     }
 
-    // The frame the whole graph is laid out and drawn around the panels with: its title, its axis titles and its legend,
-    // over axes without ticks and with neither reference lines nor statistics - those are the panels'.
+    // The frame the whole graph is laid out and drawn around the panels with: its title, its axis titles, its legend
+    // and its statistics - the panels' (Task #062) - over axes without ticks and without reference lines, which are
+    // the panels'.
     public static GraphRenderModel OuterFrame(GraphRenderModel frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         return frame
             .WithXAxis(Untick(frame.XAxis))
             .WithYAxis(Untick(frame.YAxis))
-            .WithReferenceLines([])
-            .WithStatisticsPanel(null);
+            .WithReferenceLines([]);
     }
 
     // The frame of one panel: the whole graph's axes, ticks and reference lines under the panel's title, without axis
-    // titles or a legend, which the whole graph shows once.
+    // titles, a legend or statistics, which the whole graph shows once.
     public static GraphRenderModel PanelFrame(GraphRenderModel frame, string title)
     {
         ArgumentNullException.ThrowIfNull(frame);
