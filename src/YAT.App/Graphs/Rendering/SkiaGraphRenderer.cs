@@ -68,6 +68,13 @@ public sealed class SkiaGraphRenderer
         DrawStatisticsPanel(canvas, model, layout, theme, fill, stroke, tickFont);
     }
 
+    // How wide a tick label is drawn in this theme.
+    internal static float TickLabelWidth(string label, GraphTheme theme)
+    {
+        using var tickFont = Font(theme.TickLabelFontSize);
+        return GraphTextFallback.MeasureText(tickFont, label);
+    }
+
     // The layout Render uses for this model on this canvas, measured with the theme's fonts: where the legend and the
     // statistics panel end up, for tests that look at what was drawn there.
     internal static GraphLayout Layout(GraphRenderModel model, SKRect bounds, GraphTheme theme)

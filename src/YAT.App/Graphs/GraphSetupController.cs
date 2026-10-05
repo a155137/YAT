@@ -190,7 +190,7 @@ public sealed class GraphSetupController
         var cascade = 0;
         foreach (var graph in graphs.Where(graph => graph.Presentation is not null))
         {
-            _windows.ShowGraph(graph.Presentation!, graph.Plot, cascade++);
+            _windows.ShowGraph(graph.Presentation!, graph.Plot, cascade++, graph.Panels);
         }
 
         var failures = graphs.Where(graph => graph.Failure is not null).ToList();
@@ -215,7 +215,11 @@ public sealed class GraphSetupController
         string Name,
         GraphPresentationState? Presentation,
         IGraphPlotRenderer? Plot,
-        string? Failure);
+        string? Failure)
+    {
+        // The panels of a graph drawn in panels (Task #058); null for every other graph.
+        public IReadOnlyList<GraphPanel>? Panels { get; init; }
+    }
 
     // The graphs a request asks for, each prepared on its own so that one that fails does not take the others with it.
     //
@@ -249,6 +253,10 @@ public sealed class GraphSetupController
                 var only = single.Variables[0];
                 return [PrepareOne(only.Variable.Name, only, configuration, cancellationToken)];
 
+            // Drawn together in panels (Task #058): the panels are split first and each panel's variables drawn together.
+            case MultiVariableGraphData several when !separate && GraphPanelSplit.HasPanels(several):
+                return [PrepareOne(GraphVariablesTogether.Name(several.Variables.Select(variable => variable.Variable.Name)), several, configuration, cancellationToken)];
+
             case MultiVariableGraphData several when separate:
                 return
                 [
@@ -279,6 +287,11 @@ public sealed class GraphSetupController
     {
         try
         {
+            if (GraphPanelSplit.HasPanels(data))
+            {
+                return PreparePanels(name, data, configuration, cancellationToken);
+            }
+
             if (_prepare(data, configuration, cancellationToken) is not { } built)
             {
                 return new PreparedGraph(name, null, null, data.FilteredRowCount == 0 ? NoMatchingRowsMessage : NoDataMessage);
@@ -306,6 +319,29 @@ public sealed class GraphSetupController
             Trace.TraceError($"Preparing a {configuration.GraphType} graph failed: {exception}");
             return new PreparedGraph(name, null, null, PreparationFailedMessage);
         }
+    }
+
+    // A graph with a Panel column (Task #058): its panels prepared from the graph types' own builders, composed
+    // (GraphPanelPreparation), and presented once - over the shared axes, without a statistics panel - as the graph the
+    // window shows, copies and exports with its panels.
+    private static PreparedGraph PreparePanels(
+        string name,
+        GraphData data,
+        GraphConfiguration configuration,
+        CancellationToken cancellationToken)
+    {
+        var axisTitle = configuration.FindColumnIds(GraphVariableRole.Variable).Count > 1
+            ? GraphVariablesTogether.AxisTitle
+            : null;
+
+        if (GraphPanelPreparation.Prepare(data, configuration, axisTitle, cancellationToken) is not { } prepared)
+        {
+            return new PreparedGraph(name, null, null, data.FilteredRowCount == 0 ? NoMatchingRowsMessage : NoDataMessage);
+        }
+
+        var presentation = GraphPresentation.Present(
+            prepared.Frame, prepared.Whole, configuration, GraphPanelPreparation.Definition(configuration.GraphType), cancellationToken);
+        return new PreparedGraph(name, presentation, null, null) { Panels = prepared.Panels };
     }
 
     // The graph type's own preparation, which is the only place that turns graph data into something drawable. Null

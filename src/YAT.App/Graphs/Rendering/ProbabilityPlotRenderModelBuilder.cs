@@ -25,12 +25,19 @@ public sealed class ProbabilityPlotRenderModelBuilder
     private const int CancellationCheckMask = 0xFFFF;
 
     private readonly int _maximumRenderedPoints;
+    private readonly GraphSeriesOrder? _seriesOrder;
 
-    public ProbabilityPlotRenderModelBuilder(int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints)
+    // seriesOrder: the whole graph's series order, for a panel of a graph drawn in panels (Task #058); none numbers the
+    // series in the order they are found.
+    public ProbabilityPlotRenderModelBuilder(int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints, GraphSeriesOrder? seriesOrder = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumRenderedPoints, 1);
         _maximumRenderedPoints = maximumRenderedPoints;
+        _seriesOrder = seriesOrder;
     }
+
+    // A series' index: its place in the whole graph when a panel is built against one, else its place here.
+    private int SeriesIndex(string label, int index) => _seriesOrder?.IndexOf(label, index) ?? index;
 
     // The probability plot of these observations, or null when none of them can be plotted. The labels name the
     // worksheet columns; they are given, not looked up. With the default options: every series that can have a fitted
@@ -121,12 +128,12 @@ public sealed class ProbabilityPlotRenderModelBuilder
             var series = prepared[index];
             models.Add(new ProbabilityPlotSeriesRenderModel(
                 series.Label,
-                index,
+                SeriesIndex(series.Label, index),
                 Sample(series.Points, quotas[index], cancellationToken),
                 lines[index],
                 series.Points.Length));
 
-            legendEntries.Add(new GraphLegendEntry(series.Label, index));
+            legendEntries.Add(new GraphLegendEntry(series.Label, SeriesIndex(series.Label, index)));
         }
 
         var frame = new GraphRenderModel(
@@ -134,9 +141,9 @@ public sealed class ProbabilityPlotRenderModelBuilder
             new GraphAxisModel(horizontal, GraphAxisTicks.Nice(horizontal), labels.AxisTitle ?? labels.Variable),
             vertical,
             // A plot without a group column is one unnamed series, and one series needs no legend.
-            data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));
+            data.Group is null ? null : new GraphLegendModel(_seriesOrder?.Arrange(legendEntries, entry => entry.SeriesIndex) ?? legendEntries, labels.GroupColumn));
 
-        return new ProbabilityPlotRenderModel(frame, models, partition.ObservationCount);
+        return new ProbabilityPlotRenderModel(frame, _seriesOrder?.Arrange(models, item => item.SeriesIndex) ?? models, partition.ObservationCount);
     }
 
     // One series: its own values in ascending order, each with the normal score of its own rank, and - when its fitted

@@ -21,6 +21,9 @@ public enum GraphValidationReason
     // A role that takes several columns was given the same column twice.
     DuplicateColumn,
 
+    // The Panel role was given the Group column (Task #058): a graph is split by one column and coloured by another.
+    PanelSameAsGroup,
+
     // The assigned column is not among the worksheet's columns (e.g. it was deleted).
     ColumnNotFound,
 
@@ -200,6 +203,12 @@ public sealed class GraphConfigurationValidator
             {
                 errors.Add(new GraphValidationError(GraphValidationReason.TooManyColumns, role.Role));
             }
+        }
+
+        // Panels and groups are two different columns: each panel draws its groups, so one column cannot be both.
+        if (configuration.FindColumnId(GraphVariableRole.Panel) is { } panel && panel == configuration.FindColumnId(GraphVariableRole.Group))
+        {
+            errors.Add(new GraphValidationError(GraphValidationReason.PanelSameAsGroup, GraphVariableRole.Panel, panel));
         }
 
         foreach (var required in definition.RequiredRoles)

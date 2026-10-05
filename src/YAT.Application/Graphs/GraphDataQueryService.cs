@@ -60,6 +60,7 @@ public sealed class GraphDataQueryService
         Validate(configuration, worksheetColumns);
 
         var group = FindColumn(configuration, worksheetColumns, GraphVariableRole.Group);
+        var panel = FindColumn(configuration, worksheetColumns, GraphVariableRole.Panel);
 
         // The rows the graph keeps (Tasks #049, #053): null keeps every row, exactly as before there were filters.
         var filter = configuration.Filter;
@@ -68,12 +69,12 @@ public sealed class GraphDataQueryService
         // a role that takes several columns reads one variable per column, and everything else reads one variable.
         if (definition.GraphType == GraphType.ScatterPlot)
         {
-            return await LoadScatterAsync(configuration, worksheetColumns, group, filter, cancellationToken);
+            return await LoadScatterAsync(configuration, worksheetColumns, group, panel, filter, cancellationToken);
         }
 
         return definition.FindRole(GraphVariableRole.Variable)?.AllowsMultiple == true
-            ? await LoadMultiVariableAsync(configuration, worksheetColumns, group, filter, cancellationToken)
-            : await LoadUnivariateAsync(configuration, worksheetColumns, group, filter, cancellationToken);
+            ? await LoadMultiVariableAsync(configuration, worksheetColumns, group, panel, filter, cancellationToken)
+            : await LoadUnivariateAsync(configuration, worksheetColumns, group, panel, filter, cancellationToken);
     }
 
     private static void Validate(GraphConfiguration configuration, IReadOnlyList<WorksheetColumn> worksheetColumns)
@@ -101,6 +102,7 @@ public sealed class GraphDataQueryService
         GraphConfiguration configuration,
         IReadOnlyList<WorksheetColumn> worksheetColumns,
         WorksheetColumn? group,
+        WorksheetColumn? panel,
         RowFilter? filter,
         CancellationToken cancellationToken)
     {
@@ -110,8 +112,9 @@ public sealed class GraphDataQueryService
         var xValues = new DoubleBuffer();
         var yValues = new DoubleBuffer();
         var groupValues = GroupBuffer.For(group);
+        var panelValues = GroupBuffer.For(panel, isPanel: true);
 
-        var retained = await ReadAsync(configuration.WorksheetId, [x, y], group, filter, (block, reader, row) =>
+        var retained = await ReadAsync(configuration.WorksheetId, [x, y], group, panel, filter, (block, reader, row) =>
         {
             // One worksheet row: both values must be present, and the row's own group value travels with it.
             if (reader.Numeric(block, 0, row) is not { } xValue || reader.Numeric(block, 1, row) is not { } yValue)
@@ -122,11 +125,13 @@ public sealed class GraphDataQueryService
             xValues.Add(xValue);
             yValues.Add(yValue);
             groupValues?.Add(block, reader, row);
+            panelValues?.Add(block, reader, row);
         }, cancellationToken);
 
         return new ScatterGraphData(
             configuration.WorksheetId, Info(x), Info(y), xValues.Values, yValues.Values, groupValues?.ToGroupData(Info(group!)))
         {
+            Panel = panelValues?.ToGroupData(Info(panel!)),
             FilteredRowCount = filter is null ? null : retained
         };
     }
@@ -135,6 +140,7 @@ public sealed class GraphDataQueryService
         GraphConfiguration configuration,
         IReadOnlyList<WorksheetColumn> worksheetColumns,
         WorksheetColumn? group,
+        WorksheetColumn? panel,
         RowFilter? filter,
         CancellationToken cancellationToken)
     {
@@ -142,8 +148,9 @@ public sealed class GraphDataQueryService
 
         var values = new DoubleBuffer();
         var groupValues = GroupBuffer.For(group);
+        var panelValues = GroupBuffer.For(panel, isPanel: true);
 
-        var retained = await ReadAsync(configuration.WorksheetId, [variable], group, filter, (block, reader, row) =>
+        var retained = await ReadAsync(configuration.WorksheetId, [variable], group, panel, filter, (block, reader, row) =>
         {
             if (reader.Numeric(block, 0, row) is not { } value)
             {
@@ -152,11 +159,13 @@ public sealed class GraphDataQueryService
 
             values.Add(value);
             groupValues?.Add(block, reader, row);
+            panelValues?.Add(block, reader, row);
         }, cancellationToken);
 
         return new UnivariateGraphData(
             configuration.GraphType, configuration.WorksheetId, Info(variable), values.Values, groupValues?.ToGroupData(Info(group!)))
         {
+            Panel = panelValues?.ToGroupData(Info(panel!)),
             FilteredRowCount = filter is null ? null : retained
         };
     }
@@ -171,6 +180,7 @@ public sealed class GraphDataQueryService
         GraphConfiguration configuration,
         IReadOnlyList<WorksheetColumn> worksheetColumns,
         WorksheetColumn? group,
+        WorksheetColumn? panel,
         RowFilter? filter,
         CancellationToken cancellationToken)
     {
@@ -192,12 +202,13 @@ public sealed class GraphDataQueryService
         var readable = variables.Where(column => storedColumnIds.Contains(column.Id)).ToArray();
         var values = variables.Select(_ => new DoubleBuffer()).ToArray();
         var groupValues = variables.Select(_ => GroupBuffer.For(group)).ToArray();
+        var panelValues = variables.Select(_ => GroupBuffer.For(panel, isPanel: true)).ToArray();
         var ordinals = variables.Select(column => Array.IndexOf(readable, column)).ToArray();
 
         long? retained = null;
         if (readable.Length > 0)
         {
-            retained = await ReadAsync(configuration.WorksheetId, readable, group, filter, (block, reader, row) =>
+            retained = await ReadAsync(configuration.WorksheetId, readable, group, panel, filter, (block, reader, row) =>
             {
                 // One worksheet row, offered to every variable: each keeps it only if it has a value there, and takes
                 // this row's own group value with it.
@@ -210,6 +221,7 @@ public sealed class GraphDataQueryService
 
                     values[index].Add(value);
                     groupValues[index]?.Add(block, reader, row);
+                    panelValues[index]?.Add(block, reader, row);
                 }
             }, cancellationToken, storedColumnIds);
         }
@@ -225,6 +237,7 @@ public sealed class GraphDataQueryService
                     values[index].Values,
                     groupValues[index]?.ToGroupData(Info(group!)))
                 {
+                    Panel = panelValues[index]?.ToGroupData(Info(panel!)),
                     FilteredRowCount = filter is null ? null : retained
                 })
             ])
@@ -248,6 +261,7 @@ public sealed class GraphDataQueryService
         Guid worksheetId,
         IReadOnlyList<WorksheetColumn> valueColumns,
         WorksheetColumn? group,
+        WorksheetColumn? panel,
         RowFilter? filter,
         Action<RawDataBlock, BlockReader, int> onRow,
         CancellationToken cancellationToken,
@@ -279,7 +293,11 @@ public sealed class GraphDataQueryService
         }
 
         var groupIsStored = group is not null && storedColumnIds.Contains(group.Id);
-        var reader = new BlockReader(valueIndexes, groupIsStored ? Position(columnIds, group!.Id) : -1);
+        var panelIsStored = panel is not null && storedColumnIds.Contains(panel.Id);
+        var reader = new BlockReader(
+            valueIndexes,
+            groupIsStored ? Position(columnIds, group!.Id) : -1,
+            panelIsStored ? Position(columnIds, panel!.Id) : -1);
 
         // Each filter column has its own position too, shared when it is also the group column, a value column or another
         // condition's column. A filter column without stored values is missing in every row.
@@ -369,10 +387,13 @@ public sealed class GraphDataQueryService
 
     private static GraphColumnInfo Info(WorksheetColumn column) => new(column.Id, column.Name, column.DataType);
 
-    // Reads one value of one requested column of a block; the group column may be absent from the block (GroupIndex < 0).
-    internal sealed class BlockReader(int[] valueIndexes, int groupIndex)
+    // Reads one value of one requested column of a block; the group and panel columns may be absent from the block
+    // (GroupIndex or PanelIndex < 0).
+    internal sealed class BlockReader(int[] valueIndexes, int groupIndex, int panelIndex)
     {
         public int GroupIndex { get; } = groupIndex;
+
+        public int PanelIndex { get; } = panelIndex;
 
         // The value of the valueOrdinal-th value column (X is 0 and Y is 1 for a scatter plot) in this row.
         public double? Numeric(RawDataBlock block, int valueOrdinal, int row) =>
@@ -383,6 +404,12 @@ public sealed class GraphDataQueryService
 
         public string? StringGroup(RawDataBlock block, int row) =>
             GroupIndex < 0 ? null : ((StringRawDataColumn)block.Columns[GroupIndex]).Values[row];
+
+        public double? NumericPanel(RawDataBlock block, int row) =>
+            PanelIndex < 0 ? null : ((NumericRawDataColumn)block.Columns[PanelIndex]).Values[row];
+
+        public string? StringPanel(RawDataBlock block, int row) =>
+            PanelIndex < 0 ? null : ((StringRawDataColumn)block.Columns[PanelIndex]).Values[row];
     }
 
     // Growable buffer of the kept values. The final data wraps the buffer without copying it again.
@@ -404,13 +431,14 @@ public sealed class GraphDataQueryService
         }
     }
 
-    // The group value of every kept observation, in the group column's own type. A missing group value stays null.
+    // The group value of every kept observation, in the group column's own type. A missing group value stays null. The
+    // panel values (Task #058) are kept the same way, read from the panel column's position instead.
     private abstract class GroupBuffer
     {
-        public static GroupBuffer? For(WorksheetColumn? group) => group?.DataType switch
+        public static GroupBuffer? For(WorksheetColumn? group, bool isPanel = false) => group?.DataType switch
         {
-            WorksheetDataType.Numeric => new NumericGroupBuffer(),
-            WorksheetDataType.String => new StringGroupBuffer(),
+            WorksheetDataType.Numeric => new NumericGroupBuffer(isPanel),
+            WorksheetDataType.String => new StringGroupBuffer(isPanel),
             _ => null
         };
 
@@ -418,7 +446,7 @@ public sealed class GraphDataQueryService
 
         public abstract GraphGroupData ToGroupData(GraphColumnInfo column);
 
-        private sealed class NumericGroupBuffer : GroupBuffer
+        private sealed class NumericGroupBuffer(bool isPanel) : GroupBuffer
         {
             private double?[] _items = new double?[1024];
             private int _count;
@@ -430,13 +458,13 @@ public sealed class GraphDataQueryService
                     Array.Resize(ref _items, _items.Length * 2);
                 }
 
-                _items[_count++] = reader.NumericGroup(block, row);
+                _items[_count++] = isPanel ? reader.NumericPanel(block, row) : reader.NumericGroup(block, row);
             }
 
             public override GraphGroupData ToGroupData(GraphColumnInfo column) => new NumericGroupData(column, new(_items, 0, _count));
         }
 
-        private sealed class StringGroupBuffer : GroupBuffer
+        private sealed class StringGroupBuffer(bool isPanel) : GroupBuffer
         {
             private string?[] _items = new string?[1024];
             private int _count;
@@ -448,7 +476,7 @@ public sealed class GraphDataQueryService
                     Array.Resize(ref _items, _items.Length * 2);
                 }
 
-                _items[_count++] = reader.StringGroup(block, row);
+                _items[_count++] = isPanel ? reader.StringPanel(block, row) : reader.StringGroup(block, row);
             }
 
             public override GraphGroupData ToGroupData(GraphColumnInfo column) => new StringGroupData(column, new(_items, 0, _count));

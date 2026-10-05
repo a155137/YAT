@@ -29,11 +29,12 @@ public class GraphTypeDefinitionsTests
     public void ScatterPlotTakesNumericXAndYWithAnOptionalGroup()
     {
         Assert.Equal(
-            [GraphVariableRole.X, GraphVariableRole.Y, GraphVariableRole.Group],
+            [GraphVariableRole.X, GraphVariableRole.Y, GraphVariableRole.Group, GraphVariableRole.Panel],
             GraphTypeDefinitions.For(GraphType.ScatterPlot).Roles.Select(role => role.Role));
         AssertRole(GraphType.ScatterPlot, GraphVariableRole.X, required: true, WorksheetDataType.Numeric);
         AssertRole(GraphType.ScatterPlot, GraphVariableRole.Y, required: true, WorksheetDataType.Numeric);
         AssertRole(GraphType.ScatterPlot, GraphVariableRole.Group, required: false, WorksheetDataType.Numeric, WorksheetDataType.String);
+        AssertRole(GraphType.ScatterPlot, GraphVariableRole.Panel, required: false, WorksheetDataType.Numeric, WorksheetDataType.String);
     }
 
     [Theory]
@@ -43,10 +44,11 @@ public class GraphTypeDefinitionsTests
     public void SingleVariableGraphsTakeANumericVariableWithAnOptionalGroup(GraphType graphType)
     {
         Assert.Equal(
-            [GraphVariableRole.Variable, GraphVariableRole.Group],
+            [GraphVariableRole.Variable, GraphVariableRole.Group, GraphVariableRole.Panel],
             GraphTypeDefinitions.For(graphType).Roles.Select(role => role.Role));
         AssertRole(graphType, GraphVariableRole.Variable, required: true, WorksheetDataType.Numeric);
         AssertRole(graphType, GraphVariableRole.Group, required: false, WorksheetDataType.Numeric, WorksheetDataType.String);
+        AssertRole(graphType, GraphVariableRole.Panel, required: false, WorksheetDataType.Numeric, WorksheetDataType.String);
     }
 
     [Fact]
@@ -55,13 +57,15 @@ public class GraphTypeDefinitionsTests
         var scatter = GraphTypeDefinitions.For(GraphType.ScatterPlot);
 
         Assert.Equal([GraphVariableRole.X, GraphVariableRole.Y], scatter.RequiredRoles.Select(role => role.Role));
-        Assert.Equal([GraphVariableRole.Group], scatter.OptionalRoles.Select(role => role.Role));
+        Assert.Equal([GraphVariableRole.Group, GraphVariableRole.Panel], scatter.OptionalRoles.Select(role => role.Role));
     }
 
     [Fact]
     public void NoV1GraphTypeHasRolesBeyondTheV1Set()
     {
-        GraphVariableRole[] v1Roles = [GraphVariableRole.X, GraphVariableRole.Y, GraphVariableRole.Variable, GraphVariableRole.Group];
+        // Panel (Task #058) joined the set, offered by every graph type but the box plot.
+        GraphVariableRole[] v1Roles = [GraphVariableRole.X, GraphVariableRole.Y, GraphVariableRole.Variable, GraphVariableRole.Group, GraphVariableRole.Panel];
+        Assert.Null(GraphTypeDefinitions.For(GraphType.BoxPlot).FindRole(GraphVariableRole.Panel));
 
         Assert.All(GraphTypeDefinitions.All, definition => Assert.All(definition.Roles, role => Assert.Contains(role.Role, v1Roles)));
         Assert.All(GraphTypeDefinitions.All, definition => Assert.Equal(

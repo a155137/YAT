@@ -27,8 +27,9 @@ public class GraphExportCompositionTests
         var constructor = Assert.Single(GraphWindow.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
 
         Assert.Equal(
-            // And, since Task #050, the user's palette choices for Edit Appearance... - never where they are kept.
-            ["GraphPresentationState", "IGraphPlotRenderer", "IGraphExportWorkflowFactory", "IGraphPaletteLibraryAccess"],
+            // And, since Task #050, the user's palette choices for Edit Appearance... - never where they are kept - and, since
+            // Task #058, the panels of a graph drawn in panels.
+            ["GraphPresentationState", "IGraphPlotRenderer", "IGraphExportWorkflowFactory", "IGraphPaletteLibraryAccess", "IReadOnlyList`1"],
             constructor.GetParameters().Select(parameter => parameter.ParameterType.Name));
     }
 

@@ -30,6 +30,9 @@ internal sealed class GraphCanvas : Control
     public static readonly StyledProperty<IGraphPlotRenderer?> PlotProperty =
         AvaloniaProperty.Register<GraphCanvas, IGraphPlotRenderer?>(nameof(Plot));
 
+    public static readonly StyledProperty<IReadOnlyList<GraphPanel>?> PanelsProperty =
+        AvaloniaProperty.Register<GraphCanvas, IReadOnlyList<GraphPanel>?>(nameof(Panels));
+
     public static readonly StyledProperty<GraphAppearanceOptions> AppearanceProperty =
         AvaloniaProperty.Register<GraphCanvas, GraphAppearanceOptions>(
             nameof(Appearance), GraphAppearanceOptions.Default);
@@ -42,7 +45,7 @@ internal sealed class GraphCanvas : Control
 
     static GraphCanvas()
     {
-        AffectsRender<GraphCanvas>(ModelProperty, PlotProperty, AppearanceProperty);
+        AffectsRender<GraphCanvas>(ModelProperty, PlotProperty, PanelsProperty, AppearanceProperty);
     }
 
     public GraphCanvas()
@@ -61,6 +64,14 @@ internal sealed class GraphCanvas : Control
     {
         get => GetValue(PlotProperty);
         set => SetValue(PlotProperty, value);
+    }
+
+    // The panels of a graph drawn in panels (Task #058), drawn in a grid over the model's axes; null for a graph of one
+    // plot, which Plot draws.
+    public IReadOnlyList<GraphPanel>? Panels
+    {
+        get => GetValue(PanelsProperty);
+        set => SetValue(PanelsProperty, value);
     }
 
     // How the graph looks: its colours and grid, put on the theme it is drawn in. The default changes nothing.
@@ -91,7 +102,8 @@ internal sealed class GraphCanvas : Control
     }
 
     // The title of the graph at a point of this control, or null: only a title the graph shows, and only near its text,
-    // laid out exactly as it is drawn at this control's size in its theme (see GraphLabelHitTest).
+    // laid out exactly as it is drawn at this control's size in its theme (see GraphLabelHitTest). A graph in panels
+    // (Task #058) offers its own title and axis titles; a panel's generated title is not one to edit.
     internal GraphLabelField? LabelAt(Point point)
     {
         if (Model is not { } model)
@@ -99,26 +111,22 @@ internal sealed class GraphCanvas : Control
             return null;
         }
 
-        var bounds = new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height);
-        var labels = SkiaGraphRenderer.LabelGeometry(model, bounds, CurrentTheme);
-        return GraphLabelHitTest.Find(labels, new SKPoint((float)point.X, (float)point.Y));
+        var frame = Panels is { Count: > 0 } ? GraphPanelLayout.OuterFrame(model) : model;
+        var labels = SkiaGraphRenderer.LabelGeometry(frame, Whole, CurrentTheme);
+        return GraphLabelHitTest.Find(labels, At(point));
     }
 
     // The axis of the graph at a point of this control, or null (Task #052): laid out exactly as it is drawn at this
-    // control's size in its theme (see GraphAxisHitTest). Whether that axis can be edited is the graph type's business.
-    internal GraphAxisField? AxisAt(Point point)
-    {
-        if (Model is not { } model)
-        {
-            return null;
-        }
-
-        var bounds = new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height);
-        return GraphAxisHitTest.Find(SkiaGraphRenderer.AxisGeometry(model, bounds, CurrentTheme), new SKPoint((float)point.X, (float)point.Y));
-    }
+    // control's size in its theme (see GraphAxisHitTest) - in a graph in panels, the axis of the panel under the point.
+    // Whether that axis can be edited is the graph type's business.
+    internal GraphAxisField? AxisAt(Point point) =>
+        PanelAt(point) is { } panel
+            ? GraphAxisHitTest.Find(SkiaGraphRenderer.AxisGeometry(panel.Frame, panel.Bounds, CurrentTheme), At(point))
+            : null;
 
     // The plot area of the graph as it is laid out now at this control's size in its theme, or null when the control is
-    // too small for one (Task #055): what a wheel step or a drag is measured against.
+    // too small for one (Task #055): what a resize is measured against. In a graph in panels every panel's plot area is
+    // the same size, and this is the first one's.
     internal SKRect? PlotArea
     {
         get
@@ -128,24 +136,64 @@ internal sealed class GraphCanvas : Control
                 return null;
             }
 
-            var layout = SkiaGraphRenderer.Layout(model, new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height), CurrentTheme);
-            return layout.HasPlotArea ? layout.PlotArea : null;
+            if (Panels is not { Count: > 0 } panels)
+            {
+                return PlotAreaOf(model, Whole);
+            }
+
+            var cells = GraphPanelLayout.Cells(model, panels.Count, Whole, CurrentTheme);
+            return cells.Count > 0 ? PlotAreaOf(GraphPanelLayout.PanelFrame(model, panels[0].Title, cells[0], CurrentTheme), cells[0]) : null;
         }
     }
 
-    // Whether a point of this control is in the plot's body (Task #055): inside the plot area and on none of the parts
-    // that are never navigated - the title, the legend, the statistics panel, the reference line labels.
+    // The plot area a point is measured against (Task #055): the graph's, or the plot area of the panel under the point;
+    // null when there is none there.
+    internal SKRect? PlotAreaAt(Point point) =>
+        PanelAt(point) is { } panel ? PlotAreaOf(panel.Frame, panel.Bounds) : null;
+
+    // Whether a point of this control is in the plot's body (Task #055): inside the plot area - of the panel under it, in
+    // a graph in panels - and on none of the parts that are never navigated: the title, the legend, the statistics panel,
+    // the reference line labels.
     internal bool InPlot(Point point)
     {
-        if (Model is not { } model || PlotArea is not { } plotArea)
+        if (PanelAt(point) is not { } panel || PlotAreaOf(panel.Frame, panel.Bounds) is not { } plotArea)
         {
             return false;
         }
 
-        var at = new SKPoint((float)point.X, (float)point.Y);
-        var bounds = new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height);
+        var at = At(point);
         return plotArea.Contains(at)
-            && !SkiaGraphRenderer.AxisGeometry(model, bounds, CurrentTheme).Excluded.Any(area => area.Contains(at));
+            && !SkiaGraphRenderer.AxisGeometry(panel.Frame, panel.Bounds, CurrentTheme).Excluded.Any(area => area.Contains(at));
+    }
+
+    private SKRect Whole => new(0, 0, (float)Bounds.Width, (float)Bounds.Height);
+
+    private static SKPoint At(Point point) => new((float)point.X, (float)point.Y);
+
+    private SKRect? PlotAreaOf(GraphRenderModel frame, SKRect bounds)
+    {
+        var layout = SkiaGraphRenderer.Layout(frame, bounds, CurrentTheme);
+        return layout.HasPlotArea ? layout.PlotArea : null;
+    }
+
+    // The frame drawn under a point and the bounds it is drawn in: the graph's own, or - in a graph in panels - the panel
+    // whose cell the point is in; null between and around the panels.
+    private (GraphRenderModel Frame, SKRect Bounds)? PanelAt(Point point)
+    {
+        if (Model is not { } model)
+        {
+            return null;
+        }
+
+        if (Panels is not { Count: > 0 } panels)
+        {
+            return (model, Whole);
+        }
+
+        var cells = GraphPanelLayout.Cells(model, panels.Count, Whole, CurrentTheme);
+        return GraphPanelLayout.PanelAt(cells, At(point)) is { } index
+            ? (GraphPanelLayout.PanelFrame(model, panels[index].Title, cells[index], CurrentTheme), cells[index])
+            : null;
     }
 
     public override void Render(DrawingContext context)
@@ -163,7 +211,7 @@ internal sealed class GraphCanvas : Control
             return;
         }
 
-        context.Custom(new GraphDrawOperation(bounds, model, Plot, CurrentTheme, _renderer));
+        context.Custom(new GraphDrawOperation(bounds, model, Plot, Panels, CurrentTheme, _renderer));
     }
 
     private static GraphTheme ThemeFor(ThemeVariant variant) =>
@@ -176,6 +224,7 @@ internal sealed class GraphCanvas : Control
     {
         private readonly GraphRenderModel _model;
         private readonly IGraphPlotRenderer? _plot;
+        private readonly IReadOnlyList<GraphPanel>? _panels;
         private readonly GraphTheme _theme;
         private readonly SkiaGraphRenderer _renderer;
 
@@ -183,12 +232,14 @@ internal sealed class GraphCanvas : Control
             Rect bounds,
             GraphRenderModel model,
             IGraphPlotRenderer? plot,
+            IReadOnlyList<GraphPanel>? panels,
             GraphTheme theme,
             SkiaGraphRenderer renderer)
         {
             Bounds = bounds;
             _model = model;
             _plot = plot;
+            _panels = panels;
             _theme = theme;
             _renderer = renderer;
         }
@@ -207,7 +258,7 @@ internal sealed class GraphCanvas : Control
             }
 
             using var lease = feature.Lease();
-            _renderer.Render(lease.SkCanvas, _model, new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height), _theme, _plot);
+            GraphDrawing.Render(_renderer, lease.SkCanvas, _model, _plot, _panels, new SKRect(0, 0, (float)Bounds.Width, (float)Bounds.Height), _theme);
         }
 
         public bool Equals(ICustomDrawOperation? other) =>
@@ -215,6 +266,7 @@ internal sealed class GraphCanvas : Control
             && operation.Bounds == Bounds
             && ReferenceEquals(operation._model, _model)
             && ReferenceEquals(operation._plot, _plot)
+            && ReferenceEquals(operation._panels, _panels)
             && operation._theme == _theme;
 
         public void Dispose()

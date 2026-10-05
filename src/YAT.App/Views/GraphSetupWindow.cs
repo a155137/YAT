@@ -294,7 +294,24 @@ internal sealed class GraphSetupWindow : Window
         // The statistics options take one row, where a single check box used to be (Task #045).
         if (setup.SupportsStatisticsPanel)
         {
-            options.Children.Add(GraphStatisticsEditor.Create(setup.Statistics));
+            // Unavailable, and said to be, while a Panel column is chosen (Task #058).
+            var statistics = GraphStatisticsEditor.Create(setup.Statistics);
+            statistics.Bind(IsEnabledProperty, new Avalonia.Data.Binding(nameof(GraphSetupViewModel.StatisticsAvailable)) { Source = setup });
+            options.Children.Add(statistics);
+
+            var unavailable = new TextBlock
+            {
+                Name = "StatisticsUnavailable",
+                Text = GraphSetupViewModel.StatisticsUnavailableMessage,
+                Foreground = Brushes.Gray,
+                TextWrapping = TextWrapping.Wrap
+            };
+            unavailable.Bind(IsVisibleProperty, new Avalonia.Data.Binding(nameof(GraphSetupViewModel.StatisticsAvailable))
+            {
+                Source = setup,
+                Converter = Avalonia.Data.Converters.BoolConverters.Not
+            });
+            options.Children.Add(unavailable);
         }
 
         if (setup.SupportsFittedLine)

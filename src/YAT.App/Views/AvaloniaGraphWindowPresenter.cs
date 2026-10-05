@@ -32,12 +32,12 @@ public sealed class AvaloniaGraphWindowPresenter : IGraphWindowPresenter
     // How far each further window of a request opens from the one before it, in layout units.
     internal const int CascadeStep = 24;
 
-    public void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0)
+    public void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0, IReadOnlyList<GraphPanel>? panels = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentOutOfRangeException.ThrowIfNegative(cascade);
 
-        var window = new GraphWindow(graph, plot, _exports, _palettes);
+        var window = new GraphWindow(graph, plot, _exports, _palettes, panels);
         if (cascade > 0)
         {
             // Placed first where every graph window is placed (centred on its owner), then moved along.

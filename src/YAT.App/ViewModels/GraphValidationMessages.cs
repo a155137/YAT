@@ -33,6 +33,8 @@ public static class GraphValidationMessages
                 $"Select at most {GraphRoleDefinition.MaximumColumns} variables.",
             GraphValidationReason.TooManyColumns =>
                 $"Select at most {GraphRoleDefinition.MaximumColumns} columns for {roleName}.",
+            GraphValidationReason.PanelSameAsGroup =>
+                "Choose a different column for panels than for grouping: each panel is grouped by the group column.",
             GraphValidationReason.ColumnNotFound => "The selected column is no longer available.",
             GraphValidationReason.ColumnFromAnotherWorksheet => "The selected column belongs to another worksheet.",
             GraphValidationReason.SpecificationValueNotNumeric => $"{FieldName(error.Field)} must be a number.",

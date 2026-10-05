@@ -43,13 +43,23 @@ public static class GraphPresentation
         GraphRenderModel frame,
         GraphData data,
         GraphConfiguration configuration,
+        CancellationToken cancellationToken = default) =>
+        Present(frame, data, configuration, GraphTypeDefinitions.For(configuration.GraphType), cancellationToken);
+
+    // The same, for a graph whose type offers less than it always does: a graph drawn in panels (Task #058) has no
+    // statistics panel, so its definition goes without that capability and every step and editor follows it.
+    public static GraphPresentationState Present(
+        GraphRenderModel frame,
+        GraphData data,
+        GraphConfiguration configuration,
+        GraphTypeDefinition definition,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(definition);
 
-        var definition = GraphTypeDefinitions.For(configuration.GraphType);
         var withPanel = GraphStatisticsPanelBuilder.Attach(frame, data, definition, cancellationToken);
         var withLines = GraphSpecificationLinesBuilder.Attach(withPanel, definition, configuration.Specification);
         return new GraphPresentationState(

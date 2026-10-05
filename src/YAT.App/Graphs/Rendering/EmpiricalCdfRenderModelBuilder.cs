@@ -25,12 +25,19 @@ public sealed class EmpiricalCdfRenderModelBuilder
     private const int CancellationCheckMask = 0xFFFF;
 
     private readonly int _maximumRenderedPoints;
+    private readonly GraphSeriesOrder? _seriesOrder;
 
-    public EmpiricalCdfRenderModelBuilder(int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints)
+    // seriesOrder: the whole graph's series order, for a panel of a graph drawn in panels (Task #058); none numbers the
+    // series in the order they are found.
+    public EmpiricalCdfRenderModelBuilder(int maximumRenderedPoints = DisplaySampling.DefaultMaximumRenderedPoints, GraphSeriesOrder? seriesOrder = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumRenderedPoints, 1);
         _maximumRenderedPoints = maximumRenderedPoints;
+        _seriesOrder = seriesOrder;
     }
+
+    // A series' index: its place in the whole graph when a panel is built against one, else its place here.
+    private int SeriesIndex(string label, int index) => _seriesOrder?.IndexOf(label, index) ?? index;
 
     // The empirical CDF of these observations, or null when none of them can be plotted. The labels name the worksheet
     // columns; they are given, not looked up.
@@ -83,12 +90,12 @@ public sealed class EmpiricalCdfRenderModelBuilder
             var series = prepared[index];
             models.Add(new EmpiricalCdfSeriesRenderModel(
                 series.Label,
-                index,
+                SeriesIndex(series.Label, index),
                 Sample(series.Points, quotas[index], cancellationToken),
                 series.ObservationCount,
                 series.Points.Length));
 
-            legendEntries.Add(new GraphLegendEntry(series.Label, index));
+            legendEntries.Add(new GraphLegendEntry(series.Label, SeriesIndex(series.Label, index)));
         }
 
         var frame = new GraphRenderModel(
@@ -96,9 +103,9 @@ public sealed class EmpiricalCdfRenderModelBuilder
             new GraphAxisModel(horizontal, GraphAxisTicks.Nice(horizontal), labels.AxisTitle ?? labels.Variable),
             PercentAxis.Axis(),
             // A plot without a group column is one unnamed series, and one series needs no legend.
-            data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));
+            data.Group is null ? null : new GraphLegendModel(_seriesOrder?.Arrange(legendEntries, entry => entry.SeriesIndex) ?? legendEntries, labels.GroupColumn));
 
-        return new EmpiricalCdfRenderModel(frame, models, partition.ObservationCount);
+        return new EmpiricalCdfRenderModel(frame, _seriesOrder?.Arrange(models, item => item.SeriesIndex) ?? models, partition.ObservationCount);
     }
 
     // One series: its own values in ascending order, with repeated values collapsed into a single step that jumps

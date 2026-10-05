@@ -16,13 +16,15 @@ public enum GraphType
 }
 
 // What a worksheet column is used for in a graph. Roles differ per graph type: a scatter plot has X and Y, the
-// single-variable graphs have Variable. Later graphs may add roles (By, Weight, Label, Panel).
+// single-variable graphs have Variable. Panel (Task #058) splits a graph into one panel per value of a column. Later
+// graphs may add roles (By, Weight, Label).
 public enum GraphVariableRole
 {
     X,
     Y,
     Variable,
-    Group
+    Group,
+    Panel
 }
 
 // One role of one graph type: whether it must be assigned, which column data types it accepts, and whether it takes

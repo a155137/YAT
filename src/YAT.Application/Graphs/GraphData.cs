@@ -73,6 +73,25 @@ public abstract record GraphData
     // Null when the configuration assigned no Group column.
     public GraphGroupData? Group { get; }
 
+    // The panel each observation belongs to (Task #058), in observation order and in the same form as a group: null when
+    // the configuration assigned no Panel column. A null entry is an observation without a panel value - drawn in a
+    // "(Missing)" panel of its own. A graph of several variables keeps one per variable, as it keeps its groups.
+    public GraphGroupData? Panel
+    {
+        get => _panel;
+        init
+        {
+            if (value is not null && value.Count != Count)
+            {
+                throw new ArgumentException("Panel data must have one value per observation.", nameof(value));
+            }
+
+            _panel = value;
+        }
+    }
+
+    private readonly GraphGroupData? _panel;
+
     // How many of the rows this graph read considered the configuration's row filter kept (Task #053), before the graph's
     // null rules - null without a filter. A diagnostic of the read, not a worksheet total: rows past the end of every
     // column read hold no values to plot and are not counted. Zero says that no row with values matches the filter, which

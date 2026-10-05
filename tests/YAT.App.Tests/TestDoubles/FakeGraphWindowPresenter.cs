@@ -14,14 +14,18 @@ internal sealed class FakeGraphWindowPresenter : IGraphWindowPresenter
     // Where each shown window stood among the windows of its request.
     public List<int> Cascades { get; } = [];
 
+    // The panels each shown window would draw (Task #058); null for a graph of one plot.
+    public List<IReadOnlyList<GraphPanel>?> Panels { get; } = [];
+
     public (GraphRenderModel Frame, IGraphPlotRenderer? Plot) Last =>
         Shown.Count > 0 ? Shown[^1] : throw new InvalidOperationException("No graph was shown.");
 
-    public void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0)
+    public void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0, IReadOnlyList<GraphPanel>? panels = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         Graphs.Add(graph);
         Cascades.Add(cascade);
+        Panels.Add(panels);
         Shown.Add((graph.Frame, plot));
     }
 }

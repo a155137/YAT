@@ -49,8 +49,8 @@ public class GraphSetupViewModelTests
         Assert.Equal("Scatter Plot", setup.Title);
         Assert.Equal("Sheet1", setup.WorksheetName);
         Assert.Equal(Worksheet.Id, setup.WorksheetId);
-        Assert.Equal([GraphVariableRole.X, GraphVariableRole.Y, GraphVariableRole.Group], setup.Roles.Select(role => role.Role));
-        Assert.Equal(["X-axis", "Y-axis", "Group"], setup.Roles.Select(role => role.DisplayName));
+        Assert.Equal([GraphVariableRole.X, GraphVariableRole.Y, GraphVariableRole.Group, GraphVariableRole.Panel], setup.Roles.Select(role => role.Role));
+        Assert.Equal(["X-axis", "Y-axis", "Group", "Panel"], setup.Roles.Select(role => role.DisplayName));
         Assert.Equal(["No", "SITE", "Lot", "Reg1", "Reg2"], setup.AvailableColumns.Select(option => option.Name));
         Assert.Equal(["Numeric", "Numeric", "String", "Numeric", "Numeric"], setup.AvailableColumns.Select(option => option.DataTypeName));
     }
@@ -66,8 +66,9 @@ public class GraphSetupViewModelTests
         var setup = Setup(graphType);
 
         Assert.Equal(title, setup.Title);
-        Assert.Equal([GraphVariableRole.Variable, GraphVariableRole.Group], setup.Roles.Select(role => role.Role));
-        Assert.Equal(["Graph variables", "Categorical variable for grouping"], setup.Roles.Select(role => role.DisplayName));
+        Assert.Equal([GraphVariableRole.Variable, GraphVariableRole.Group, GraphVariableRole.Panel], setup.Roles.Select(role => role.Role));
+        Assert.Equal(["Graph variables", "Categorical variable for grouping", "Categorical variable for panels"], setup.Roles.Select(role => role.DisplayName));
+        Assert.False(setup.Roles[2].IsRequired);
         Assert.True(setup.Roles[0].IsRequired);
         Assert.False(setup.Roles[1].IsRequired);
     }

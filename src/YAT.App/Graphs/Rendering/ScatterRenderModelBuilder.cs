@@ -24,12 +24,19 @@ public sealed class ScatterRenderModelBuilder
     private const int CancellationCheckMask = 0xFFFF;
 
     private readonly int _maximumRenderedPoints;
+    private readonly GraphSeriesOrder? _seriesOrder;
 
-    public ScatterRenderModelBuilder(int maximumRenderedPoints = DefaultMaximumRenderedPoints)
+    // seriesOrder: the whole graph's series order, for a panel of a graph drawn in panels (Task #058); none numbers the
+    // series in the order they are found.
+    public ScatterRenderModelBuilder(int maximumRenderedPoints = DefaultMaximumRenderedPoints, GraphSeriesOrder? seriesOrder = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumRenderedPoints, 1);
         _maximumRenderedPoints = maximumRenderedPoints;
+        _seriesOrder = seriesOrder;
     }
+
+    // A series' index: its place in the whole graph when a panel is built against one, else its place here.
+    private int SeriesIndex(string label, int index) => _seriesOrder?.IndexOf(label, index) ?? index;
 
     // The scatter plot of these observations, or null when none of them can be plotted. The labels name the worksheet
     // columns; they are given, not looked up.
@@ -58,8 +65,8 @@ public sealed class ScatterRenderModelBuilder
             }
 
             var buffer = partition.Series[index];
-            series.Add(new ScatterSeriesRenderModel(buffer.Label, index, Sample(buffer, quotas[index], cancellationToken)));
-            legendEntries.Add(new GraphLegendEntry(buffer.Label, index));
+            series.Add(new ScatterSeriesRenderModel(buffer.Label, SeriesIndex(buffer.Label, index), Sample(buffer, quotas[index], cancellationToken)));
+            legendEntries.Add(new GraphLegendEntry(buffer.Label, SeriesIndex(buffer.Label, index)));
         }
 
         // The ranges come from every observation, not from the sample: what the graph shows must not depend on how many
@@ -72,9 +79,9 @@ public sealed class ScatterRenderModelBuilder
             new GraphAxisModel(x, GraphAxisTicks.Nice(x), labels.XColumn),
             new GraphAxisModel(y, GraphAxisTicks.Nice(y), labels.YColumn),
             // A plot without a group column is one unnamed series, and one series needs no legend.
-            data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));
+            data.Group is null ? null : new GraphLegendModel(_seriesOrder?.Arrange(legendEntries, entry => entry.SeriesIndex) ?? legendEntries, labels.GroupColumn));
 
-        return new ScatterRenderModel(frame, series, partition.PointCount);
+        return new ScatterRenderModel(frame, _seriesOrder?.Arrange(series, item => item.SeriesIndex) ?? series, partition.PointCount);
     }
 
     // One pass over the observations: every plottable one joins its group's series, in worksheet row order, and the

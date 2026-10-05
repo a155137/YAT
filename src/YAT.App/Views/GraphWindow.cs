@@ -60,7 +60,15 @@ internal sealed class GraphWindow : Window
     private const int DefaultWidth = 760;
     private const int DefaultHeight = 520;
 
+    // The size of a graph window of seven panels or more (Task #058): still within a 1280x720 screen.
+    private const int LargePanelCount = 7;
+    private const int LargeWidth = 1000;
+    private const int LargeHeight = 680;
+
     private IGraphPlotRenderer? _plot;
+
+    // The panels of a graph drawn in panels (Task #058), fixed for the window's life; null for a graph of one plot.
+    private readonly IReadOnlyList<GraphPanel>? _panels;
     private readonly GraphCanvas _canvas;
     private readonly GraphExportController _export;
     private readonly GraphLabelEditController _labels;
@@ -89,13 +97,15 @@ internal sealed class GraphWindow : Window
         GraphPresentationState graph,
         IGraphPlotRenderer? plot,
         IGraphExportWorkflowFactory exports,
-        IGraphPaletteLibraryAccess? palettes = null)
+        IGraphPaletteLibraryAccess? palettes = null,
+        IReadOnlyList<GraphPanel>? panels = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(exports);
 
         _plot = plot;
-        _canvas = new GraphCanvas { Model = graph.Frame, Plot = plot, Appearance = graph.AppearanceOptions };
+        _panels = panels is { Count: > 0 } ? panels : null;
+        _canvas = new GraphCanvas { Model = graph.Frame, Plot = plot, Panels = _panels, Appearance = graph.AppearanceOptions };
         _export = exports.Create(this);
         _labels = new GraphLabelEditController(graph, new AvaloniaGraphLabelsDialog(this));
         _labels.GraphChanged += (_, _) => Show(_labels.Graph);
@@ -131,8 +141,10 @@ internal sealed class GraphWindow : Window
         var editAppearance = new AsyncRelayCommand(() => _appearance.EditAsync(), () => _appearance.CanEdit);
 
         Title = WindowTitle(graph.Frame);
-        Width = DefaultWidth;
-        Height = DefaultHeight;
+        // Seven panels or more are a 3x3 grid, which needs more room than one graph to stay readable.
+        var large = _panels is { Count: >= LargePanelCount };
+        Width = large ? LargeWidth : DefaultWidth;
+        Height = large ? LargeHeight : DefaultHeight;
         MinWidth = 320;
         MinHeight = 240;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -312,7 +324,7 @@ internal sealed class GraphWindow : Window
         var point = e.GetPosition(_canvas);
         var label = _canvas.LabelAt(point);
         var (zooms, axis) = WheelTarget(label, label is null ? _canvas.AxisAt(point) : null, _canvas.InPlot(point), _view.Graph.Definition);
-        if (zooms && _canvas.PlotArea is { } plotArea)
+        if (zooms && _canvas.PlotAreaAt(point) is { } plotArea)
         {
             e.Handled = true;
             _view.ZoomAt(axis, plotArea, new SKPoint((float)point.X, (float)point.Y), e.Delta.Y);
@@ -325,7 +337,7 @@ internal sealed class GraphWindow : Window
     {
         EndPan();
         var point = e.GetPosition(_canvas);
-        if (e.GetCurrentPoint(_canvas).Properties.IsLeftButtonPressed && _canvas.InPlot(point) && _canvas.PlotArea is { } plotArea)
+        if (e.GetCurrentPoint(_canvas).Properties.IsLeftButtonPressed && _canvas.InPlot(point) && _canvas.PlotAreaAt(point) is { } plotArea)
         {
             _press = (plotArea, new SKPoint((float)point.X, (float)point.Y));
         }
@@ -430,5 +442,5 @@ internal sealed class GraphWindow : Window
     // What an export draws, fixed here on the UI thread: the graph as it is shown now - under the labels and over the
     // axis ranges last confirmed - and the theme it is being shown in. The export work that follows never looks at this
     // window again.
-    private GraphExportSnapshot Snapshot() => new(_labels.Graph.Frame, _plot, _canvas.CurrentTheme);
+    private GraphExportSnapshot Snapshot() => new(_labels.Graph.Frame, _plot, _canvas.CurrentTheme) { Panels = _panels };
 }

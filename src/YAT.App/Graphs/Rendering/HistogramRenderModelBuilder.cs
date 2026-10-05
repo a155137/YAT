@@ -14,6 +14,23 @@ namespace YAT.app.Graphs.Rendering;
 // Nothing is sampled: a histogram of a million observations is counted from all of them.
 public sealed class HistogramRenderModelBuilder
 {
+    private readonly GraphSeriesOrder? _seriesOrder;
+    private readonly IReadOnlyList<HistogramBin>? _bins;
+
+    // For a panel of a graph drawn in panels (Task #058): seriesOrder is the whole graph's series order, so a group keeps
+    // its colour in every panel, and bins are the whole graph's bins, so every panel counts into the same intervals and
+    // the panels' bars line up. None of either works both out from the observations given, as a histogram always did.
+    public HistogramRenderModelBuilder(GraphSeriesOrder? seriesOrder = null, IReadOnlyList<HistogramBin>? bins = null)
+    {
+        if (bins is { Count: 0 })
+        {
+            throw new ArgumentException("A histogram needs at least one bin.", nameof(bins));
+        }
+
+        _seriesOrder = seriesOrder;
+        _bins = bins;
+    }
+
     // The series of observations whose group value is empty. They are counted, never dropped.
     public const string MissingGroupLabel = "(Missing)";
 
@@ -73,7 +90,7 @@ public sealed class HistogramRenderModelBuilder
 
         // One set of bins, worked out from every observation: comparing groups is only meaningful when they are counted
         // into the same intervals.
-        var grid = Bins(partition, options, cancellationToken);
+        var grid = _bins is { } shared ? SharedGrid(shared) : Bins(partition, options, cancellationToken);
 
         var series = new List<HistogramSeriesRenderModel>(partition.Series.Count);
         var legendEntries = new List<GraphLegendEntry>(partition.Series.Count);
@@ -97,8 +114,8 @@ public sealed class HistogramRenderModelBuilder
                 maximumFit = Math.Max(maximumFit, fit?.MaximumHeight ?? 0);
             }
 
-            series.Add(new HistogramSeriesRenderModel(buffer.Label, index, counts, heights) { NormalFit = fit });
-            legendEntries.Add(new GraphLegendEntry(buffer.Label, index));
+            series.Add(new HistogramSeriesRenderModel(buffer.Label, SeriesIndex(buffer.Label, index), counts, heights) { NormalFit = fit });
+            legendEntries.Add(new GraphLegendEntry(buffer.Label, SeriesIndex(buffer.Label, index)));
         }
 
         // The X axis is the bins themselves, not the data with room around it: a histogram's bars fill their axis. A
@@ -123,9 +140,9 @@ public sealed class HistogramRenderModelBuilder
                 Scale = options.YScale == HistogramYScale.Frequency ? GraphAxisScale.Count : GraphAxisScale.Linear
             },
             // A histogram without a group column is one unnamed series, and one series needs no legend.
-            data.Group is null ? null : new GraphLegendModel(legendEntries, labels.GroupColumn));
+            data.Group is null ? null : new GraphLegendModel(_seriesOrder?.Arrange(legendEntries, entry => entry.SeriesIndex) ?? legendEntries, labels.GroupColumn));
 
-        return new HistogramRenderModel(frame, grid.Bins, series, partition.ObservationCount, options.YScale);
+        return new HistogramRenderModel(frame, grid.Bins, _seriesOrder?.Arrange(series, item => item.SeriesIndex) ?? series, partition.ObservationCount, options.YScale);
     }
 
     public static string AxisTitle(HistogramYScale scale) => scale switch
@@ -432,6 +449,23 @@ public sealed class HistogramRenderModelBuilder
 
         return counts;
     }
+
+    // The grid of bins the whole graph worked out, for one of its panels: the same edges, so a value lands in the bin it
+    // landed in for the whole graph. The width only speeds the search; the edges decide.
+    private static BinGrid SharedGrid(IReadOnlyList<HistogramBin> bins)
+    {
+        var edges = new double[bins.Count + 1];
+        for (var index = 0; index < bins.Count; index++)
+        {
+            edges[index] = bins[index].LowerEdge;
+        }
+
+        edges[^1] = bins[^1].UpperEdge;
+        return new BinGrid(bins, edges, edges[0], bins[0].Width);
+    }
+
+    // A series' index: its place in the whole graph when a panel is built against one, else its place here.
+    private int SeriesIndex(string label, int index) => _seriesOrder?.IndexOf(label, index) ?? index;
 
     // The bins, and what is needed to place a value in one of them.
     private sealed record BinGrid(IReadOnlyList<HistogramBin> Bins, double[] Edges, double Start, double Width)

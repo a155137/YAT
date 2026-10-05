@@ -26,4 +26,8 @@ public sealed record GraphExportSnapshot
     public IGraphPlotRenderer? Plot { get; }
 
     public GraphTheme Theme { get; }
+
+    // The panels of a graph drawn in panels (Task #058), drawn with the frame exactly as the window draws them; null for a
+    // graph of one plot. An export is always the whole graph, every panel in it.
+    public IReadOnlyList<GraphPanel>? Panels { get; init; }
 }

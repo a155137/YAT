@@ -38,12 +38,15 @@ public sealed class GraphExportService
         // the PNG is fully opaque wherever the graph is.
         surface.Canvas.Clear(snapshot.Theme.Background);
         surface.Canvas.Scale(ExportScale);
-        new SkiaGraphRenderer().Render(
+        // The one way the graph is drawn, on screen and here (GraphDrawing): a graph in panels with every panel.
+        GraphDrawing.Render(
+            new SkiaGraphRenderer(),
             surface.Canvas,
             snapshot.Frame,
+            snapshot.Plot,
+            snapshot.Panels,
             new SKRect(0, 0, width / ExportScale, height / ExportScale),
-            snapshot.Theme,
-            snapshot.Plot);
+            snapshot.Theme);
         surface.Canvas.Flush();
 
         using var image = surface.Snapshot();

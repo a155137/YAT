@@ -11,5 +11,6 @@ public interface IGraphWindowPresenter
 {
     // cascade: where the window stands among the windows of one request - 0 for the first (or only) one, which opens
     // where a graph window always opens; each later one opens a step further down and to the right.
-    void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0);
+    // panels: the panels of a graph drawn in panels (Task #058), shown, copied and exported with it; null for any other.
+    void ShowGraph(GraphPresentationState graph, IGraphPlotRenderer? plot, int cascade = 0, IReadOnlyList<GraphPanel>? panels = null);
 }

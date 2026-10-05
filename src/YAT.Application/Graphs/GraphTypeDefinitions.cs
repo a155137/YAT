@@ -12,6 +12,11 @@ public static class GraphTypeDefinitions
 
     private static readonly GraphRoleDefinition GroupRole = new(GraphVariableRole.Group, "Group", IsRequired: false, NumericOrString);
 
+    // One panel per value of a column (Task #058): the graph drawn once per value, over the same axes. Offered by the
+    // scatter plot and the single-variable distribution graphs; a box plot already lays its categories out side by side.
+    private static readonly GraphRoleDefinition PanelRole =
+        new(GraphVariableRole.Panel, "Categorical variable for panels", IsRequired: false, NumericOrString);
+
     // The single-variable distribution graphs show a statistics panel beside the plot and their specification across
     // it: each reads one measurement along its X axis. A scatter plot and a box plot do neither (a box plot already
     // draws its statistics, and neither has one measurement axis a single specification belongs to).
@@ -41,7 +46,8 @@ public static class GraphTypeDefinitions
         [
             new(GraphVariableRole.X, "X-axis", IsRequired: true, Numeric),
             new(GraphVariableRole.Y, "Y-axis", IsRequired: true, Numeric),
-            GroupRole
+            GroupRole,
+            PanelRole with { DisplayName = "Panel" }
         ])
         {
             Capabilities = EveryGraph,
@@ -53,7 +59,8 @@ public static class GraphTypeDefinitions
         new(GraphType.Histogram, "Histogram",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
-            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
+            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString),
+            PanelRole
         ])
         {
             Capabilities = [.. HistogramCapabilities, .. EveryGraph, .. SeveralVariables],
@@ -77,7 +84,8 @@ public static class GraphTypeDefinitions
         new(GraphType.ProbabilityPlot, "Probability Plot",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
-            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
+            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString),
+            PanelRole
         ])
         {
             Capabilities = [.. ProbabilityPlotCapabilities, .. EveryGraph, .. SeveralVariables],
@@ -87,7 +95,8 @@ public static class GraphTypeDefinitions
         new(GraphType.EmpiricalCdf, "Empirical CDF",
         [
             new(GraphVariableRole.Variable, "Graph variables", IsRequired: true, Numeric, AllowsMultiple: true),
-            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString)
+            new(GraphVariableRole.Group, "Categorical variable for grouping", IsRequired: false, NumericOrString),
+            PanelRole
         ])
         {
             Capabilities = [.. DistributionCapabilities, .. EveryGraph, .. SeveralVariables],
