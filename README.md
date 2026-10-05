@@ -27,15 +27,19 @@ YAT is an early release and is under active development.
 
 - **Worksheets and projects.** Data lives in worksheets inside a project, which is saved as a single `.yat` file.
 - **Paste tabular data.** Copy a table with a header row from Excel or a text file and paste it into a worksheet.
-- **Grouping.** Graphs can split their data by a categorical column, drawing one series per group.
-- **Several variables.** Histograms, probability plots, empirical CDFs and box plots can show several variables in
-  one graph or in separate graphs.
+- **Grouping.** Graphs can split their data by a categorical column, drawing one series per group. Numeric groups are
+  drawn in ascending order with missing values last; text groups in the order they first appear.
+- **Panels.** Scatter plots, histograms, probability plots and empirical CDFs can be split into up to nine panels by a
+  categorical column. The panels share their axes, zoom, legend and colours, and copy and export include every panel.
+- **Several variables.** Histograms, probability plots, empirical CDFs and box plots can show up to 50 variables in
+  one graph or in separate graphs, picked with Select All and Clear Selection in the setup.
 - **Row filtering.** A graph can be limited to the rows whose value in a chosen column is one of the selected values,
   without changing the worksheet.
 - **Labels and legends.** Graph titles and axis titles can be automatic, custom or hidden; the legend can be hidden or
   moved.
 - **Statistics panels.** Histograms, probability plots and empirical CDFs can show the mean, standard deviation and N
-  of each series beside the plot.
+  of each series beside the plot, and optionally its minimum, quartiles, median and maximum. A graph in panels shows
+  each panel's own statistics.
 - **Specification limits.** LSL, target and USL can be drawn on distribution graphs.
 - **Appearance and palettes.** Series colors, grid and backgrounds can be changed per graph. Custom color palettes can
   be saved and one of them chosen as the default for new graphs; the built-in YAT Default palette is always available.
@@ -43,6 +47,8 @@ YAT is an early release and is under active development.
   changed from a drawn graph's context menu, through dialogs.
 - **Copy and export.** Graphs can be copied to the clipboard as an image, or exported as PNG or as a PowerPoint
   (`.pptx`) slide.
+- **Graphs list.** A Graphs panel in the main window lists every open graph window; choosing one brings its window
+  back, even when it was minimized or opened off screen.
 
 ## Technology
 
