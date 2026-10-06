@@ -52,7 +52,7 @@ public sealed class PoisonCorpusTests
     {
         using var session = await TortureSession.StartAsync(TortureCorpus.Dataset);
 
-        foreach (var request in Arrangements(new TortureRequest(type, [column]) { Statistics = TortureStatistics.All }).Where(request => KnownDefect(request) is null))
+        foreach (var request in Arrangements(new TortureRequest(type, [column]) { Statistics = TortureStatistics.All }))
         {
             await DrawAndVerifyAsync(session, TortureCorpus.Dataset, request);
         }
@@ -70,7 +70,7 @@ public sealed class PoisonCorpusTests
             new(GraphType.ScatterPlot, [TortureCorpus.Reference]) { Y = column },
             new(GraphType.ScatterPlot, [column]) { Y = TortureCorpus.Reference, Group = TortureCorpus.Group, Panel = TortureCorpus.Panel }
         ];
-        foreach (var request in requests.Where(request => KnownDefect(request) is null))
+        foreach (var request in requests)
         {
             await DrawAndVerifyAsync(session, TortureCorpus.Dataset, request);
         }
@@ -87,7 +87,7 @@ public sealed class PoisonCorpusTests
         using var session = await TortureSession.StartAsync(TortureCorpus.Dataset);
         var all = TortureCorpus.NumericNames.Where(name => name != "AllMissing").ToArray();
 
-        foreach (var request in Arrangements(new TortureRequest(type, all) { Statistics = TortureStatistics.All }).Where(request => KnownDefect(request) is null))
+        foreach (var request in Arrangements(new TortureRequest(type, all) { Statistics = TortureStatistics.All }))
         {
             await DrawAndVerifyAsync(session, TortureCorpus.Dataset, request);
         }
@@ -107,48 +107,6 @@ public sealed class PoisonCorpusTests
         {
             await DrawAndVerifyAsync(session, dataset, arranged);
         }
-    }
-
-    // KNOWN DEFECTS found by this corpus (#063), quarantined from the normal suite into KnownDefectsReproduce below -
-    // the same data, the same requests, the same invariants - until their fixes return them:
-    //
-    //   D5:    a box plot with a very long category label is laid out with no area at all and draws a blank image.
-    internal static string? KnownDefect(TortureRequest request) =>
-        request.Type == GraphType.BoxPlot
-            && (request.Group == TortureCorpus.LongGroup || request.Variables.Contains(TortureCorpus.LongName))
-            ? "D5"
-            : null;
-
-    [Fact(Explicit = true)]
-    public async Task KnownDefectsReproduce()
-    {
-        using var session = await TortureSession.StartAsync(TortureCorpus.Dataset);
-        var all = TortureCorpus.NumericNames.Where(name => name != "AllMissing").ToArray();
-        var requests = TortureCorpus.NumericNames
-            .SelectMany(column => Univariate.SelectMany(type => Arrangements(new TortureRequest(type, [column]) { Statistics = TortureStatistics.All }))
-                .Concat(
-                [
-                    new(GraphType.ScatterPlot, [column]) { Y = TortureCorpus.Reference },
-                    new(GraphType.ScatterPlot, [TortureCorpus.Reference]) { Y = column },
-                    new(GraphType.ScatterPlot, [column]) { Y = TortureCorpus.Reference, Group = TortureCorpus.Group, Panel = TortureCorpus.Panel }
-                ]))
-            .Concat(Univariate.SelectMany(type => Arrangements(new TortureRequest(type, all) { Statistics = TortureStatistics.All })))
-            .Where(request => KnownDefect(request) is not null);
-
-        var failures = new List<string>();
-        foreach (var request in requests)
-        {
-            try
-            {
-                await DrawAndVerifyAsync(session, TortureCorpus.Dataset, request);
-            }
-            catch (TortureFailure failure)
-            {
-                failures.Add($"[{KnownDefect(request)}] {failure.Message.Split('\n')[0]}\n  {request}");
-            }
-        }
-
-        Assert.True(failures.Count == 0, $"{failures.Count} known-defect requests fail:\n{string.Join("\n", failures)}");
     }
 
     private static IEnumerable<TortureRequest> Arrangements(TortureRequest request)

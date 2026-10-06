@@ -51,6 +51,11 @@ public sealed record GraphLayoutMetrics
 
     public float LegendMoreWidth { get; init; }
 
+    // The widest a category label of a categorical X axis (a box plot's) is drawn (Task #063.2): a longer one is
+    // ellipsized to it, and the band the labels reach past the plot is measured from what is drawn. Unlimited for any
+    // other axis.
+    public float CategoryLabelWidth { get; init; } = float.PositiveInfinity;
+
     // Rejects sizes that would produce meaningless rectangles. Zero is valid and means "this element is not shown".
     internal void EnsureValid()
     {

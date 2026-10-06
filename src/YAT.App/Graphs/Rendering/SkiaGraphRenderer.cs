@@ -60,7 +60,7 @@ public sealed class SkiaGraphRenderer
         var xTicks = GraphCategoryLabels.Shown(
             model.XAxis,
             value => (float)transform.ToScreenX(value),
-            label => GraphTextFallback.MeasureText(tickFont, label),
+            label => GraphTextFallback.MeasureText(tickFont, CategoryLabel(label, tickFont, metrics)),
             theme.TickLabelFontSize / 2);
 
         DrawGrid(canvas, model, xTicks, layout, transform, theme, stroke);
@@ -104,7 +104,7 @@ public sealed class SkiaGraphRenderer
         SKFont tickFont,
         out GraphLayoutMetrics metrics)
     {
-        metrics = Measure(model, titleFont, axisTitleFont, tickFont);
+        metrics = Measure(model, bounds, titleFont, axisTitleFont, tickFont);
         var layout = GraphLayoutCalculator.Calculate(bounds, model, metrics);
         if (!layout.HasPlotArea || !model.ReferenceLines.Any(line => line.Axis == GraphReferenceAxis.X))
         {
@@ -130,8 +130,9 @@ public sealed class SkiaGraphRenderer
 
     // The renderer measures the text it is about to draw and hands the sizes to the layout, so the layout needs no font
     // of its own and the labels get the space they actually take.
-    private static GraphLayoutMetrics Measure(GraphRenderModel model, SKFont titleFont, SKFont axisTitleFont, SKFont tickFont)
+    private static GraphLayoutMetrics Measure(GraphRenderModel model, SKRect bounds, SKFont titleFont, SKFont axisTitleFont, SKFont tickFont)
     {
+        var categoryLabelWidth = CategoryLabelWidth(model, bounds);
         var hasAxisTitle = !string.IsNullOrWhiteSpace(model.XAxis.Title) || !string.IsNullOrWhiteSpace(model.YAxis.Title);
 
         // The legend's text is measured once here, for the width it has always been given and for arranging it.
@@ -149,7 +150,8 @@ public sealed class SkiaGraphRenderer
             AxisTitleHeight = hasAxisTitle ? LineHeight(axisTitleFont) : 0f,
             TickLabelHeight = LineHeight(tickFont),
             YTickLabelWidth = WidestLabel(model.YAxis, tickFont),
-            XTickLabelOverflow = WidestLabel(model.XAxis, tickFont) / 2f,
+            XTickLabelOverflow = Math.Min(WidestLabel(model.XAxis, tickFont), categoryLabelWidth) / 2f,
+            CategoryLabelWidth = categoryLabelWidth,
             LegendWidth = LegendWidth(legend, legendTitle, legendLabels),
             LegendHeight = legend is null ? 0f : LegendBoxHeight(legend, tickFont),
             LegendLabelWidths = legendLabels,
@@ -263,7 +265,7 @@ public sealed class SkiaGraphRenderer
             }
 
             canvas.DrawLine(x, layout.PlotArea.Bottom, x, layout.PlotArea.Bottom + metrics.TickLength, stroke);
-            GraphTextFallback.DrawText(canvas, tick.Label, x, labelBaseline, SKTextAlign.Center, tickFont, fill);
+            GraphTextFallback.DrawText(canvas, CategoryLabel(tick.Label, tickFont, metrics), x, labelBaseline, SKTextAlign.Center, tickFont, fill);
         }
 
         foreach (var tick in model.YAxis.Ticks)
@@ -1270,6 +1272,20 @@ public sealed class SkiaGraphRenderer
 
     // The baseline that centres one line of text on centerY (Ascent is negative, Descent positive).
     private static float CenteredBaseline(float centerY, SKFontMetrics metrics) => centerY - ((metrics.Ascent + metrics.Descent) / 2f);
+
+    // The most of the content's width a category label is drawn across (Task #063.2), so that half of one - what the
+    // last label reaches past the plot - never takes more than a quarter of it. A label longer than that is ellipsized:
+    // the plot, its axes, its boxes and its title are kept, and only the label gives way.
+    public const float MaximumCategoryLabelShare = 0.5f;
+
+    private static float CategoryLabelWidth(GraphRenderModel model, SKRect bounds) =>
+        model.XAxis.Scale == GraphAxisScale.Categorical
+            ? Math.Max(bounds.Width - (2 * new GraphLayoutMetrics().OuterPadding), 0f) * MaximumCategoryLabelShare
+            : float.PositiveInfinity;
+
+    // A tick label as it is drawn: a category label within the width it may take, every other label as it is.
+    private static string CategoryLabel(string label, SKFont font, GraphLayoutMetrics metrics) =>
+        float.IsPositiveInfinity(metrics.CategoryLabelWidth) ? label : Ellipsize(label, font, metrics.CategoryLabelWidth);
 
     private static float WidestLabel(GraphAxisModel axis, SKFont font)
     {
