@@ -287,6 +287,8 @@ public sealed class GraphSetupController
     {
         try
         {
+            GraphDataRange.EnsureDrawable(data);
+
             if (GraphPanelSplit.HasPanels(data))
             {
                 return PreparePanels(name, data, configuration, cancellationToken);

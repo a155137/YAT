@@ -105,6 +105,13 @@ public sealed class ProbabilityPlotRenderModelBuilder
 
             var line = new ProbabilityPlotFittedLine(mean, standardDeviation, vertical.Range.Minimum, vertical.Range.Maximum);
 
+            // Values near the limits of double can have a line whose ends lie beyond a double (Task #063.1): no axis can
+            // reach them, so the graph is refused as one whose range is too large to draw.
+            if (!double.IsFinite(line.FromValue) || !double.IsFinite(line.ToValue))
+            {
+                throw new GraphPreparationException(GraphDataRange.TooLargeMessage);
+            }
+
             lines[index] = line;
             minimumValue = Math.Min(minimumValue, line.FromValue);
             maximumValue = Math.Max(maximumValue, line.ToValue);

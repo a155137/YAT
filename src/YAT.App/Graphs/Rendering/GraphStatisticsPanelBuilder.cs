@@ -25,6 +25,9 @@ public static class GraphStatisticsPanelBuilder
     // The group of observations whose group value is empty, as every graph calls it.
     public const string MissingGroupLabel = "(Missing)";
 
+    // Why a graph whose statistics cannot be worked out as numbers is not drawn (Task #063.1).
+    public const string StatisticsTooLargeMessage = "Data values are too large to calculate this graph's statistics.";
+
     // How a standard deviation that does not exist (a single observation) is shown.
     public const string UndefinedText = "—";
 
@@ -178,6 +181,13 @@ public static class GraphStatisticsPanelBuilder
     {
         var mean = Descriptives.Mean(values);
         double? standardDeviation = values.Length >= 2 ? Descriptives.StandardDeviation(values) : null;
+
+        // Finite values can still have a standard deviation beyond a double (Task #063.1): the graph is refused with a
+        // message, as for a range too large to draw, rather than failing.
+        if (!double.IsFinite(mean) || standardDeviation is { } spread && !double.IsFinite(spread))
+        {
+            throw new GraphPreparationException(StatisticsTooLargeMessage);
+        }
 
         return new GraphStatisticsRow(
             label,

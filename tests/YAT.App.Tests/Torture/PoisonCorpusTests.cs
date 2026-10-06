@@ -112,24 +112,12 @@ public sealed class PoisonCorpusTests
     // KNOWN DEFECTS found by this corpus (#063), quarantined from the normal suite into KnownDefectsReproduce below -
     // the same data, the same requests, the same invariants - until their fixes return them:
     //
-    //   D1-D4: finite values near the limits of double (sums, squares, quantile gaps and axis spans that overflow) fail
-    //          with an unexpected exception instead of drawing or being refused with a message;
     //   D5:    a box plot with a very long category label is laid out with no area at all and draws a blank image.
-    private static readonly HashSet<string> ExtremeColumns =
-        ["MaxPositive", "MaxBothSigns", "MaxSpread", "ConstantHuge", "Huge1e300", "Outlier1e300", "OutlierNeg1e300"];
-
-    internal static string? KnownDefect(TortureRequest request)
-    {
-        if (request.Variables.Append(request.Y).Any(name => name is not null && ExtremeColumns.Contains(name)))
-        {
-            return "D1-D4";
-        }
-
-        return request.Type == GraphType.BoxPlot
+    internal static string? KnownDefect(TortureRequest request) =>
+        request.Type == GraphType.BoxPlot
             && (request.Group == TortureCorpus.LongGroup || request.Variables.Contains(TortureCorpus.LongName))
             ? "D5"
             : null;
-    }
 
     [Fact(Explicit = true)]
     public async Task KnownDefectsReproduce()

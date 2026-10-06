@@ -98,4 +98,15 @@ public class QuantilesTests
         Assert.Throws<ArgumentOutOfRangeException>(() => Quantiles.Linear([1, 2], 1.1));
         Assert.Throws<ArgumentOutOfRangeException>(() => Quantiles.Linear([1, 2], double.NaN));
     }
+
+    // Task #063.1: neighbours whose difference overflows a double are still interpolated (R-7), to a finite quantile.
+    [Fact]
+    public void NeighboursNearTheLimitsOfDoubleGiveAFiniteQuantile()
+    {
+        Assert.Equal(double.MaxValue, Quantiles.Linear([double.MaxValue, double.MaxValue], 0.5));
+        Assert.Equal(double.MaxValue, Quantiles.Linear([double.MaxValue, double.MaxValue], 0.25));
+        Assert.Equal(0, Quantiles.Linear([-double.MaxValue, double.MaxValue], 0.5));
+        Assert.Equal(-double.MaxValue / 2, Quantiles.Linear([-double.MaxValue, double.MaxValue], 0.25), double.MaxValue * 1e-15);
+        Assert.Equal(double.MaxValue / 2, Quantiles.Linear([-double.MaxValue, double.MaxValue], 0.75), double.MaxValue * 1e-15);
+    }
 }

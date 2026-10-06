@@ -95,4 +95,20 @@ public class DescriptivesTests
 
         Assert.Equal(Descriptives.StandardDeviation(values), Descriptives.StandardDeviation(values));
     }
+
+    // Task #063.1: values the sum or the squares of which overflow a double still have a finite mean and standard
+    // deviation; only a standard deviation that is itself beyond a double is infinite.
+    [Fact]
+    public void ValuesNearTheLimitsOfDoubleKeepAFiniteMeanAndStandardDeviation()
+    {
+        Assert.Equal(double.MaxValue, Descriptives.Mean([double.MaxValue, double.MaxValue]));
+        Assert.Equal(double.MaxValue, Descriptives.Mean([.. Enumerable.Repeat(double.MaxValue, 200)]));
+        Assert.Equal(0, Descriptives.Mean([double.MaxValue, -double.MaxValue]));
+        Assert.Equal(5d / 3, Descriptives.Mean([1e300, -1e300, 5]), 12);
+
+        Assert.Equal(1e300, Descriptives.StandardDeviation([1e300, -1e300, 5]), 1e288);
+        Assert.Equal(0, Descriptives.StandardDeviation([double.MaxValue, double.MaxValue]));
+        Assert.Equal(double.MaxValue / Math.Sqrt(2), Descriptives.StandardDeviation([double.MaxValue, 0]), double.MaxValue * 1e-12);
+        Assert.Equal(double.PositiveInfinity, Descriptives.StandardDeviation([double.MaxValue, -double.MaxValue]));
+    }
 }

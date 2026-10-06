@@ -31,7 +31,15 @@ public static class Quantiles
         var lower = (int)Math.Floor(position);
         var upper = Math.Min(lower + 1, sorted.Length - 1);
 
-        return sorted[lower] + ((position - lower) * (sorted[upper] - sorted[lower]));
+        var fraction = position - lower;
+        var gap = sorted[upper] - sorted[lower];
+
+        // Two finite neighbours whose difference overflows (Task #063.1: -MaxValue and MaxValue) are interpolated as a
+        // weighted sum instead - the same point, every term finite. Every other sample keeps the formula above, to the
+        // last bit.
+        return double.IsFinite(gap)
+            ? sorted[lower] + (fraction * gap)
+            : ((1 - fraction) * sorted[lower]) + (fraction * sorted[upper]);
     }
 
     // Q3 - Q1 of an ascending sample: the width of the middle half of the data.
