@@ -175,7 +175,7 @@ internal sealed class TortureSession : IDisposable
     {
         Composition = new CompositionRoot(new FixedTimeProvider(Now), Directory.File("temp"));
         Workspace = Composition.CreateProjectWorkspace();
-        Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, new FakeProjectLifecycleDialogs());
+        Lifecycle = Composition.CreateProjectLifecycle(Workspace, Clipboard, Clipboard, ProjectDialogs);
         Graphs = Composition.CreateGraphSetup(GraphDialogs, GraphWindows);
         Shell = Composition.CreateMainWindowShellViewModel(
             Lifecycle,
@@ -191,6 +191,8 @@ internal sealed class TortureSession : IDisposable
     public ProjectWorkspace Workspace { get; }
 
     public FakeClipboard Clipboard { get; } = new();
+
+    public FakeProjectLifecycleDialogs ProjectDialogs { get; } = new();
 
     public FakeGraphSetupDialogs GraphDialogs { get; } = new();
 
