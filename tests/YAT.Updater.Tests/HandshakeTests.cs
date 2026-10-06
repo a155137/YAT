@@ -50,7 +50,33 @@ public sealed class HandshakeTests : IDisposable
             RedirectStandardOutput = true
         })!;
         _processes.Add(process);
+
+        // A process only just created may not be running its own code yet, and until it is, its main module cannot be
+        // read (Process.MainModule is null under load), so the updater would refuse it as running another executable.
+        // The YAT the updater checks has long been running; the stand-in is given that too: it is handed over once the
+        // module the updater reads can be read. (A copy of ping outside System32 prints nothing, so its output cannot
+        // say so.)
+        var ready = Stopwatch.StartNew();
+        while (!MainModuleReadable(process))
+        {
+            Assert.True(ready.Elapsed < TimeSpan.FromSeconds(30), "the stand-in for YAT never became identifiable");
+            Thread.Sleep(10);
+        }
+
         return process;
+    }
+
+    private static bool MainModuleReadable(Process process)
+    {
+        try
+        {
+            process.Refresh();
+            return process.MainModule?.FileName is not null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
     }
 
     private UpdaterArguments Arguments(Process target, long? start = null) =>
