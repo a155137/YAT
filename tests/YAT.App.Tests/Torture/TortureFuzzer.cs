@@ -54,7 +54,8 @@ internal static class TortureFuzzer
         var names = new List<string>();
         for (var index = 0; index < variableCount; index++)
         {
-            var name = random.Next(20) == 0 ? $"V{index + 1} 晶圓 😀 {new string('x', random.Next(60))}" : $"V{index + 1}";
+            // A long name never ends in a space: a header is pasted trimmed, so the name asked for would not be the column's.
+            var name = random.Next(20) == 0 ? $"V{index + 1} 晶圓 😀 {new string('x', 1 + random.Next(60))}" : $"V{index + 1}";
             names.Add(name);
             columns.Add(TortureDataset.Numeric(name, Values(random, rows)));
         }

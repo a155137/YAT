@@ -239,8 +239,10 @@ internal sealed class TortureSession : IDisposable
             expressible = Choose(setup, request);
             if (!expressible)
             {
-                var wanted = request.Variables.Concat(new[] { request.Y, request.Group, request.Panel }).OfType<string>().ToHashSet();
-                LastNotOffered = string.Join(", ", setup.AvailableColumns.Where(option => wanted.Contains(option.Name)).Select(option => $"{option.Name}:{option.DataTypeName}"));
+                // The columns asked for that the worksheet does not have, and those it has but as a type no role took.
+                var wanted = request.Variables.Concat(new[] { request.Y, request.Group, request.Panel }).OfType<string>().Distinct().ToList();
+                var available = setup.AvailableColumns.ToDictionary(option => option.Name, option => option.DataTypeName);
+                LastNotOffered = string.Join(", ", wanted.Select(name => available.TryGetValue(name, out var type) ? $"{name}:{type}" : $"{name}:(no such column)"));
             }
 
             return expressible ? setup.Confirm() : null;
