@@ -13,6 +13,7 @@ public sealed class UpdateConnection : IDisposable
         Store = new UpdatePackageStore(updatesRoot ?? UpdatePackageStore.DefaultRoot);
         Source = new HttpUpdateManifestSource(Client, manifestUrl);
         Downloader = new HttpUpdatePackageDownloader(Client, Store);
+        ReleaseNotes = new HttpGitHubReleaseNotesSource(Client);
     }
 
     public HttpClient Client { get; }
@@ -22,6 +23,8 @@ public sealed class UpdateConnection : IDisposable
     public IUpdateManifestSource Source { get; }
 
     public IUpdatePackageDownloader Downloader { get; }
+
+    public IReleaseNotesSource ReleaseNotes { get; }
 
     public void Dispose() => Client.Dispose();
 }

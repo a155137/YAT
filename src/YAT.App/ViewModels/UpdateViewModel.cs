@@ -35,18 +35,24 @@ public sealed partial class UpdateViewModel : ObservableObject
     private readonly UpdateCheckService _service;
     private readonly IUpdateLauncher _launcher;
     private readonly IUpdatePrompts? _prompts;
+    private readonly IReleaseNotesSource? _releaseNotes;
     private CancellationTokenSource? _running;
     private UpdateOffer? _offer;
     private bool _downloadFailed;
     private bool _installFailed;
 
-    public UpdateViewModel(UpdateCheckService service, IUpdateLauncher launcher, IUpdatePrompts? prompts = null)
+    public UpdateViewModel(
+        UpdateCheckService service,
+        IUpdateLauncher launcher,
+        IUpdatePrompts? prompts = null,
+        IReleaseNotesSource? releaseNotes = null)
     {
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(launcher);
         _service = service;
         _launcher = launcher;
         _prompts = prompts;
+        _releaseNotes = releaseNotes;
         CanInstall = prompts is not null && service.CanInstall;
         InstallCommand = new AsyncRelayCommand(InstallAsync, () => State == UpdateWindowState.Verified && CanInstall);
         InstalledVersion = service.Installed?.ToString() ?? "unknown";
@@ -89,6 +95,10 @@ public sealed partial class UpdateViewModel : ObservableObject
     [ObservableProperty]
     public partial Uri? ReleaseNotesUrl { get; private set; }
 
+    // Plain-text release notes of the offered version, fetched for manual Check for Updates as well.
+    [ObservableProperty]
+    public partial string? ReleaseNotes { get; private set; }
+
     // The verified package, once there is one.
     [ObservableProperty]
     public partial VerifiedUpdatePackage? Package { get; private set; }
@@ -121,6 +131,25 @@ public sealed partial class UpdateViewModel : ObservableObject
     public event EventHandler? CloseRequested;
 
     public Task CheckAsync() => Completion = Run(CheckCoreAsync, onCancelled: () => CloseRequested?.Invoke(this, EventArgs.Empty));
+
+    // Enters the update window directly with an offer already discovered by the startup notification and starts
+    // downloading it, reusing the standard download, verification, and installer handoff flow.
+    public Task StartDownloadFromOfferAsync(UpdateOffer offer, string? releaseNotes = null)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        _downloadFailed = false;
+        _offer = offer;
+        AvailableVersion = offer.Version.ToString();
+        DownloadSize = Megabytes(offer.Package.Size);
+        ReleaseNotesUrl = offer.ReleaseNotesUrl;
+        ReleaseNotes = string.IsNullOrWhiteSpace(releaseNotes)
+            ? UpdateNotificationViewModel.UnavailableReleaseNotesText
+            : releaseNotes;
+        Headline = $"YAT {offer.Version} is available.";
+        Detail = null;
+        State = UpdateWindowState.UpdateAvailable;
+        return DownloadAsync();
+    }
 
     public void Cancel() => _running?.Cancel();
 
@@ -190,6 +219,7 @@ public sealed partial class UpdateViewModel : ObservableObject
                 _offer = result.Offer!;
                 DownloadSize = Megabytes(_offer.Package.Size);
                 ReleaseNotesUrl = _offer.ReleaseNotesUrl;
+                ReleaseNotes = await FetchReleaseNotesSafeAsync(_offer, token);
                 Headline = $"YAT {result.Available} is available.";
                 Detail = null;
                 State = UpdateWindowState.UpdateAvailable;
@@ -198,6 +228,30 @@ public sealed partial class UpdateViewModel : ObservableObject
             default:
                 Fail(result.Failure!.Value);
                 break;
+        }
+    }
+
+    private async Task<string> FetchReleaseNotesSafeAsync(UpdateOffer offer, CancellationToken token)
+    {
+        if (_releaseNotes is null)
+        {
+            return UpdateNotificationViewModel.UnavailableReleaseNotesText;
+        }
+
+        try
+        {
+            var notes = await Task.Run(() => _releaseNotes.FetchAsync(offer, token), token);
+            return string.IsNullOrWhiteSpace(notes)
+                ? UpdateNotificationViewModel.UnavailableReleaseNotesText
+                : notes;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return UpdateNotificationViewModel.UnavailableReleaseNotesText;
         }
     }
 

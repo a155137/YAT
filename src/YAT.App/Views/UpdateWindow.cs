@@ -35,6 +35,23 @@ internal sealed class UpdateWindow : Window
         progress.Bind(Avalonia.Controls.Primitives.RangeBase.ValueProperty, new Binding(nameof(UpdateViewModel.ProgressPercent)) { Source = update });
         var progressText = Bound(new TextBlock { Name = "UpdateProgressText", Opacity = 0.75 }, update, nameof(UpdateViewModel.ProgressText));
 
+        var releaseNotesHeader = new TextBlock
+        {
+            Text = "Release Notes",
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var releaseNotesBody = new TextBox
+        {
+            Name = "ManualReleaseNotesBox",
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Height = 160,
+            VerticalContentAlignment = VerticalAlignment.Top
+        };
+        releaseNotesBody.Bind(TextBox.TextProperty, new Binding(nameof(UpdateViewModel.ReleaseNotes)) { Source = update });
+
         var releaseNotes = Command("ReleaseNotes", "Release Notes", update.OpenReleaseNotesCommand);
         var download = Command("Download", "Download", update.DownloadCommand, accent: true);
         var cancel = Command("Cancel", "Cancel", update.CancelCommand);
@@ -55,6 +72,10 @@ internal sealed class UpdateWindow : Window
             progress.IsVisible = state is UpdateWindowState.Downloading or UpdateWindowState.Verifying or UpdateWindowState.Installing;
             progress.IsIndeterminate = state is UpdateWindowState.Checking or UpdateWindowState.Installing;
             progressText.IsVisible = state is UpdateWindowState.Downloading or UpdateWindowState.Verifying;
+            var showNotesBox = state is UpdateWindowState.UpdateAvailable or UpdateWindowState.Downloading
+                or UpdateWindowState.Verifying or UpdateWindowState.Verified or UpdateWindowState.Installing;
+            releaseNotesHeader.IsVisible = showNotesBox;
+            releaseNotesBody.IsVisible = showNotesBox;
             releaseNotes.IsVisible = update.ReleaseNotesUrl is not null && state is not (UpdateWindowState.Checking or UpdateWindowState.Failed);
             download.IsVisible = state is UpdateWindowState.UpdateAvailable;
             cancel.IsVisible = update.IsBusy;
@@ -85,6 +106,8 @@ internal sealed class UpdateWindow : Window
                 headline,
                 detail,
                 new StackPanel { Spacing = 2, Margin = new Thickness(0, 6, 0, 0), Children = { installed, available, size } },
+                releaseNotesHeader,
+                releaseNotesBody,
                 progress,
                 progressText,
                 new DockPanel
@@ -171,6 +194,9 @@ public sealed class AvaloniaUpdateDialogs : IUpdateDialogs, IUpdateLauncher, IUp
     public Task ShowMessageAsync(string message) => LifecycleMessageWindow.ShowErrorAsync(_owner, message);
 
     public Task ShowAsync(UpdateViewModel update) => UpdateWindow.ShowAsync(_owner, update);
+
+    public Task<UpdateNotificationChoice> ShowNotificationAsync(UpdateNotificationViewModel notification) =>
+        UpdateNotificationWindow.ShowAsync(_owner, notification);
 
     // Only https: the release notes address comes from the update information, which allows nothing else.
     public Task<bool> OpenUriAsync(Uri uri) =>

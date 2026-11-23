@@ -14,16 +14,29 @@ public sealed class UpdateCheckController
 {
     private readonly IUpdateDialogs _dialogs;
     private readonly UpdateCheckService _service;
+    private readonly IAutomaticUpdateCheckStateStore? _stateStore;
+    private readonly IReleaseNotesSource? _releaseNotes;
+    private readonly TimeProvider _timeProvider;
+    private CancellationTokenSource? _autoCheckCts;
+    private bool _isAutoChecking;
 
-    public UpdateCheckController(IUpdateDialogs dialogs, UpdateCheckService service)
+    public UpdateCheckController(
+        IUpdateDialogs dialogs,
+        UpdateCheckService service,
+        IAutomaticUpdateCheckStateStore? stateStore = null,
+        IReleaseNotesSource? releaseNotes = null,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         ArgumentNullException.ThrowIfNull(service);
         _dialogs = dialogs;
         _service = service;
+        _stateStore = stateStore;
+        _releaseNotes = releaseNotes;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    // Whether an update window is open (only one may be).
+    // Whether an update window or notification is open (only one may be).
     public bool IsRunning { get; private set; }
 
     public async Task CheckForUpdatesAsync()
@@ -33,25 +46,140 @@ public sealed class UpdateCheckController
             return;
         }
 
+        _autoCheckCts?.Cancel();
         IsRunning = true;
         try
         {
-            var update = new UpdateViewModel(_service, _dialogs.Launcher, _dialogs.Prompts);
+            var update = new UpdateViewModel(_service, _dialogs.Launcher, _dialogs.Prompts, _releaseNotes);
             _ = update.CheckAsync();
-            await _dialogs.ShowAsync(update);
-
-            // The window is closed: whatever still runs is of no use.
-            update.Cancel();
-            await update.Completion;
-
-            if (update.PendingInstall is { } handoff)
-            {
-                await InstallAsync(handoff, update.Package!.Version.ToString());
-            }
+            await RunUpdateWindowAsync(update);
         }
         finally
         {
             IsRunning = false;
+        }
+    }
+
+    // Runs once per local calendar day on startup in the background. Up-to-date results and network/timeout failures
+    // are silent; when a newer version is available, displays the notification with version-matched Release Notes.
+    public async Task CheckForUpdatesAutomaticallyAsync(CancellationToken cancellationToken = default)
+    {
+        if (_stateStore is null || IsRunning || _isAutoChecking || cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().Date);
+        if (_stateStore.ReadLastCheckedDate() == today)
+        {
+            return;
+        }
+
+        _isAutoChecking = true;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _autoCheckCts = linked;
+        try
+        {
+            UpdateCheckResult result;
+            try
+            {
+                result = await Task.Run(() => _service.CheckAsync(linked.Token), linked.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch
+            {
+                return;
+            }
+
+            if (linked.IsCancellationRequested)
+            {
+                return;
+            }
+
+            // Record today's check once the attempt finishes (not when cancelled on app shutdown).
+            _stateStore.WriteLastCheckedDate(today);
+
+            if (result.Status != UpdateCheckStatus.UpdateAvailable || result.Offer is not { } offer)
+            {
+                return;
+            }
+
+            string? notes = null;
+            if (_releaseNotes is not null)
+            {
+                try
+                {
+                    notes = await Task.Run(() => _releaseNotes.FetchAsync(offer, linked.Token), linked.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch
+                {
+                    notes = null;
+                }
+            }
+
+            if (linked.IsCancellationRequested || IsRunning)
+            {
+                return;
+            }
+
+            IsRunning = true;
+            try
+            {
+                var currentVersion = _service.Installed?.ToString() ?? "unknown";
+                var notification = new UpdateNotificationViewModel(offer, currentVersion, notes, _dialogs.Launcher);
+                UpdateNotificationChoice choice;
+                try
+                {
+                    choice = await _dialogs.ShowNotificationAsync(notification);
+                }
+                catch when (linked.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (choice != UpdateNotificationChoice.UpdateNow || linked.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                var update = new UpdateViewModel(_service, _dialogs.Launcher, _dialogs.Prompts, _releaseNotes);
+                _ = update.StartDownloadFromOfferAsync(offer, notes);
+                await RunUpdateWindowAsync(update);
+            }
+            finally
+            {
+                IsRunning = false;
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_autoCheckCts, linked))
+            {
+                _autoCheckCts = null;
+            }
+
+            _isAutoChecking = false;
+        }
+    }
+
+    private async Task RunUpdateWindowAsync(UpdateViewModel update)
+    {
+        await _dialogs.ShowAsync(update);
+
+        // The window is closed: whatever still runs is of no use.
+        update.Cancel();
+        await update.Completion;
+
+        if (update.PendingInstall is { } handoff)
+        {
+            await InstallAsync(handoff, update.Package!.Version.ToString());
         }
     }
 
@@ -86,6 +214,10 @@ public interface IUpdateDialogs
 
     // Shows the update window until the user closes it.
     Task ShowAsync(UpdateViewModel update);
+
+    // Shows the startup update notification until the user chooses Update Now, Later, or closes it.
+    Task<UpdateNotificationChoice> ShowNotificationAsync(UpdateNotificationViewModel notification) =>
+        Task.FromResult(UpdateNotificationChoice.Later);
 
     // Runs YAT's usual close decision (the save prompt); true when YAT may close (its project is then closed).
     Task<bool> CloseApplicationForInstallAsync();

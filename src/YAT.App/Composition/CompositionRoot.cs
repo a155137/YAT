@@ -228,19 +228,30 @@ public sealed class CompositionRoot
     // Help > Check for Updates... over an update connection - or, in tests, over any manifest source and downloader. The
     // application's check installs for this very process (Task #051.C), from the packages the connection keeps.
     public UpdateCheckController CreateUpdateCheck(IUpdateDialogs dialogs, UpdateConnection connection) =>
-        CreateUpdateCheck(dialogs, connection.Source, connection.Downloader, installer: CreateUpdateInstaller(connection.Store.Root));
+        CreateUpdateCheck(
+            dialogs,
+            connection.Source,
+            connection.Downloader,
+            installer: CreateUpdateInstaller(connection.Store.Root),
+            stateStore: new FileAutomaticUpdateCheckStateStore(connection.Store.Root),
+            releaseNotes: connection.ReleaseNotes);
 
     public UpdateCheckController CreateUpdateCheck(
         IUpdateDialogs dialogs,
         IUpdateManifestSource source,
         IUpdatePackageDownloader downloader,
         UpdateEnvironment? environment = null,
-        IUpdateInstaller? installer = null)
+        IUpdateInstaller? installer = null,
+        IAutomaticUpdateCheckStateStore? stateStore = null,
+        IReleaseNotesSource? releaseNotes = null)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         return new UpdateCheckController(
             dialogs,
-            new UpdateCheckService(source, downloader, environment ?? UpdateEnvironment.Current(ApplicationInfo.Current.Version), installer));
+            new UpdateCheckService(source, downloader, environment ?? UpdateEnvironment.Current(ApplicationInfo.Current.Version), installer),
+            stateStore,
+            releaseNotes,
+            _timeProvider);
     }
 
     // Installs verified packages kept under updatesRoot for a YAT (Task #051.C): by default this process, in the folder

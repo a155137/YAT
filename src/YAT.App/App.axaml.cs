@@ -56,6 +56,13 @@ public partial class App : AvaloniaApplication
             var updateConnection = Composition.CreateUpdateConnection();
             desktop.Exit += (_, _) => updateConnection.Dispose();
             var updates = Composition.CreateUpdateCheck(new AvaloniaUpdateDialogs(mainWindow, desktop), updateConnection);
+            var autoUpdateCts = new CancellationTokenSource();
+            mainWindow.Closing += (_, _) => autoUpdateCts.Cancel();
+            desktop.Exit += (_, _) =>
+            {
+                autoUpdateCts.Cancel();
+                autoUpdateCts.Dispose();
+            };
             // Started by the updater after it installed this version (Task #051.C): said once.
             var updated = Composition.TakeInstalledUpdateNotice();
             var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates, openGraphs);
@@ -73,6 +80,8 @@ public partial class App : AvaloniaApplication
                 {
                     await LifecycleMessageWindow.ShowInformationAsync(mainWindow, $"YAT has been updated to v{updated}.");
                 }
+
+                _ = updates.CheckForUpdatesAutomaticallyAsync(autoUpdateCts.Token);
             };
         }
 
