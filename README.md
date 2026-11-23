@@ -22,6 +22,7 @@ YAT is an early release and is under active development.
 
 - Descriptive Statistics (N, missing, mean, standard deviation, minimum, quartiles, median, maximum)
 - Capability Analysis (Cp, Cpl, Cpu and Cpk from the within standard deviation, against specification limits)
+- Excel (`.xlsx`) export from both Descriptive Statistics and Capability Analysis result windows, preserving raw numeric precision, specification limits, and analysis metadata
 
 ### Workflow
 
