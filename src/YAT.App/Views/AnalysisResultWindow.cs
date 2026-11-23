@@ -4,15 +4,16 @@ using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
 using YAT.app.Analyses;
+using YAT.app.Analyses.Export;
 
 namespace YAT.app.Views;
 
-// An analysis result in its own window: a title and the result table, shown in a grid the user can scroll, resize and
-// select in. It shares no state with the main window, so a result stays on screen while the user keeps working.
+// An analysis result in its own window: a title, an Export Excel action, and the result table, shown in a grid the
+// user can scroll, resize and select in. It shares no state with the main window, so a result stays on screen while
+// the user keeps working.
 //
 // It is the shared result window of every analysis, not of descriptive statistics: it is given an AnalysisResultTable
-// and shows exactly that. It knows no analysis, no statistic and no worksheet, and it deliberately has no export, no
-// graph and no persistence - what it establishes is a place for results to appear.
+// and shows exactly that.
 internal sealed class AnalysisResultWindow : Window
 {
     // Wide enough for the widest table this version produces (Variable, Group and nine statistics) without scrolling.
@@ -27,7 +28,7 @@ internal sealed class AnalysisResultWindow : Window
     private const double LabelMinimumWidth = 110;
     private const double LabelMaximumWidth = 240;
 
-    public AnalysisResultWindow(AnalysisResultTable table)
+    public AnalysisResultWindow(AnalysisResultTable table, IAnalysisExportDialogs? exportDialogs = null)
     {
         ArgumentNullException.ThrowIfNull(table);
 
@@ -38,26 +39,65 @@ internal sealed class AnalysisResultWindow : Window
         MinHeight = 240;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
+        var exportController = new AnalysisExportController(
+            exportDialogs ?? new AvaloniaAnalysisExportDialogs(this),
+            new OpenXmlAnalysisExcelExporter());
+
         var heading = new TextBlock
         {
             Text = table.Title,
             FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(12, 10, 12, 8),
             TextWrapping = TextWrapping.Wrap
         };
 
-        DockPanel.SetDock(heading, Dock.Top);
-        var content = new DockPanel { Children = { heading } };
+        var headerText = new StackPanel
+        {
+            Spacing = 2,
+            Margin = new Thickness(12, 10, 12, 8),
+            Children = { heading }
+        };
+
         if (table.Note is { } note)
         {
             // What the result is over, when it is not every row (a filter, Task #053).
-            heading.Margin = new Thickness(12, 10, 12, 2);
-            var noteText = new TextBlock { Name = "ResultNote", Text = note, Opacity = 0.75, Margin = new Thickness(12, 0, 12, 8), TextWrapping = TextWrapping.Wrap };
-            DockPanel.SetDock(noteText, Dock.Top);
-            content.Children.Add(noteText);
+            headerText.Children.Add(new TextBlock
+            {
+                Name = "ResultNote",
+                Text = note,
+                Opacity = 0.75,
+                TextWrapping = TextWrapping.Wrap
+            });
         }
 
-        content.Children.Add(Grid(table));
+        var exportButton = new Button
+        {
+            Name = "ExportExcelButton",
+            Content = "Export Excel",
+            IsEnabled = table.Rows.Count > 0,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 10, 12, 8)
+        };
+        exportButton.Click += async (_, _) =>
+        {
+            exportButton.IsEnabled = false;
+            try
+            {
+                await exportController.ExportExcelAsync(table);
+            }
+            finally
+            {
+                exportButton.IsEnabled = table.Rows.Count > 0;
+            }
+        };
+        DockPanel.SetDock(exportButton, Dock.Right);
+
+        var headerBar = new DockPanel
+        {
+            Children = { exportButton, headerText }
+        };
+        DockPanel.SetDock(headerBar, Dock.Top);
+
+        var content = new DockPanel { Children = { headerBar, Grid(table) } };
         Content = content;
     }
 

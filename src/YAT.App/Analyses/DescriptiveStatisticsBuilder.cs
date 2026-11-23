@@ -52,7 +52,13 @@ public sealed class DescriptiveStatisticsBuilder
             }
         }
 
-        return new AnalysisResultTable(Title(data), Columns(isGrouped), rows);
+        return new AnalysisResultTable(Title(data), Columns(isGrouped), rows)
+        {
+            ExportKind = AnalysisExportKind.DescriptiveStatistics,
+            ExportMetadata = new AnalysisExportMetadata(
+                TitlePrefix,
+                data.Group?.Column.Name)
+        };
     }
 
     // The observations of one variable, gathered into the segment of the group each of them belongs to. A row without
@@ -89,9 +95,11 @@ public sealed class DescriptiveStatisticsBuilder
     private static AnalysisResultRow Row(AnalysisVariableData variable, string? groupLabel, DescriptiveSummary summary)
     {
         var cells = new List<string>(11) { variable.Column.Name };
+        var rawValues = new List<double?>(11) { null };
         if (groupLabel is not null)
         {
             cells.Add(groupLabel);
+            rawValues.Add(null);
         }
 
         cells.Add(AnalysisNumberFormat.Count(summary.Count));
@@ -104,7 +112,17 @@ public sealed class DescriptiveStatisticsBuilder
         cells.Add(AnalysisNumberFormat.Statistic(summary.ThirdQuartile));
         cells.Add(AnalysisNumberFormat.Statistic(summary.Maximum));
 
-        return new AnalysisResultRow(cells);
+        rawValues.Add(summary.Count);
+        rawValues.Add(summary.MissingCount);
+        rawValues.Add(summary.Mean);
+        rawValues.Add(summary.StandardDeviation);
+        rawValues.Add(summary.Minimum);
+        rawValues.Add(summary.FirstQuartile);
+        rawValues.Add(summary.Median);
+        rawValues.Add(summary.ThirdQuartile);
+        rawValues.Add(summary.Maximum);
+
+        return new AnalysisResultRow(cells, rawValues);
     }
 
     // The Group column appears only when the analysis groups: an ungrouped table has nothing to put in it.

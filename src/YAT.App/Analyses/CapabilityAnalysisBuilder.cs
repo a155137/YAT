@@ -66,7 +66,25 @@ public sealed class CapabilityAnalysisBuilder
             }
         }
 
-        return new AnalysisResultTable(Title(data), Columns(isGrouped, statistics), rows);
+        var exportSpecs = data.Variables
+            .Select(variable =>
+            {
+                var spec = specifications.GetValueOrDefault(variable.Column.ColumnId);
+                return new AnalysisExportSpecification(
+                    variable.Column.Name,
+                    spec?.LowerSpecificationLimit,
+                    spec?.UpperSpecificationLimit);
+            })
+            .ToArray();
+
+        return new AnalysisResultTable(Title(data), Columns(isGrouped, statistics), rows)
+        {
+            ExportKind = AnalysisExportKind.CapabilityAnalysis,
+            ExportMetadata = new AnalysisExportMetadata(
+                TitlePrefix,
+                data.Group?.Column.Name,
+                exportSpecs)
+        };
     }
 
     // One pass over the worksheet rows of one variable, in order: every value joins its group's observations and its
@@ -118,18 +136,36 @@ public sealed class CapabilityAnalysisBuilder
         IReadOnlyList<CapabilityStatistic> statistics)
     {
         var cells = new List<string>(statistics.Count + 2) { variable.Column.Name };
+        var rawValues = new List<double?>(statistics.Count + 2) { null };
         if (groupLabel is not null)
         {
             cells.Add(groupLabel);
+            rawValues.Add(null);
         }
 
         foreach (var statistic in statistics)
         {
             cells.Add(Cell(summary, statistic));
+            rawValues.Add(RawValue(summary, statistic));
         }
 
-        return new AnalysisResultRow(cells);
+        return new AnalysisResultRow(cells, rawValues);
     }
+
+    private static double? RawValue(CapabilitySummary summary, CapabilityStatistic statistic) => statistic switch
+    {
+        CapabilityStatistic.Count => summary.Count,
+        CapabilityStatistic.Missing => summary.MissingCount,
+        CapabilityStatistic.Mean => summary.Mean,
+        CapabilityStatistic.WithinStandardDeviation => summary.WithinStandardDeviation,
+        CapabilityStatistic.LowerSpecificationLimit => summary.LowerSpecificationLimit,
+        CapabilityStatistic.UpperSpecificationLimit => summary.UpperSpecificationLimit,
+        CapabilityStatistic.Cp => summary.Cp,
+        CapabilityStatistic.Cpl => summary.Cpl,
+        CapabilityStatistic.Cpu => summary.Cpu,
+        CapabilityStatistic.Cpk => summary.Cpk,
+        _ => null
+    };
 
     private static string Cell(CapabilitySummary summary, CapabilityStatistic statistic) => statistic switch
     {

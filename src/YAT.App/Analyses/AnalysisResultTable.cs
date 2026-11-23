@@ -9,9 +9,30 @@ public enum AnalysisResultAlignment
 
 public sealed record AnalysisResultColumn(string Name, AnalysisResultAlignment Alignment);
 
+// Which analysis produced a result table, used to suggest an appropriate export file name.
+public enum AnalysisExportKind
+{
+    Generic,
+    DescriptiveStatistics,
+    CapabilityAnalysis
+}
+
+public sealed record AnalysisExportSpecification(
+    string VariableName,
+    double? LowerSpecificationLimit,
+    double? UpperSpecificationLimit);
+
+public sealed record AnalysisExportMetadata(
+    string AnalysisType,
+    string? GroupByColumnName = null,
+    IReadOnlyList<AnalysisExportSpecification>? Specifications = null);
+
 // One row of a result table: its cells follow the table's columns. A cell that has no value is an empty string, never
-// a placeholder like "0" or "NaN".
-public sealed record AnalysisResultRow(IReadOnlyList<string> Cells);
+// a placeholder like "0" or "NaN". RawNumericValues, when provided, preserves the unrounded numeric values for
+// numeric export without altering the formatted display text.
+public sealed record AnalysisResultRow(
+    IReadOnlyList<string> Cells,
+    IReadOnlyList<double?>? RawNumericValues = null);
 
 // What an analysis produces and a result window shows: a title and a table of preformatted text.
 //
@@ -37,6 +58,11 @@ public sealed record AnalysisResultTable
             throw new ArgumentException("Every result row must have one cell per column.", nameof(rows));
         }
 
+        if (rows.Any(row => row.RawNumericValues is not null && row.RawNumericValues.Count != columns.Count))
+        {
+            throw new ArgumentException("Every result row's raw numeric values must match the column count.", nameof(rows));
+        }
+
         Title = title;
         Columns = columns;
         Rows = rows;
@@ -51,4 +77,8 @@ public sealed record AnalysisResultTable
     // A line about the result as a whole, shown under its title - "Filter: 3 conditions" when the analysis used only the
     // rows a filter kept (Task #053) - or null.
     public string? Note { get; init; }
+
+    public AnalysisExportKind ExportKind { get; init; } = AnalysisExportKind.Generic;
+
+    public AnalysisExportMetadata? ExportMetadata { get; init; }
 }
