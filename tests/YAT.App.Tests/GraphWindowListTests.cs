@@ -106,6 +106,57 @@ public class GraphWindowListTests
         Assert.True(graphs.IsPanelVisible);
     }
 
+    [Fact]
+    public void CloseAllClosesEveryOpenGraphUpdatesStateAndAllowsReopening()
+    {
+        var graphs = new OpenGraphsViewModel();
+        Assert.False(graphs.CloseAllCommand.CanExecute(null));
+
+        // Executing when empty must not throw.
+        graphs.CloseAllCommand.Execute(null);
+        Assert.Empty(graphs.Items);
+
+        var closedTitles = new List<string>();
+        var nonGraphClosed = false;
+
+        OpenGraphItem? scatter = null;
+        scatter = graphs.Add("Scatterplot of V1 vs V2", () => { }, () => { closedTitles.Add("Scatter"); graphs.Remove(scatter!); });
+        OpenGraphItem? histogram = null;
+        histogram = graphs.Add("Histogram of V1 (Panelled)", () => { }, () => { closedTitles.Add("Histogram"); graphs.Remove(histogram!); });
+        OpenGraphItem? boxplot = null;
+        boxplot = graphs.Add("Boxplot of V1, V2", () => { }, () => { closedTitles.Add("Boxplot"); graphs.Remove(boxplot!); });
+        OpenGraphItem? prob = null;
+        prob = graphs.Add("Probability Plot of V1", () => { }, () => { closedTitles.Add("Probability"); graphs.Remove(prob!); });
+        OpenGraphItem? ecdf = null;
+        ecdf = graphs.Add("Empirical CDF of V1", () => { }, () => { closedTitles.Add("ECDF"); graphs.Remove(ecdf!); });
+
+        graphs.MarkActive(histogram);
+        Assert.True(graphs.CloseAllCommand.CanExecute(null));
+        Assert.Equal("Graphs (5)", graphs.Header);
+
+        // Single graph close leaves remaining graphs open and command enabled.
+        graphs.Remove(prob);
+        Assert.Equal(4, graphs.Items.Count);
+        Assert.True(graphs.CloseAllCommand.CanExecute(null));
+
+        // CloseAll closes every remaining graph via its window close callback.
+        graphs.CloseAllCommand.Execute(null);
+
+        Assert.Equal(["Scatter", "Histogram", "Boxplot", "ECDF"], closedTitles);
+        Assert.Empty(graphs.Items);
+        Assert.False(graphs.HasGraphs);
+        Assert.Null(graphs.ActiveItem);
+        Assert.Equal("Graphs", graphs.Header);
+        Assert.False(graphs.CloseAllCommand.CanExecute(null));
+        Assert.False(nonGraphClosed);
+
+        // Re-opening graphs after CloseAll works normally.
+        var reopened = graphs.Add("Histogram of V3", () => { }, () => { });
+        Assert.Single(graphs.Items);
+        Assert.True(graphs.CloseAllCommand.CanExecute(null));
+        Assert.Same(reopened, graphs.Items[0]);
+    }
+
     // ---- Into view ----
 
     private static readonly PixelRect Screen = new(0, 0, 1600, 852);

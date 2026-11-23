@@ -70,7 +70,7 @@ public sealed class AvaloniaGraphWindowPresenter : IGraphWindowPresenter
     // Listed from now until it closes, under its title as it changes and marked whenever it is activated.
     private static void List(OpenGraphsViewModel openGraphs, Window window)
     {
-        var item = openGraphs.Add(Title(window), () => BringToFront(window));
+        var item = openGraphs.Add(Title(window), () => BringToFront(window), window.Close);
         window.PropertyChanged += (_, e) =>
         {
             if (e.Property == Window.TitleProperty)

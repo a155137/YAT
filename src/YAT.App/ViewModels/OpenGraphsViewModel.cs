@@ -11,12 +11,14 @@ namespace YAT.app.ViewModels;
 public sealed partial class OpenGraphItem : ObservableObject
 {
     private readonly Action _bringToFront;
+    private readonly Action? _close;
 
-    internal OpenGraphItem(string title, Action bringToFront)
+    internal OpenGraphItem(string title, Action bringToFront, Action? close = null)
     {
         ArgumentNullException.ThrowIfNull(bringToFront);
         Title = title;
         _bringToFront = bringToFront;
+        _close = close;
     }
 
     [ObservableProperty]
@@ -26,6 +28,8 @@ public sealed partial class OpenGraphItem : ObservableObject
     public partial bool IsActive { get; internal set; }
 
     internal void BringToFront() => _bringToFront();
+
+    internal void Close() => _close?.Invoke();
 }
 
 // The graph windows open now (Task #061), in the order they were opened: a navigator, not a store. A window is listed
@@ -39,6 +43,7 @@ public sealed partial class OpenGraphsViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(Header));
             OnPropertyChanged(nameof(HasGraphs));
+            CloseAllCommand.NotifyCanExecuteChanged();
         };
     }
 
@@ -59,10 +64,10 @@ public sealed partial class OpenGraphsViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsPanelVisible { get; set; } = true;
 
-    // Lists a window that was just shown, under its title; bringToFront is what choosing it does.
-    public OpenGraphItem Add(string title, Action bringToFront)
+    // Lists a window that was just shown, under its title; bringToFront is what choosing it does, close closes it.
+    public OpenGraphItem Add(string title, Action bringToFront, Action? close = null)
     {
-        var item = new OpenGraphItem(title, bringToFront);
+        var item = new OpenGraphItem(title, bringToFront, close);
         Items.Add(item);
         return item;
     }
@@ -103,4 +108,14 @@ public sealed partial class OpenGraphsViewModel : ObservableObject
 
     [RelayCommand]
     private void TogglePanel() => IsPanelVisible = !IsPanelVisible;
+
+    // Closes every open graph window through its normal window close lifecycle (snapshot avoids mutation while closing).
+    [RelayCommand(CanExecute = nameof(HasGraphs))]
+    private void CloseAll()
+    {
+        foreach (var item in Items.ToArray())
+        {
+            item.Close();
+        }
+    }
 }
