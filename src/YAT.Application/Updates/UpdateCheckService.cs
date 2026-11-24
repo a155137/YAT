@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using YAT.Application.Distribution;
@@ -20,8 +21,16 @@ public sealed class UpdateCheckService
     private readonly IUpdatePackageDownloader _downloader;
     private readonly UpdateEnvironment _environment;
     private readonly IUpdateInstaller? _installer;
+    private readonly ILocalDeltaPreVerifier? _deltaPreVerifier;
+    private readonly string? _installationDirectory;
 
-    public UpdateCheckService(IUpdateManifestSource source, IUpdatePackageDownloader downloader, UpdateEnvironment environment, IUpdateInstaller? installer = null)
+    public UpdateCheckService(
+        IUpdateManifestSource source,
+        IUpdatePackageDownloader downloader,
+        UpdateEnvironment environment,
+        IUpdateInstaller? installer = null,
+        ILocalDeltaPreVerifier? deltaPreVerifier = null,
+        string? installationDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(downloader);
@@ -30,6 +39,8 @@ public sealed class UpdateCheckService
         _downloader = downloader;
         _environment = environment;
         _installer = installer;
+        _deltaPreVerifier = deltaPreVerifier;
+        _installationDirectory = installationDirectory;
     }
 
     // Whether a verified package can be installed from here (Task #051.C).
@@ -110,13 +121,110 @@ public sealed class UpdateCheckService
         }
     }
 
+    // Stage 3: attempts differential download + local pre-verification when eligible, and automatically falls back
+    // to Full ZIP on any non-cancellation delta failure. Never falls back when the user cancels.
+    public async Task<UpdateDownloadResult> DownloadDeltaOrFallbackAsync(
+        UpdateOffer offer,
+        IProgress<UpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+
+        if (Installed is { } installed &&
+            _deltaPreVerifier is not null &&
+            !string.IsNullOrWhiteSpace(_installationDirectory) &&
+            offer.Manifest.DeltaFor(SupportedRid, installed) is { } delta &&
+            _deltaPreVerifier.IsLocalInventoryEligible(_installationDirectory, installed, SupportedRid))
+        {
+            VerifiedUpdatePackage? verifiedDelta = null;
+            try
+            {
+                verifiedDelta = await _downloader.DownloadDeltaAsync(offer, delta, SupportedRid, progress, cancellationToken);
+                if (await PreVerifyDeltaPackageAsync(_installationDirectory, installed, offer.Version, verifiedDelta.LocalPackagePath, cancellationToken))
+                {
+                    return new UpdateDownloadResult(verifiedDelta, null, null);
+                }
+
+                TryDeleteFile(verifiedDelta.LocalPackagePath);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (UpdateTransportException)
+            {
+                if (verifiedDelta is not null)
+                {
+                    TryDeleteFile(verifiedDelta.LocalPackagePath);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                if (verifiedDelta is not null)
+                {
+                    TryDeleteFile(verifiedDelta.LocalPackagePath);
+                }
+            }
+        }
+
+        // Single Full ZIP fallback (no retry loop).
+        return await DownloadAsync(offer, progress, cancellationToken);
+    }
+
     // Prepares installing a verified package: the updater is ready, or why it is not. Never throws for a failure.
+    // Differential packages cannot be installed before Stage 4.
     public Task<UpdateInstallPreparation> PrepareInstallAsync(VerifiedUpdatePackage package, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
+        if (package.IsDelta)
+        {
+            return Task.FromResult(UpdateInstallPreparation.Failed(
+                UpdateInstallFailure.NotAReleaseInstallation,
+                "Differential package installation is not enabled before Stage 4."));
+        }
+
         return _installer is null
             ? Task.FromResult(UpdateInstallPreparation.Failed(UpdateInstallFailure.NotAReleaseInstallation))
             : _installer.PrepareAsync(package, cancellationToken);
+    }
+
+    private async Task<bool> PreVerifyDeltaPackageAsync(
+        string installationDirectory,
+        ReleaseVersion baseVersion,
+        ReleaseVersion targetVersion,
+        string deltaZipPath,
+        CancellationToken cancellationToken)
+    {
+        using var archive = ZipFile.OpenRead(deltaZipPath);
+        var contents = ReleasePackageVerifier.ReadDelta(archive, baseVersion, targetVersion, SupportedRid, verifyContents: false);
+        if (!contents.IsValid)
+        {
+            return false;
+        }
+
+        var result = await _deltaPreVerifier!.VerifyLocalAsync(
+            installationDirectory,
+            baseVersion,
+            SupportedRid,
+            contents.Delta!,
+            contents.TargetInventory!,
+            cancellationToken);
+
+        return result.IsValid;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static bool IsJson(string text)

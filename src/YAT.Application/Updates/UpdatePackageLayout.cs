@@ -14,7 +14,16 @@ public static class UpdatePackageLayout
     public static string PackagePath(string root, ReleaseVersion version, string rid) =>
         Path.Combine(Folder(root, version), version.PackageName(CheckedRid(rid)) + ".zip");
 
+    public static string DeltaPackageName(ReleaseVersion baseVersion, ReleaseVersion targetVersion, string rid) =>
+        $"YAT-{targetVersion.Tag}-from-{baseVersion.Tag}-{CheckedRid(rid)}-diff.zip";
+
+    public static string DeltaPackagePath(string root, ReleaseVersion baseVersion, ReleaseVersion targetVersion, string rid) =>
+        Path.Combine(Folder(root, targetVersion), DeltaPackageName(baseVersion, targetVersion, rid));
+
     public static string SnapshotPath(string root, ReleaseVersion version) => Path.Combine(Folder(root, version), ReleaseManifest.FileName);
+
+    public static string DeltaSnapshotPath(string root, ReleaseVersion baseVersion, ReleaseVersion targetVersion) =>
+        Path.Combine(Folder(root, targetVersion), $"yat-update-delta-from-{baseVersion.Tag}.json");
 
     // A runtime id as YAT writes them ("win-x64"): nothing that could make a name a path.
     public static string CheckedRid(string rid)

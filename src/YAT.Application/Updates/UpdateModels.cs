@@ -84,7 +84,24 @@ public sealed record VerifiedUpdatePackage(
     string LocalPackagePath,
     long Size,
     string Sha256,
-    Uri? ReleaseNotesUrl);
+    Uri? ReleaseNotesUrl,
+    bool IsDelta = false,
+    ReleaseVersion? BaseVersion = null);
+
+public sealed record DeltaPreVerificationResult(bool IsValid, string? FailureReason = null);
+
+public interface ILocalDeltaPreVerifier
+{
+    bool IsLocalInventoryEligible(string installationDirectory, ReleaseVersion expectedBaseVersion, string expectedRid);
+
+    Task<DeltaPreVerificationResult> VerifyLocalAsync(
+        string installationDirectory,
+        ReleaseVersion expectedBaseVersion,
+        string expectedRid,
+        ReleaseDeltaManifest deltaManifest,
+        ReleaseInventory targetInventory,
+        CancellationToken cancellationToken);
+}
 
 public enum UpdateCheckStatus
 {
@@ -137,4 +154,12 @@ public interface IUpdatePackageDownloader
     Task<VerifiedUpdatePackage?> FindVerifiedAsync(UpdateOffer offer, string rid, IProgress<UpdateDownloadProgress>? progress, CancellationToken cancellationToken);
 
     Task<VerifiedUpdatePackage> DownloadAsync(UpdateOffer offer, string rid, IProgress<UpdateDownloadProgress>? progress, CancellationToken cancellationToken);
+
+    Task<VerifiedUpdatePackage> DownloadDeltaAsync(
+        UpdateOffer offer,
+        ReleaseDeltaPackage delta,
+        string rid,
+        IProgress<UpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Differential package download is not supported by this downloader.");
 }

@@ -147,5 +147,14 @@ public sealed class UpdatePackageStore
 
     public string PartialPath(ReleaseVersion version, string rid) => PackagePath(version, rid) + ".partial";
 
+    public string DeltaPackagePath(ReleaseVersion baseVersion, ReleaseVersion targetVersion, string rid) =>
+        UpdatePackageLayout.DeltaPackagePath(Root, baseVersion, targetVersion, rid);
+
+    public string DeltaPartialPath(ReleaseVersion baseVersion, ReleaseVersion targetVersion, string rid) =>
+        DeltaPackagePath(baseVersion, targetVersion, rid) + ".partial";
+
     public string SnapshotPath(ReleaseVersion version) => UpdatePackageLayout.SnapshotPath(Root, version);
+
+    public string DeltaSnapshotPath(ReleaseVersion baseVersion, ReleaseVersion targetVersion) =>
+        UpdatePackageLayout.DeltaSnapshotPath(Root, baseVersion, targetVersion);
 }

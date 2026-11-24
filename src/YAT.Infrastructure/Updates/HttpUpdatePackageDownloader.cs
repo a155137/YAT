@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
 using YAT.Application.Distribution;
@@ -163,6 +164,108 @@ public sealed class HttpUpdatePackageDownloader : IUpdatePackageDownloader
         return Verified(offer, rid, final);
     }
 
+    public async Task<VerifiedUpdatePackage> DownloadDeltaAsync(
+        UpdateOffer offer,
+        ReleaseDeltaPackage delta,
+        string rid,
+        IProgress<UpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        ArgumentNullException.ThrowIfNull(delta);
+
+        if (delta.Size > MaximumPackageBytes)
+        {
+            throw new UpdateTransportException(UpdateFailure.ManifestInvalid, "The differential package is declared larger than 2 GB.");
+        }
+
+        if (delta.Url.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new UpdateTransportException(UpdateFailure.ManifestInvalid, "The differential package address is not https.");
+        }
+
+        var final = _store.DeltaPackagePath(delta.BaseVersion, offer.Version, rid);
+        var partial = _store.DeltaPartialPath(delta.BaseVersion, offer.Version, rid);
+        PrepareFolder(offer.Version, partial, delta.Size);
+
+        using var idle = new CancellationTokenSource(_idleTimeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, idle.Token);
+        var completed = false;
+        try
+        {
+            using (var response = await Send(delta.Url, linked.Token, idle))
+            {
+                if (response.Content.Headers.ContentLength is { } length && length != delta.Size)
+                {
+                    throw new UpdateTransportException(UpdateFailure.SizeMismatch, $"The server sends {length} bytes; the manifest says {delta.Size}.");
+                }
+
+                await using var body = await response.Content.ReadAsStreamAsync(linked.Token);
+                using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                var received = await Copy(body, partial, hash, delta.Size, progress, linked.Token, idle);
+
+                if (received != delta.Size)
+                {
+                    throw new UpdateTransportException(UpdateFailure.SizeMismatch, $"{received} bytes came; the manifest says {delta.Size}.");
+                }
+
+                progress?.Report(new UpdateDownloadProgress(received, delta.Size, Verifying: true));
+                var actual = Convert.ToHexStringLower(hash.GetHashAndReset());
+                if (actual != delta.Sha256)
+                {
+                    throw new UpdateTransportException(UpdateFailure.HashMismatch, $"The differential package's SHA-256 is {actual}, not {delta.Sha256}.");
+                }
+            }
+
+            try
+            {
+                using var archive = ZipFile.OpenRead(partial);
+                var deltaContents = ReleasePackageVerifier.ReadDelta(archive, delta.BaseVersion, offer.Version, rid, verifyContents: true);
+                if (!deltaContents.IsValid)
+                {
+                    throw new UpdateTransportException(UpdateFailure.ManifestInvalid, string.Join(" ", deltaContents.Problems.Take(5)));
+                }
+            }
+            catch (InvalidDataException exception)
+            {
+                throw new UpdateTransportException(UpdateFailure.ManifestInvalid, $"The differential package is not a valid ZIP archive: {exception.Message}", exception);
+            }
+
+            Storage(() => File.Move(partial, final, overwrite: true));
+            completed = true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException exception) when (idle.IsCancellationRequested)
+        {
+            throw new UpdateTransportException(UpdateFailure.Timeout, "The differential download stopped receiving data.", exception);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new UpdateTransportException(UpdateFailure.DownloadInterrupted, exception.Message, exception);
+        }
+        finally
+        {
+            if (!completed)
+            {
+                TryDelete(partial);
+            }
+        }
+
+        WriteDeltaSnapshot(offer, delta);
+        return new VerifiedUpdatePackage(
+            offer.Version,
+            rid,
+            final,
+            delta.Size,
+            delta.Sha256,
+            offer.ReleaseNotesUrl,
+            IsDelta: true,
+            BaseVersion: delta.BaseVersion);
+    }
+
     private async Task<HttpResponseMessage> Send(Uri url, CancellationToken token, CancellationTokenSource idle)
     {
         HttpResponseMessage response;
@@ -302,6 +405,19 @@ public sealed class HttpUpdatePackageDownloader : IUpdatePackageDownloader
     private void WriteSnapshot(UpdateOffer offer)
     {
         var path = _store.SnapshotPath(offer.Version);
+        var temporary = path + ".tmp";
+        Storage(() =>
+        {
+            File.WriteAllBytes(temporary, offer.Manifest.ToJson());
+            File.Move(temporary, path, overwrite: true);
+            return true;
+        });
+        TryDelete(temporary);
+    }
+
+    private void WriteDeltaSnapshot(UpdateOffer offer, ReleaseDeltaPackage delta)
+    {
+        var path = _store.DeltaSnapshotPath(delta.BaseVersion, offer.Version);
         var temporary = path + ".tmp";
         Storage(() =>
         {
