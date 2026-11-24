@@ -7,9 +7,11 @@
 //
 //     version   <version>                                     the version is a stable Major.Minor.Patch
 //     inventory <release folder> <version> <rid>              writes the folder's yat-files.json
-//     package   <zip> <version> <rid> [--base-url <https>] [--release-notes <https>]
+//     delta     <baseZip> <targetVer> <rid> <targetZip> <deltaZip> --base-sha256 <hex>
+//                                                             writes delta ZIP, .sha256, and verifies reconstruction
+//     package   <zip> <version> <rid> [--base-url <https>] [--release-notes <https>] [--delta-zip <path> --delta-base-version <v>]
 //                                                             writes <zip>.sha256 and, given a base URL, yat-update.json
-//     verify    <output folder> <version> <rid> [--require-manifest]
+//     verify    <output folder> <version> <rid> [--require-manifest] [--previous-zip <path> --previous-sha256 <hex>]
 //                                                             the whole set agrees with itself; lists every problem
 //
 // Exit code 0 when the step succeeded, 1 with the reasons on standard error when it did not, 2 for a misused command.
@@ -60,6 +62,37 @@ static int Run(string[] args)
             return 0;
         }
 
+        case "delta" when args.Length >= 8:
+        {
+            var options = Options(args[6..]);
+            if (!options.TryGetValue("--base-sha256", out var baseSha))
+            {
+                return Usage();
+            }
+
+            if (!ReleaseArtifacts.TryParsePackageVersion(args[1], args[3], out var baseVersion))
+            {
+                Console.Error.WriteLine($"Cannot determine base version from '{Path.GetFileName(args[1])}'.");
+                return 1;
+            }
+
+            var deltaManifest = ReleaseArtifacts.CreateDeltaPackage(args[1], baseVersion, baseSha, args[4], version, args[3], args[5]);
+            var problems = ReleaseArtifacts.VerifyDeltaReconstruction(args[1], baseSha, args[5], args[4], baseVersion, version, args[3]);
+            if (problems.Count > 0)
+            {
+                try { File.Delete(args[5]); File.Delete(ReleaseArtifacts.ChecksumPath(args[5])); } catch (IOException) { }
+                foreach (var problem in problems)
+                {
+                    Console.Error.WriteLine(problem);
+                }
+
+                return 1;
+            }
+
+            Console.WriteLine($"{Path.GetFileName(args[5])}: {deltaManifest.ChangedFiles.Count} changed, {deltaManifest.RemovedFiles.Count} removed, {new FileInfo(args[5]).Length} bytes");
+            return 0;
+        }
+
         case "package" when args.Length >= 4:
         {
             var options = Options(args[4..]);
@@ -68,7 +101,15 @@ static int Run(string[] args)
             if (options.TryGetValue("--base-url", out var baseUrl))
             {
                 options.TryGetValue("--release-notes", out var notes);
-                var manifest = ReleaseArtifacts.CreateManifest(version, args[3], args[1], baseUrl, notes, DateTimeOffset.UtcNow);
+                IReadOnlyList<ReleaseDeltaPackage>? deltas = null;
+                if (options.TryGetValue("--delta-zip", out var deltaZip) &&
+                    options.TryGetValue("--delta-base-version", out var deltaBaseText) &&
+                    ReleaseVersion.TryParse(deltaBaseText, out var deltaBaseVersion))
+                {
+                    deltas = [ReleaseArtifacts.CreateDeltaManifestEntry(deltaBaseVersion, args[3], deltaZip, baseUrl)];
+                }
+
+                var manifest = ReleaseArtifacts.CreateManifest(version, args[3], args[1], baseUrl, notes, DateTimeOffset.UtcNow, deltas);
                 var path = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, ReleaseManifest.FileName);
                 ReleaseArtifacts.WriteManifest(path, manifest);
                 Console.WriteLine($"{ReleaseManifest.FileName}: {manifest.Packages[0].Url}");
@@ -81,9 +122,30 @@ static int Run(string[] args)
             return 0;
         }
 
-        case "verify" when args.Length is 4 or 5:
+        case "verify" when args.Length >= 4:
         {
-            var problems = ReleaseArtifacts.Verify(args[1], version, args[3], requireManifest: args.Length == 5 && args[4] == "--require-manifest");
+            var requireManifest = false;
+            string? previousZip = null;
+            string? previousSha = null;
+            for (var index = 4; index < args.Length; index++)
+            {
+                switch (args[index])
+                {
+                    case "--require-manifest":
+                        requireManifest = true;
+                        break;
+                    case "--previous-zip" when index + 1 < args.Length:
+                        previousZip = args[++index];
+                        break;
+                    case "--previous-sha256" when index + 1 < args.Length:
+                        previousSha = args[++index];
+                        break;
+                    default:
+                        return Usage();
+                }
+            }
+
+            var problems = ReleaseArtifacts.Verify(args[1], version, args[3], requireManifest, previousZip, previousSha);
             foreach (var problem in problems)
             {
                 Console.Error.WriteLine(problem);
@@ -103,7 +165,7 @@ static Dictionary<string, string> Options(string[] rest)
     var options = new Dictionary<string, string>(StringComparer.Ordinal);
     for (var index = 0; index < rest.Length; index += 2)
     {
-        if (index + 1 >= rest.Length || rest[index] is not ("--base-url" or "--release-notes"))
+        if (index + 1 >= rest.Length || rest[index] is not ("--base-url" or "--release-notes" or "--base-sha256" or "--delta-zip" or "--delta-base-version"))
         {
             throw new ArgumentException($"Unexpected option '{rest[index]}'.");
         }

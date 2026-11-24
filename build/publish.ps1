@@ -51,6 +51,8 @@ param(
     [string]$OutputDirectory,
     [string]$PackageBaseUrl,
     [string]$ReleaseNotesUrl,
+    [string]$PreviousPackage,
+    [string]$PreviousPackageSha256,
     [switch]$Official)
 
 Set-StrictMode -Version Latest
@@ -154,6 +156,48 @@ foreach ($path in @($release, $zip, $checksum, $manifest)) {
 
     if (Test-Path -LiteralPath $path) {
         Remove-Item -LiteralPath $path -Recurse -Force
+    }
+}
+
+$deltaZip = $null
+$deltaChecksum = $null
+$baseVersion = $null
+$baseSha = $null
+if ($PreviousPackage) {
+    $PreviousPackage = [IO.Path]::GetFullPath($PreviousPackage)
+    if (-not (Test-Path -LiteralPath $PreviousPackage -PathType Leaf)) {
+        throw "Previous package '$PreviousPackage' was not found."
+    }
+
+    $baseFileName = [IO.Path]::GetFileName($PreviousPackage)
+    if ($baseFileName -notmatch "^YAT-v(\d+\.\d+\.\d+)-$([regex]::Escape($runtime))\.zip$") {
+        throw "Previous package '$baseFileName' must be named YAT-v<version>-$runtime.zip."
+    }
+
+    $baseVersion = $Matches[1]
+    if (-not $PreviousPackageSha256) {
+        throw "An explicit trusted SHA-256 (-PreviousPackageSha256) from the official release is required when -PreviousPackage is specified."
+    }
+
+    $baseSha = $PreviousPackageSha256.Trim().ToLowerInvariant()
+    if ($baseSha -notmatch '^[0-9a-f]{64}$') {
+        throw "The -PreviousPackageSha256 value must be 64 hexadecimal digits."
+    }
+
+    # Optional consistency check if a sidecar .sha256 file exists beside the base ZIP; never used as the sole trust source.
+    if (Test-Path -LiteralPath "$PreviousPackage.sha256" -PathType Leaf) {
+        $shaLine = (Get-Content -LiteralPath "$PreviousPackage.sha256" -TotalCount 1).Trim()
+        if ($shaLine -match '^([0-9a-fA-F]{64})\s+' -and $Matches[1].ToLowerInvariant() -ne $baseSha) {
+            throw "Sidecar checksum '$PreviousPackage.sha256' ($($Matches[1].ToLowerInvariant())) disagrees with -PreviousPackageSha256 ($baseSha)."
+        }
+    }
+
+    $deltaZip = Join-Path $artifacts "YAT-v$version-from-v$baseVersion-$runtime-diff.zip"
+    $deltaChecksum = "$deltaZip.sha256"
+    foreach ($path in @($deltaZip, $deltaChecksum)) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
     }
 }
 
@@ -300,11 +344,20 @@ finally {
     $archive.Dispose()
 }
 
+# ---- Delta package (optional) ----
+
+if ($PreviousPackage) {
+    Invoke-Release @('delta', $PreviousPackage, $version, $runtime, $zip, $deltaZip, '--base-sha256', $baseSha)
+}
+
 # ---- Checksum and manifest (Task #051) ----
 
 $package = @('package', $zip, $version, $runtime)
 if ($PackageBaseUrl) {
     $package += @('--base-url', $PackageBaseUrl)
+    if ($deltaZip) {
+        $package += @('--delta-zip', $deltaZip, '--delta-base-version', $baseVersion)
+    }
 }
 
 if ($ReleaseNotesUrl) {
@@ -322,7 +375,24 @@ if ($Official) {
     $verify += '--require-manifest'
 }
 
-Invoke-Release $verify
+if ($PreviousPackage) {
+    $verify += @('--previous-zip', $PreviousPackage, '--previous-sha256', $baseSha)
+}
+
+try {
+    Invoke-Release $verify
+}
+catch {
+    if ($deltaZip) {
+        foreach ($path in @($deltaZip, $deltaChecksum)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    throw
+}
 
 $files = @(Get-ChildItem -LiteralPath $release -Recurse -File)
 $size = ($files | Measure-Object -Property Length -Sum).Sum
