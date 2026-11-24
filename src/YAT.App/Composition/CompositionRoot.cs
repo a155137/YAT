@@ -248,7 +248,13 @@ public sealed class CompositionRoot
         ArgumentNullException.ThrowIfNull(dialogs);
         return new UpdateCheckController(
             dialogs,
-            new UpdateCheckService(source, downloader, environment ?? UpdateEnvironment.Current(ApplicationInfo.Current.Version), installer),
+            new UpdateCheckService(
+                source,
+                downloader,
+                environment ?? UpdateEnvironment.Current(ApplicationInfo.Current.Version),
+                installer,
+                new LocalInstallationDeltaPreVerifier(),
+                AppContext.BaseDirectory),
             stateStore,
             releaseNotes,
             _timeProvider);

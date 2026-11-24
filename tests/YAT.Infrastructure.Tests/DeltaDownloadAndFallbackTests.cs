@@ -40,17 +40,18 @@ public sealed class DeltaDownloadAndFallbackTests : IDisposable
         bool corruptDeltaZip = false,
         string? overrideBaseInvSha = null)
     {
+        var keptBytes = Enumerable.Range(0, 4096).Select(i => (byte)((i * 31) ^ (i >> 3))).ToArray();
         var baseFiles = new Dictionary<string, byte[]>
         {
             ["YAT.exe"] = Encoding.UTF8.GetBytes("exe-0.4.2"),
-            ["duckdb.dll"] = Encoding.UTF8.GetBytes("duckdb-kept"),
+            ["duckdb.dll"] = keptBytes,
             ["old.dll"] = Encoding.UTF8.GetBytes("removed-in-0.4.3")
         };
 
         var targetFiles = new Dictionary<string, byte[]>
         {
             ["YAT.exe"] = Encoding.UTF8.GetBytes("exe-0.4.3"),
-            ["duckdb.dll"] = Encoding.UTF8.GetBytes("duckdb-kept"),
+            ["duckdb.dll"] = keptBytes,
             ["new.dll"] = Encoding.UTF8.GetBytes("added-in-0.4.3")
         };
 

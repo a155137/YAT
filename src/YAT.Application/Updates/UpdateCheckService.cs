@@ -121,6 +121,22 @@ public sealed class UpdateCheckService
         }
     }
 
+    public ReleaseDeltaPackage? SelectEligibleDelta(UpdateOffer offer)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        if (Installed is { } installed &&
+            _deltaPreVerifier is not null &&
+            !string.IsNullOrWhiteSpace(_installationDirectory) &&
+            offer.Manifest.DeltaFor(SupportedRid, installed) is { } delta &&
+            delta.Size < offer.Package.Size &&
+            _deltaPreVerifier.IsLocalInventoryEligible(_installationDirectory, installed, SupportedRid))
+        {
+            return delta;
+        }
+
+        return null;
+    }
+
     // Stage 3: attempts differential download + local pre-verification when eligible, and automatically falls back
     // to Full ZIP on any non-cancellation delta failure. Never falls back when the user cancels.
     public async Task<UpdateDownloadResult> DownloadDeltaOrFallbackAsync(
@@ -131,15 +147,23 @@ public sealed class UpdateCheckService
         ArgumentNullException.ThrowIfNull(offer);
 
         if (Installed is { } installed &&
-            _deltaPreVerifier is not null &&
             !string.IsNullOrWhiteSpace(_installationDirectory) &&
-            offer.Manifest.DeltaFor(SupportedRid, installed) is { } delta &&
-            _deltaPreVerifier.IsLocalInventoryEligible(_installationDirectory, installed, SupportedRid))
+            SelectEligibleDelta(offer) is { } delta)
         {
             VerifiedUpdatePackage? verifiedDelta = null;
+            var deltaProgress = progress is null
+                ? null
+                : new SynchronousProgress<UpdateDownloadProgress>(step =>
+                    progress.Report(step with { Phase = UpdateDownloadPhase.Delta }));
             try
             {
-                verifiedDelta = await _downloader.DownloadDeltaAsync(offer, delta, SupportedRid, progress, cancellationToken);
+                verifiedDelta = await _downloader.DownloadDeltaAsync(offer, delta, SupportedRid, deltaProgress, cancellationToken);
+                progress?.Report(new UpdateDownloadProgress(
+                    verifiedDelta.Size,
+                    verifiedDelta.Size,
+                    Verifying: true,
+                    Phase: UpdateDownloadPhase.DeltaPreVerifying));
+
                 if (await PreVerifyDeltaPackageAsync(_installationDirectory, installed, offer.Version, verifiedDelta.LocalPackagePath, cancellationToken))
                 {
                     return new UpdateDownloadResult(verifiedDelta, null, null);
@@ -165,10 +189,25 @@ public sealed class UpdateCheckService
                     TryDeleteFile(verifiedDelta.LocalPackagePath);
                 }
             }
+
+            progress?.Report(new UpdateDownloadProgress(
+                0,
+                offer.Package.Size,
+                Verifying: false,
+                Phase: UpdateDownloadPhase.SwitchingToFull));
         }
 
         // Single Full ZIP fallback (no retry loop).
-        return await DownloadAsync(offer, progress, cancellationToken);
+        var fullProgress = progress is null
+            ? null
+            : new SynchronousProgress<UpdateDownloadProgress>(step =>
+                progress.Report(step with { Phase = UpdateDownloadPhase.Full }));
+        return await DownloadAsync(offer, fullProgress, cancellationToken);
+    }
+
+    private sealed class SynchronousProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     // Prepares installing a verified package: the updater is ready, or why it is not. Never throws for a failure.

@@ -40,6 +40,7 @@ public sealed partial class UpdateViewModel : ObservableObject
     private UpdateOffer? _offer;
     private bool _downloadFailed;
     private bool _installFailed;
+    private int _downloadAttemptId;
 
     public UpdateViewModel(
         UpdateCheckService service,
@@ -130,17 +131,30 @@ public sealed partial class UpdateViewModel : ObservableObject
     // Raised when the window should close (a check was cancelled).
     public event EventHandler? CloseRequested;
 
-    public Task CheckAsync() => Completion = Run(CheckCoreAsync, onCancelled: () => CloseRequested?.Invoke(this, EventArgs.Empty));
+    public Task CheckAsync()
+    {
+        if (_running is not null)
+        {
+            return Completion;
+        }
+
+        return Completion = Run(CheckCoreAsync, onCancelled: () => CloseRequested?.Invoke(this, EventArgs.Empty));
+    }
 
     // Enters the update window directly with an offer already discovered by the startup notification and starts
     // downloading it, reusing the standard download, verification, and installer handoff flow.
     public Task StartDownloadFromOfferAsync(UpdateOffer offer, string? releaseNotes = null)
     {
         ArgumentNullException.ThrowIfNull(offer);
+        if (_running is not null)
+        {
+            return Completion;
+        }
+
         _downloadFailed = false;
         _offer = offer;
         AvailableVersion = offer.Version.ToString();
-        DownloadSize = Megabytes(offer.Package.Size);
+        DownloadSize = Megabytes(_service.SelectEligibleDelta(offer)?.Size ?? offer.Package.Size);
         ReleaseNotesUrl = offer.ReleaseNotesUrl;
         ReleaseNotes = string.IsNullOrWhiteSpace(releaseNotes)
             ? UpdateNotificationViewModel.UnavailableReleaseNotesText
@@ -217,7 +231,7 @@ public sealed partial class UpdateViewModel : ObservableObject
 
             case UpdateCheckStatus.UpdateAvailable:
                 _offer = result.Offer!;
-                DownloadSize = Megabytes(_offer.Package.Size);
+                DownloadSize = Megabytes(_service.SelectEligibleDelta(_offer)?.Size ?? _offer.Package.Size);
                 ReleaseNotesUrl = _offer.ReleaseNotesUrl;
                 ReleaseNotes = await FetchReleaseNotesSafeAsync(_offer, token);
                 Headline = $"YAT {result.Available} is available.";
@@ -257,13 +271,16 @@ public sealed partial class UpdateViewModel : ObservableObject
 
     private Task DownloadAsync()
     {
-        if (_offer is not { } offer || State != UpdateWindowState.UpdateAvailable)
+        if (_offer is not { } offer || State != UpdateWindowState.UpdateAvailable || _running is not null)
         {
             return Task.CompletedTask;
         }
 
         return Completion = Run(token => DownloadCoreAsync(offer, token), onCancelled: () =>
         {
+            _downloadAttemptId++;
+            Package = null;
+            DownloadSize = Megabytes(_service.SelectEligibleDelta(offer)?.Size ?? offer.Package.Size);
             Headline = $"YAT {offer.Version} is available.";
             Detail = "The download was cancelled.";
             ProgressPercent = 0;
@@ -275,19 +292,62 @@ public sealed partial class UpdateViewModel : ObservableObject
     private async Task DownloadCoreAsync(UpdateOffer offer, CancellationToken token)
     {
         _downloadFailed = false;
+        Package = null;
+        var attemptId = ++_downloadAttemptId;
+        var initialDelta = _service.SelectEligibleDelta(offer);
+        var initialSize = initialDelta?.Size ?? offer.Package.Size;
+        var inFullFallback = initialDelta is null;
+        var inDeltaPreVerifying = false;
+
         State = UpdateWindowState.Downloading;
         Headline = $"Downloading YAT {offer.Version}...";
-        Detail = null;
+        Detail = initialDelta is not null ? "Incremental update" : "Full update";
+        DownloadSize = Megabytes(initialSize);
         ProgressPercent = 0;
-        ProgressText = $"0.0 MB of {Megabytes(offer.Package.Size)}";
+        ProgressText = $"0.0 MB of {Megabytes(initialSize)}";
 
         var progress = new UiProgress(step =>
         {
-            if (State is not (UpdateWindowState.Downloading or UpdateWindowState.Verifying))
+            if (attemptId != _downloadAttemptId || State is not (UpdateWindowState.Downloading or UpdateWindowState.Verifying))
             {
                 return;
             }
 
+            if (inFullFallback && step.Phase is UpdateDownloadPhase.Delta or UpdateDownloadPhase.DeltaPreVerifying)
+            {
+                return;
+            }
+
+            if (inDeltaPreVerifying && step.Phase == UpdateDownloadPhase.Delta)
+            {
+                return;
+            }
+
+            if (step.Phase == UpdateDownloadPhase.SwitchingToFull)
+            {
+                inDeltaPreVerifying = false;
+                inFullFallback = true;
+                DownloadSize = Megabytes(step.TotalBytes);
+                ProgressPercent = 0;
+                ProgressText = $"0.0 MB of {Megabytes(step.TotalBytes)}";
+                State = UpdateWindowState.Downloading;
+                Headline = $"Downloading YAT {offer.Version}...";
+                Detail = "Switching to full update package.";
+                return;
+            }
+
+            if (step.Phase == UpdateDownloadPhase.DeltaPreVerifying)
+            {
+                inDeltaPreVerifying = true;
+                State = UpdateWindowState.Verifying;
+                Headline = $"Verifying YAT {offer.Version}...";
+                Detail = "Incremental update";
+                ProgressPercent = step.TotalBytes == 0 ? 100 : step.BytesReceived * 100d / step.TotalBytes;
+                ProgressText = $"{Megabytes(step.BytesReceived)} of {Megabytes(step.TotalBytes)}";
+                return;
+            }
+
+            DownloadSize = Megabytes(step.TotalBytes);
             ProgressPercent = step.TotalBytes == 0 ? 0 : step.BytesReceived * 100d / step.TotalBytes;
             ProgressText = $"{Megabytes(step.BytesReceived)} of {Megabytes(step.TotalBytes)}";
             if (step.Verifying)
@@ -295,12 +355,19 @@ public sealed partial class UpdateViewModel : ObservableObject
                 State = UpdateWindowState.Verifying;
                 Headline = $"Verifying YAT {offer.Version}...";
             }
+            else
+            {
+                State = UpdateWindowState.Downloading;
+                Headline = $"Downloading YAT {offer.Version}...";
+            }
         });
 
-        var result = await Task.Run(() => _service.DownloadAsync(offer, progress, token), token);
+        var result = await Task.Run(() => _service.DownloadDeltaOrFallbackAsync(offer, progress, token), token);
         if (result.Package is { } package)
         {
+            _downloadAttemptId++;
             Package = package;
+            DownloadSize = Megabytes(package.Size);
             ProgressPercent = 100;
             Headline = $"YAT {package.Version} has been downloaded and verified.";
             Detail = CanInstall
@@ -310,6 +377,7 @@ public sealed partial class UpdateViewModel : ObservableObject
             return;
         }
 
+        _downloadAttemptId++;
         _downloadFailed = true;
         Fail(result.Failure!.Value);
     }
@@ -341,7 +409,7 @@ public sealed partial class UpdateViewModel : ObservableObject
     // prepares stops it; an updater already started is told to change nothing.
     private async Task InstallAsync()
     {
-        if (Package is not { } package || State != UpdateWindowState.Verified || !CanInstall
+        if (Package is not { } package || State != UpdateWindowState.Verified || !CanInstall || _running is not null
             || !await _prompts!.ConfirmInstallAsync(package.Version.ToString()))
         {
             return;
@@ -362,7 +430,11 @@ public sealed partial class UpdateViewModel : ObservableObject
         Headline = $"Preparing to install YAT {package.Version}...";
         Detail = null;
 
-        var result = await Task.Run(() => _service.PrepareInstallAsync(package, token), token);
+        var result = await Task.Run(
+            () => package.IsDelta
+                ? _service.PrepareDeltaInstallAsync(package, token)
+                : _service.PrepareInstallAsync(package, token),
+            token);
         if (result.Handoff is { } handoff)
         {
             if (token.IsCancellationRequested)

@@ -130,8 +130,20 @@ public sealed record UpdateDownloadResult(VerifiedUpdatePackage? Package, Update
     public bool Succeeded => Package is not null;
 }
 
+public enum UpdateDownloadPhase
+{
+    Full,
+    Delta,
+    DeltaPreVerifying,
+    SwitchingToFull
+}
+
 // How far a download has come. Verifying: the bytes are all there and the package is being checked.
-public sealed record UpdateDownloadProgress(long BytesReceived, long TotalBytes, bool Verifying = false);
+public sealed record UpdateDownloadProgress(
+    long BytesReceived,
+    long TotalBytes,
+    bool Verifying = false,
+    UpdateDownloadPhase Phase = UpdateDownloadPhase.Full);
 
 // What this YAT is and runs on, as far as updates go.
 public sealed record UpdateEnvironment(string InstalledVersion, bool IsWindows, Architecture ProcessArchitecture)
