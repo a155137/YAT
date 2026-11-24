@@ -123,4 +123,55 @@ public class DescriptiveSummaryTests
         Assert.Throws<ArgumentOutOfRangeException>(() => DescriptiveSummary.Empty(-1));
         Assert.Throws<ArgumentOutOfRangeException>(() => DescriptiveSummary.ComputeInPlaceSorting([1, 2], -1));
     }
+
+    // ---- PMI-02: Numerical safety ----
+
+    [Fact]
+    public void UnrepresentableStandardDeviationIsReportedAsNullRatherThanInfinity()
+    {
+        // D-5: true sample stdev of [-MaxValue, MaxValue] is sqrt(2) * MaxValue > MaxValue.
+        var summary = DescriptiveSummary.ComputeInPlaceSorting([-double.MaxValue, double.MaxValue], missingCount: 0);
+
+        Assert.Equal(0, summary.Mean!.Value, Tolerance);
+        Assert.Null(summary.StandardDeviation);
+        Assert.True(double.IsFinite(summary.FirstQuartile!.Value));
+        Assert.True(double.IsFinite(summary.Median!.Value));
+        Assert.True(double.IsFinite(summary.ThirdQuartile!.Value));
+    }
+
+    [Fact]
+    public void TinyAndSubnormalNonEqualSamplesKeepPositiveFiniteStandardDeviation()
+    {
+        // D-6: [1e-200, 2e-200] has true stdev = 1e-200 / sqrt(2), never 0.
+        var tiny = DescriptiveSummary.ComputeInPlaceSorting([1e-200, 2e-200], missingCount: 0);
+        var expectedTiny = 1e-200 / Math.Sqrt(2);
+
+        Assert.NotNull(tiny.StandardDeviation);
+        Assert.Equal(expectedTiny, tiny.StandardDeviation!.Value, expectedTiny * 1e-12);
+
+        var subnormal = DescriptiveSummary.ComputeInPlaceSorting([double.Epsilon, 2 * double.Epsilon], missingCount: 0);
+        Assert.NotNull(subnormal.StandardDeviation);
+        Assert.True(double.IsFinite(subnormal.StandardDeviation!.Value));
+        Assert.True(subnormal.StandardDeviation.Value > 0);
+    }
+
+    [Fact]
+    public void SubnormalVarianceAndPartialUnderflowSummariesKeepFullRelativePrecision()
+    {
+        var s161 = DescriptiveSummary.ComputeInPlaceSorting([1e-161, 2e-161], missingCount: 0);
+        var e161 = 1e-161 / Math.Sqrt(2);
+        Assert.NotNull(s161.StandardDeviation);
+        Assert.True(Math.Abs(s161.StandardDeviation!.Value - e161) / e161 < 1e-12);
+
+        var s160 = DescriptiveSummary.ComputeInPlaceSorting([1e-160, 2e-160], missingCount: 0);
+        var e160 = 1e-160 / Math.Sqrt(2);
+        Assert.NotNull(s160.StandardDeviation);
+        Assert.True(Math.Abs(s160.StandardDeviation!.Value - e160) / e160 < 1e-12);
+
+        double[] partial = [0, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161];
+        var sPartial = DescriptiveSummary.ComputeInPlaceSorting(partial, missingCount: 0);
+        var ePartial = 1e-161 / Math.Sqrt(10);
+        Assert.NotNull(sPartial.StandardDeviation);
+        Assert.True(Math.Abs(sPartial.StandardDeviation!.Value - ePartial) / ePartial < 1e-12);
+    }
 }

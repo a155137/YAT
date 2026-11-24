@@ -17,19 +17,19 @@ public static class CapabilityIndices
     // A one-sided specification has no width, so it has no Cp.
     public static double? Cp(double? lowerLimit, double? upperLimit, double? standardDeviation) =>
         lowerLimit is { } lower && upperLimit is { } upper && Spread(standardDeviation) is { } sigma
-            ? Finite((upper - lower) / (6 * sigma))
+            ? Ratio(upper, lower, 6, sigma)
             : null;
 
     // (USL - mean) / (3 * sigma): the distance from the process to its upper limit, in spreads.
     public static double? Cpu(double? mean, double? upperLimit, double? standardDeviation) =>
         mean is { } centre && upperLimit is { } upper && Spread(standardDeviation) is { } sigma
-            ? Finite((upper - centre) / (3 * sigma))
+            ? Ratio(upper, centre, 3, sigma)
             : null;
 
     // (mean - LSL) / (3 * sigma): the distance from the process to its lower limit, in spreads.
     public static double? Cpl(double? mean, double? lowerLimit, double? standardDeviation) =>
         mean is { } centre && lowerLimit is { } lower && Spread(standardDeviation) is { } sigma
-            ? Finite((centre - lower) / (3 * sigma))
+            ? Ratio(centre, lower, 3, sigma)
             : null;
 
     // The worse of the two sides, or the only side a one-sided specification has.
@@ -40,6 +40,30 @@ public static class CapabilityIndices
         (null, { } upper) => upper,
         _ => null
     };
+
+    // Computes (a - b) / (divisor * sigma) while keeping normal data on the exact direct path. If either intermediate
+    // overflows on finite inputs, divides by divisor (>= 3) first so |(a / divisor) - (b / divisor)| <= (2/3) * MaxValue
+    // never overflows and sigma never suffers subnormal precision loss before the final division.
+    private static double? Ratio(double a, double b, double divisor, double sigma)
+    {
+        if (!double.IsFinite(a) || !double.IsFinite(b))
+        {
+            return null;
+        }
+
+        var difference = a - b;
+        var denominator = divisor * sigma;
+        if (double.IsFinite(difference) && double.IsFinite(denominator))
+        {
+            return Finite(difference / denominator);
+        }
+
+        var scaledDifference = double.IsFinite(difference)
+            ? difference / divisor
+            : (a / divisor) - (b / divisor);
+
+        return Finite(scaledDifference / sigma);
+    }
 
     // A spread an index can be divided by: finite and greater than zero. A process whose measurements never moved has
     // a within standard deviation of 0, which is a real result, but it divides no index.

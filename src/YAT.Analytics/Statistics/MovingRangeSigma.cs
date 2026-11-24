@@ -19,32 +19,75 @@ public sealed class MovingRangeSigma
     public const double D2 = 1.128;
 
     private double _sum;
+    private double _halfMean;
     private int _count;
     private double _previous;
     private bool _hasPrevious;
+    private bool _useScaled;
 
     // How many moving ranges the sequence produced. Fewer than one means the spread cannot be estimated.
     public int RangeCount => _count;
 
-    // MRbar: the mean of the moving ranges, or null when the sequence produced none.
-    public double? MeanRange => _count == 0 ? null : _sum / _count;
+    // MRbar: the mean of the moving ranges, or null when the sequence produced none or the result is not finite.
+    public double? MeanRange => _count == 0
+        ? null
+        : _useScaled
+            ? Finite(_halfMean * 2d)
+            : Finite(_sum / _count);
 
-    // The within standard deviation, MRbar / d2, or null when there is no moving range to estimate it from. It is 0
-    // when every consecutive pair repeated the same value: a measured result, not a missing one.
-    public double? StandardDeviation => MeanRange is { } mean ? mean / D2 : null;
+    // The within standard deviation, MRbar / d2, or null when there is no moving range to estimate it from or the
+    // result is not finite. When MRbar overflows double.MaxValue but MRbar / d2 is still representable, the finite
+    // standard deviation is preserved. It is 0 when every consecutive pair repeated the same value: a measured result,
+    // not a missing one.
+    public double? StandardDeviation => _count == 0
+        ? null
+        : _useScaled
+            ? Finite((_halfMean / D2) * 2d)
+            : MeanRange is { } mean ? Finite(mean / D2) : null;
 
     // The next observation of the sequence. It must be finite; a missing measurement is Break(), not a value.
     public void Add(double value)
     {
         if (_hasPrevious)
         {
-            _sum += Math.Abs(value - _previous);
-            _count++;
+            if (!_useScaled)
+            {
+                var range = Math.Abs(value - _previous);
+                var nextSum = _sum + range;
+                if (double.IsFinite(nextSum))
+                {
+                    _sum = nextSum;
+                    _count++;
+                }
+                else if (double.IsFinite(value) && double.IsFinite(_previous))
+                {
+                    // Difference or sum overflowed on finite observations: switch once to a half-scaled incremental
+                    // mean so every half-range lies in [0, double.MaxValue] and never overflows.
+                    _useScaled = true;
+                    _halfMean = _count == 0 ? 0d : (_sum / _count) * 0.5;
+                    _count++;
+                    var halfRange = Math.Abs((value * 0.5) - (_previous * 0.5));
+                    _halfMean += (halfRange - _halfMean) / _count;
+                }
+                else
+                {
+                    _sum = nextSum;
+                    _count++;
+                }
+            }
+            else
+            {
+                _count++;
+                var halfRange = Math.Abs((value * 0.5) - (_previous * 0.5));
+                _halfMean += (halfRange - _halfMean) / _count;
+            }
         }
 
         _previous = value;
         _hasPrevious = true;
     }
+
+    private static double? Finite(double value) => double.IsFinite(value) ? value : null;
 
     // The sequence is interrupted here: the next observation does not follow the previous one, so they form no moving
     // range. Rows that belong to another sequence (another group) are simply not offered and do not interrupt this one.

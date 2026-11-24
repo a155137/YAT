@@ -35,19 +35,26 @@ public sealed record CapabilitySummary(
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         ArgumentOutOfRangeException.ThrowIfNegative(missingCount);
 
-        var cpl = CapabilityIndices.Cpl(mean, lowerSpecificationLimit, withinStandardDeviation);
-        var cpu = CapabilityIndices.Cpu(mean, upperSpecificationLimit, withinStandardDeviation);
+        var finiteMean = Finite(mean);
+        var finiteSigma = Finite(withinStandardDeviation);
+        var finiteLower = Finite(lowerSpecificationLimit);
+        var finiteUpper = Finite(upperSpecificationLimit);
+
+        var cpl = CapabilityIndices.Cpl(finiteMean, finiteLower, finiteSigma);
+        var cpu = CapabilityIndices.Cpu(finiteMean, finiteUpper, finiteSigma);
 
         return new CapabilitySummary(
             count,
             missingCount,
-            mean,
-            withinStandardDeviation,
-            lowerSpecificationLimit,
-            upperSpecificationLimit,
-            CapabilityIndices.Cp(lowerSpecificationLimit, upperSpecificationLimit, withinStandardDeviation),
+            finiteMean,
+            finiteSigma,
+            finiteLower,
+            finiteUpper,
+            CapabilityIndices.Cp(finiteLower, finiteUpper, finiteSigma),
             cpl,
             cpu,
             CapabilityIndices.Cpk(cpl, cpu));
     }
+
+    private static double? Finite(double? value) => value is { } number && double.IsFinite(number) ? number : null;
 }

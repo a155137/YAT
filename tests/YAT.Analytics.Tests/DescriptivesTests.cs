@@ -111,4 +111,39 @@ public class DescriptivesTests
         Assert.Equal(double.MaxValue / Math.Sqrt(2), Descriptives.StandardDeviation([double.MaxValue, 0]), double.MaxValue * 1e-12);
         Assert.Equal(double.PositiveInfinity, Descriptives.StandardDeviation([double.MaxValue, -double.MaxValue]));
     }
+
+    // PMI-02: Non-equal tiny normal and subnormal samples whose squared deviations underflow to 0 must still report
+    // their true positive spread via ScaledStandardDeviation rather than 0.
+    [Fact]
+    public void TinyAndSubnormalNonEqualSamplesDoNotUnderflowStandardDeviationToZero()
+    {
+        var tinySpread = Descriptives.StandardDeviation([1e-200, 2e-200]);
+        var expectedTiny = 1e-200 / Math.Sqrt(2);
+
+        Assert.True(double.IsFinite(tinySpread));
+        Assert.Equal(expectedTiny, tinySpread, expectedTiny * 1e-12);
+
+        var subnormalSpread = Descriptives.StandardDeviation([double.Epsilon, 2 * double.Epsilon]);
+        Assert.True(double.IsFinite(subnormalSpread));
+        Assert.True(subnormalSpread > 0);
+    }
+
+    // PMI-02 R-1: Non-zero subnormal squares and partial underflow must trigger ScaledStandardDeviation rather than
+    // losing precision in the subnormal variance regime.
+    [Fact]
+    public void SubnormalVarianceAndPartialUnderflowKeepFullRelativePrecision()
+    {
+        var s161 = Descriptives.StandardDeviation([1e-161, 2e-161]);
+        var e161 = 1e-161 / Math.Sqrt(2);
+        Assert.True(Math.Abs(s161 - e161) / e161 < 1e-12);
+
+        var s160 = Descriptives.StandardDeviation([1e-160, 2e-160]);
+        var e160 = 1e-160 / Math.Sqrt(2);
+        Assert.True(Math.Abs(s160 - e160) / e160 < 1e-12);
+
+        double[] partial = [0, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161, 1e-161];
+        var sPartial = Descriptives.StandardDeviation(partial);
+        var ePartial = 1e-161 / Math.Sqrt(10);
+        Assert.True(Math.Abs(sPartial - ePartial) / ePartial < 1e-12);
+    }
 }

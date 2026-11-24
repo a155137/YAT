@@ -45,14 +45,17 @@ public sealed record DescriptiveSummary(
         return new DescriptiveSummary(
             values.Length,
             missingCount,
-            Descriptives.Mean(values),
+            Finite(Descriptives.Mean(values)),
             // Fewer than two observations leave the sample standard deviation undefined; Descriptives returns 0 there,
-            // which is the right answer for a graph and the wrong one for a table.
-            values.Length < 2 ? null : Descriptives.StandardDeviation(values),
+            // which is the right answer for a graph and the wrong one for a table. A spread beyond double.MaxValue is
+            // also reported as null rather than Infinity.
+            values.Length < 2 ? null : Finite(Descriptives.StandardDeviation(values)),
             values[0],
             Quantiles.Linear(values, 0.25),
             Quantiles.Linear(values, 0.5),
             Quantiles.Linear(values, 0.75),
             values[^1]);
     }
+
+    private static double? Finite(double value) => double.IsFinite(value) ? value : null;
 }

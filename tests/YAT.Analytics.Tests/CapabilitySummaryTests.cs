@@ -190,4 +190,84 @@ public class CapabilitySummaryTests
         Assert.Throws<ArgumentOutOfRangeException>(() => CapabilitySummary.Compute(-1, 0, 1, 1, 0, 2));
         Assert.Throws<ArgumentOutOfRangeException>(() => CapabilitySummary.Compute(1, -1, 1, 1, 0, 2));
     }
+
+    // ---- PMI-02: Numerical safety ----
+
+    [Fact]
+    public void DenominatorOverflowDoesNotProduceMisleadingZero()
+    {
+        // D-7: USL - LSL = 1e308, 6 * sigma = 3e308 (overflows), true Cp = Cpl = Cpu = Cpk = 1/3.
+        var summary = Summary(mean: 5e307, sigma: 5e307, lsl: 0, usl: 1e308);
+
+        Assert.Equal(1.0 / 3.0, summary.Cp!.Value, Tolerance);
+        Assert.Equal(1.0 / 3.0, summary.Cpl!.Value, Tolerance);
+        Assert.Equal(1.0 / 3.0, summary.Cpu!.Value, Tolerance);
+        Assert.Equal(1.0 / 3.0, summary.Cpk!.Value, Tolerance);
+    }
+
+    [Fact]
+    public void SimultaneousNumeratorAndDenominatorOverflowProducesTrueFiniteIndices()
+    {
+        // D-8: USL - LSL = 2e308 (overflows), 6 * sigma = 6e308 (overflows), true Cp = Cpl = Cpu = Cpk = 1/3.
+        var summary = Summary(mean: 0, sigma: 1e308, lsl: -1e308, usl: 1e308);
+
+        Assert.Equal(1.0 / 3.0, summary.Cp!.Value, Tolerance);
+        Assert.Equal(1.0 / 3.0, summary.Cpl!.Value, Tolerance);
+        Assert.Equal(1.0 / 3.0, summary.Cpu!.Value, Tolerance);
+        Assert.Equal(1.0 / 3.0, summary.Cpk!.Value, Tolerance);
+    }
+
+    [Fact]
+    public void NumeratorOverflowWithFiniteDenominatorProducesTrueFiniteCp()
+    {
+        // D-9: USL - LSL = 2e308 (overflows), 6 * sigma = 6e307 (finite), true Cp = 10/3.
+        var summary = Summary(mean: 0, sigma: 1e307, lsl: -1e308, usl: 1e308);
+
+        Assert.Equal(10.0 / 3.0, summary.Cp!.Value, Tolerance);
+        Assert.Equal(10.0 / 3.0, summary.Cpl!.Value, Tolerance);
+        Assert.Equal(10.0 / 3.0, summary.Cpu!.Value, Tolerance);
+        Assert.Equal(10.0 / 3.0, summary.Cpk!.Value, Tolerance);
+    }
+
+    [Fact]
+    public void LargeDifferenceWithSmallSigmaAvoidsPrematureDivisionOverflow()
+    {
+        // diff = 1e308, sigma = 0.5, divisor = 6 -> true Cp = (1/3) * 1e308 (finite).
+        var directCase = Summary(mean: 5e307, sigma: 0.5, lsl: 0, usl: 1e308);
+        var expectedDirect = (1.0 / 3.0) * 1e308;
+        Assert.Equal(expectedDirect, directCase.Cp!.Value, expectedDirect * 1e-12);
+
+        // diff = 2e308 (overflows), sigma = 0.5, divisor = 6 -> true Cp = (2/3) * 1e308 (finite, no subnormal loss).
+        var overflowDiffCase = Summary(mean: 0, sigma: 0.5, lsl: -1e308, usl: 1e308);
+        var expectedOverflowDiff = (2.0 / 3.0) * 1e308;
+        Assert.Equal(expectedOverflowDiff, overflowDiffCase.Cp!.Value, expectedOverflowDiff * 1e-12);
+    }
+
+    [Fact]
+    public void NonFiniteInputsToCapabilitySummaryAreSanitizedToNull()
+    {
+        // D-10: non-finite summary inputs never leak Infinity or NaN into CapabilitySummary.
+        var summary = Summary(mean: double.NaN, sigma: double.PositiveInfinity, lsl: double.NegativeInfinity, usl: double.PositiveInfinity);
+
+        Assert.Null(summary.Mean);
+        Assert.Null(summary.WithinStandardDeviation);
+        Assert.Null(summary.LowerSpecificationLimit);
+        Assert.Null(summary.UpperSpecificationLimit);
+        Assert.Null(summary.Cp);
+        Assert.Null(summary.Cpl);
+        Assert.Null(summary.Cpu);
+        Assert.Null(summary.Cpk);
+    }
+
+    [Fact]
+    public void NegativeOverflowCpuPreservesTrueNegativeIndex()
+    {
+        var summary = Summary(mean: 1e308, sigma: 1e308, lsl: null, usl: -1e308);
+        var expected = -2.0 / 3.0;
+
+        Assert.NotNull(summary.Cpu);
+        Assert.NotNull(summary.Cpk);
+        Assert.Equal(expected, summary.Cpu!.Value, Tolerance);
+        Assert.Equal(expected, summary.Cpk!.Value, Tolerance);
+    }
 }

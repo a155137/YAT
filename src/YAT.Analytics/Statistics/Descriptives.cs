@@ -3,6 +3,10 @@ namespace YAT.Analytics.Statistics;
 // Summary statistics of a sample. Nothing here knows what the numbers describe.
 public static class Descriptives
 {
+    // Smallest positive normal IEEE-754 binary64 value (2^-1022); variances below this lose precision to subnormal
+    // rounding or partial underflow when squaring deviations.
+    private const double MinNormalDouble = 2.2250738585072014e-308;
+
     // The arithmetic mean. An empty sample has no mean and returns 0.
     public static double Mean(ReadOnlySpan<double> values)
     {
@@ -76,16 +80,22 @@ public static class Descriptives
             squared += deviation * deviation;
         }
 
-        // Finite values whose sum, deviations or squares overflow (Task #063.1) are worked out again over the values
-        // scaled by the largest of them, so only a standard deviation that is itself beyond a double is infinite.
-        // Every other sample keeps the result above, to the last bit.
+        // Finite values whose sum, deviations or squares overflow (Task #063.1), or whose variance falls into the
+        // subnormal / underflow range below MinNormalDouble (AllEqual already returned 0 for identical values), are
+        // worked out again over the values scaled by the largest of them, so only a standard deviation that is itself
+        // beyond a double is infinite. Every other sample keeps the result above, to the last bit.
         if (!double.IsFinite(squared))
         {
             return ScaledStandardDeviation(values);
         }
 
         var variance = squared / (values.Length - 1);
-        return variance > 0 ? Math.Sqrt(variance) : 0;
+        if (variance < MinNormalDouble)
+        {
+            return ScaledStandardDeviation(values);
+        }
+
+        return Math.Sqrt(variance);
     }
 
     private static double ScaledStandardDeviation(ReadOnlySpan<double> values)

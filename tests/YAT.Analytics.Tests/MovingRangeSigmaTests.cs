@@ -115,4 +115,97 @@ public class MovingRangeSigmaTests
     {
         Assert.Equal(2 / 1.128, MovingRangeSigma.StandardDeviationOf([104, 102, 100])!.Value, Tolerance);
     }
+
+    // ---- PMI-02: Numerical safety ----
+
+    [Fact]
+    public void LargeFiniteSumOverflowStillProducesFiniteMeanRangeAndStandardDeviation()
+    {
+        // D-1: three moving ranges of 1e308 each; raw sum overflows double.MaxValue, true MRbar = 1e308.
+        var estimator = new MovingRangeSigma();
+        foreach (var value in (double[])[0, 1e308, 0, 1e308])
+        {
+            estimator.Add(value);
+        }
+
+        Assert.Equal(3, estimator.RangeCount);
+        Assert.NotNull(estimator.MeanRange);
+        Assert.NotNull(estimator.StandardDeviation);
+        Assert.Equal(1e308, estimator.MeanRange!.Value, 1e296);
+        Assert.Equal(1e308 / MovingRangeSigma.D2, estimator.StandardDeviation!.Value, 1e296);
+    }
+
+    [Fact]
+    public void LargeDifferenceOverflowWithRepresentableMeanRangeAndSigmaProducesFiniteResults()
+    {
+        // D-2: ranges are 2e308, 0, 0 -> MRbar = (2/3) * 1e308, sigma = MRbar / 1.128.
+        var estimator = new MovingRangeSigma();
+        foreach (var value in (double[])[-1e308, 1e308, 1e308, 1e308])
+        {
+            estimator.Add(value);
+        }
+
+        var expectedMeanRange = (2.0 / 3.0) * 1e308;
+        var expectedSigma = ((2.0 / 3.0) / MovingRangeSigma.D2) * 1e308;
+
+        Assert.Equal(3, estimator.RangeCount);
+        Assert.Equal(expectedMeanRange, estimator.MeanRange!.Value, expectedMeanRange * 1e-12);
+        Assert.Equal(expectedSigma, estimator.StandardDeviation!.Value, expectedSigma * 1e-12);
+    }
+
+    [Fact]
+    public void TransitionFromFastPathToScaledPathPreservesPriorAccumulation()
+    {
+        // Range 1 = 1e308 (fast path), Range 2 = 2e308 (overflow -> scaled path), Range 3 = 0 -> MRbar = 1e308.
+        var estimator = new MovingRangeSigma();
+        foreach (var value in (double[])[0, 1e308, -1e308, -1e308])
+        {
+            estimator.Add(value);
+        }
+
+        Assert.Equal(3, estimator.RangeCount);
+        Assert.Equal(1e308, estimator.MeanRange!.Value, 1e296);
+        Assert.Equal(1e308 / MovingRangeSigma.D2, estimator.StandardDeviation!.Value, 1e296);
+    }
+
+    [Fact]
+    public void UnrepresentableMeanRangeWithRepresentableSigmaReturnsNullMeanRangeAndFiniteSigma()
+    {
+        // D-3 (Option A): MRbar = 2e308 (> double.MaxValue -> null), sigma = 2e308 / 1.128 ≈ 1.7730496e308 (finite).
+        var estimator = new MovingRangeSigma();
+        estimator.Add(-1e308);
+        estimator.Add(1e308);
+
+        var expectedSigma = (2.0 / MovingRangeSigma.D2) * 1e308;
+
+        Assert.Equal(1, estimator.RangeCount);
+        Assert.Null(estimator.MeanRange);
+        Assert.NotNull(estimator.StandardDeviation);
+        Assert.True(double.IsFinite(estimator.StandardDeviation!.Value));
+        Assert.Equal(expectedSigma, estimator.StandardDeviation!.Value, expectedSigma * 1e-12);
+    }
+
+    [Fact]
+    public void AlternatingMaxValuesWhoseResultIsUnrepresentableReturnNullRatherThanInfinity()
+    {
+        // D-4: MRbar = 2 * MaxValue, sigma = 2 * MaxValue / 1.128 > MaxValue -> both unrepresentable (null).
+        var estimator = new MovingRangeSigma();
+        estimator.Add(-double.MaxValue);
+        estimator.Add(double.MaxValue);
+        estimator.Add(-double.MaxValue);
+
+        Assert.Equal(2, estimator.RangeCount);
+        Assert.Null(estimator.MeanRange);
+        Assert.Null(estimator.StandardDeviation);
+    }
+
+    [Fact]
+    public void SubnormalObservationsProduceFinitePositiveSpread()
+    {
+        var sigma = MovingRangeSigma.StandardDeviationOf([double.Epsilon, 2 * double.Epsilon, double.Epsilon]);
+
+        Assert.NotNull(sigma);
+        Assert.True(double.IsFinite(sigma!.Value));
+        Assert.True(sigma.Value > 0);
+    }
 }
