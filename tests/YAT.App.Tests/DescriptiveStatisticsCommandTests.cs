@@ -1,10 +1,14 @@
 using YAT.App.Tests.TestDoubles;
+using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Analyses;
+using YAT.Application.Queries;
 using YAT.app.Analyses;
 using YAT.app.Composition;
 using YAT.app.Graphs;
 using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
+using YAT.Domain.Entities;
+using YAT.Domain.Enums;
 
 namespace YAT.App.Tests;
 
@@ -281,5 +285,222 @@ public class DescriptiveStatisticsCommandTests
 
         Assert.Equal("A column of this analysis is no longer available.", Assert.Single(runtime.AnalysisDialogs.Errors));
         Assert.Empty(runtime.AnalysisResults.Shown);
+    }
+
+    // ---- PMI-03: Exception handling & recovery ----
+
+    [Fact]
+    public async Task WhenBuilderThrows_ShowsErrorPreservesExistingResultsAndRecoversForRetry()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n20\n30\n");
+
+        runtime.AnalysisDialogs.Answer = ConfirmWith(null, "Reg1");
+        await runtime.RunAsync();
+        var existingResult = Assert.Single(runtime.AnalysisResults.Shown);
+
+        var shouldFail = true;
+        var controller = new DescriptiveStatisticsController(
+            runtime.AnalysisDialogs,
+            runtime.AnalysisResults,
+            new DescriptiveStatisticsBuilder(),
+            (data, token) => shouldFail
+                ? throw new InvalidOperationException("simulated builder failure")
+                : new DescriptiveStatisticsBuilder().Build(data, token));
+
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Equal(DescriptiveStatisticsController.AnalysisFailedMessage, Assert.Single(runtime.AnalysisDialogs.Errors));
+        Assert.Same(existingResult, Assert.Single(runtime.AnalysisResults.Shown));
+        Assert.True(runtime.Shell.DescriptiveStatisticsCommand.CanExecute(null));
+
+        shouldFail = false;
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Equal(2, runtime.AnalysisResults.Shown.Count);
+        Assert.Same(existingResult, runtime.AnalysisResults.Shown[0]);
+        Assert.Equal("20", Cell(runtime.AnalysisResults.Shown[1], 0, "Mean"));
+    }
+
+    [Fact]
+    public async Task WhenCancelled_DoesNotShowErrorOrResult()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n20\n");
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = await runtime.Statistics.ConfigureAsync(
+            runtime.Lifecycle.CurrentSession,
+            runtime.Project.SelectedWorksheet,
+            cts.Token);
+
+        Assert.Null(result);
+        Assert.Empty(runtime.AnalysisDialogs.Errors);
+        Assert.Empty(runtime.AnalysisResults.Shown);
+        Assert.True(runtime.Shell.DescriptiveStatisticsCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task WhenSessionIsRetired_DoesNotShowErrorOrResult()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n20\n");
+
+        var session = runtime.Lifecycle.CurrentSession!;
+        await session.SuspendAsync(Token);
+        session.Retire();
+
+        var result = await runtime.Statistics.ConfigureAsync(session, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Null(result);
+        Assert.Empty(runtime.AnalysisDialogs.Errors);
+        Assert.Empty(runtime.AnalysisResults.Shown);
+        Assert.True(runtime.Shell.DescriptiveStatisticsCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task WhenColumnReadThrowsUnexpectedRecoverableException_ShowsErrorAndRecovers()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n20\n");
+
+        var worksheet = runtime.Project.SelectedWorksheet!;
+        var failingColumns = new FaultingColumnRepository(new InvalidOperationException("unexpected column read failure"));
+        var metadata = new ProjectMetadataQueryService(null!, new StubWorksheetRepository(worksheet), failingColumns);
+        var failingSession = new MainWindowSession(
+            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            failingColumns, null!, null!, null!, metadata, null!, null!, null!, null);
+
+        var result = await runtime.Statistics.ConfigureAsync(failingSession, worksheet, Token);
+
+        Assert.Null(result);
+        Assert.Equal("The worksheet columns could not be read.", Assert.Single(runtime.AnalysisDialogs.Errors));
+        Assert.Empty(runtime.AnalysisResults.Shown);
+        Assert.True(runtime.Shell.DescriptiveStatisticsCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task WhenAnalysisQueryThrowsNonAnalysisDataException_ShowsErrorPreservesExistingResultsAndRecovers()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n20\n30\n");
+
+        runtime.AnalysisDialogs.Answer = ConfirmWith(null, "Reg1");
+        await runtime.RunAsync();
+        var existingResult = Assert.Single(runtime.AnalysisResults.Shown);
+
+        var worksheet = runtime.Project.SelectedWorksheet!;
+        var columns = await runtime.Lifecycle.CurrentSession!.LoadWorksheetColumnsAsync(worksheet.Id, Token);
+        var metadata = new ProjectMetadataQueryService(null!, new StubWorksheetRepository(worksheet), new StubColumnRepository(columns));
+        var query = new AnalysisDataQueryService(
+            new FaultingWorksheetRepository(new InvalidOperationException("unexpected query failure")),
+            new StubColumnRepository(columns),
+            null!);
+        var failingSession = new MainWindowSession(
+            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            null!, null!, null!, null!, metadata, null!, null!, query, null);
+
+        await runtime.Statistics.ConfigureAsync(failingSession, worksheet, Token);
+
+        Assert.Equal(DescriptiveStatisticsController.AnalysisFailedMessage, Assert.Single(runtime.AnalysisDialogs.Errors));
+        Assert.Same(existingResult, Assert.Single(runtime.AnalysisResults.Shown));
+        Assert.True(runtime.Shell.DescriptiveStatisticsCommand.CanExecute(null));
+
+        // Retry on healthy session succeeds.
+        runtime.AnalysisDialogs.Errors.Clear();
+        await runtime.RunAsync();
+        Assert.Equal(2, runtime.AnalysisResults.Shown.Count);
+    }
+
+    [Fact]
+    public async Task WhenPresenterThrows_ShowsErrorPreservesExistingResultsAndRecoversForRetry()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n20\n30\n");
+
+        var presenter = new FaultingAnalysisResultPresenter(runtime.AnalysisResults);
+        var controller = new DescriptiveStatisticsController(
+            runtime.AnalysisDialogs,
+            presenter,
+            new DescriptiveStatisticsBuilder());
+
+        runtime.AnalysisDialogs.Answer = ConfirmWith(null, "Reg1");
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+        var existingResult = Assert.Single(runtime.AnalysisResults.Shown);
+
+        presenter.NextFailure = new InvalidOperationException("simulated presenter failure");
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Equal(DescriptiveStatisticsController.AnalysisFailedMessage, Assert.Single(runtime.AnalysisDialogs.Errors));
+        Assert.Same(existingResult, Assert.Single(runtime.AnalysisResults.Shown));
+        Assert.True(runtime.Shell.DescriptiveStatisticsCommand.CanExecute(null));
+
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+        Assert.Equal(2, runtime.AnalysisResults.Shown.Count);
+        Assert.Same(existingResult, runtime.AnalysisResults.Shown[0]);
+    }
+
+    private sealed class FaultingAnalysisResultPresenter(IAnalysisResultPresenter inner) : IAnalysisResultPresenter
+    {
+        public Exception? NextFailure { get; set; }
+
+        public void ShowResult(AnalysisResultTable table)
+        {
+            if (NextFailure is { } failure)
+            {
+                NextFailure = null;
+                throw failure;
+            }
+
+            inner.ShowResult(table);
+        }
+    }
+
+    private sealed class StubWorksheetRepository(Worksheet worksheet) : IWorksheetRepository
+    {
+        public Task<Worksheet?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Worksheet?>(id == worksheet.Id ? worksheet : null);
+        public Task<IReadOnlyList<Worksheet>> GetByProjectIdAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Worksheet>>([worksheet]);
+        public Task AddAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FaultingWorksheetRepository(Exception failure) : IWorksheetRepository
+    {
+        public Task<Worksheet?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => throw failure;
+        public Task<IReadOnlyList<Worksheet>> GetByProjectIdAsync(Guid projectId, CancellationToken cancellationToken = default) => throw failure;
+        public Task AddAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class StubColumnRepository(IReadOnlyList<WorksheetColumn> columns) : IWorksheetColumnRepository
+    {
+        public Task<WorksheetColumn?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(columns.FirstOrDefault(c => c.Id == id));
+        public Task<IReadOnlyList<WorksheetColumn>> GetByWorksheetIdAsync(Guid worksheetId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(columns);
+        public Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FaultingColumnRepository(Exception failure) : IWorksheetColumnRepository
+    {
+        public Task<WorksheetColumn?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => throw failure;
+        public Task<IReadOnlyList<WorksheetColumn>> GetByWorksheetIdAsync(Guid worksheetId, CancellationToken cancellationToken = default) => throw failure;
+        public Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

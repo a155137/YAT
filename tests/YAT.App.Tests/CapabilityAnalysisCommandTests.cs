@@ -7,6 +7,7 @@ using YAT.app.Graphs;
 using YAT.app.Lifecycle;
 using YAT.app.ViewModels;
 using YAT.Application.Abstractions.Persistence;
+using YAT.Application.Queries;
 using YAT.Domain.Entities;
 using YAT.Domain.Enums;
 
@@ -408,5 +409,220 @@ public class CapabilityAnalysisCommandTests
         // Three variables over four observed groups (SITE1..3 and the rows without a site).
         Assert.Equal(12, table.Rows.Count);
         Assert.All(table.Rows, row => Assert.DoesNotContain(row.Cells, cell => cell.Contains("NaN") || cell.Contains("Inf")));
+    }
+
+    // ---- PMI-03: Exception handling & recovery ----
+
+    [Fact]
+    public async Task WhenBuilderThrows_ShowsErrorPreservesExistingResultsAndRecoversForRetry()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n12\n14\n");
+
+        runtime.CapabilityDialogs.Answer = ConfirmWith(null, [("Reg1", "5", "20")]);
+        await runtime.RunAsync();
+        var existingResult = Assert.Single(runtime.Results.Shown);
+
+        var shouldFail = true;
+        var controller = new CapabilityAnalysisController(
+            runtime.CapabilityDialogs,
+            runtime.Results,
+            new CapabilityAnalysisBuilder(),
+            (data, config, token) => shouldFail
+                ? throw new InvalidOperationException("simulated capability builder failure")
+                : new CapabilityAnalysisBuilder().Build(data, config, token));
+
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Equal(CapabilityAnalysisController.AnalysisFailedMessage, Assert.Single(runtime.CapabilityDialogs.Errors));
+        Assert.Same(existingResult, Assert.Single(runtime.Results.Shown));
+        Assert.True(runtime.Shell.CapabilityAnalysisCommand.CanExecute(null));
+
+        shouldFail = false;
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Equal(2, runtime.Results.Shown.Count);
+        Assert.Same(existingResult, runtime.Results.Shown[0]);
+    }
+
+    [Fact]
+    public async Task WhenCancelled_DoesNotShowErrorOrResult()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n12\n");
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = await runtime.Capability.ConfigureAsync(
+            runtime.Lifecycle.CurrentSession,
+            runtime.Project.SelectedWorksheet,
+            cts.Token);
+
+        Assert.Null(result);
+        Assert.Empty(runtime.CapabilityDialogs.Errors);
+        Assert.Empty(runtime.Results.Shown);
+        Assert.True(runtime.Shell.CapabilityAnalysisCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task WhenSessionIsRetired_DoesNotShowErrorOrResult()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n12\n");
+
+        var session = runtime.Lifecycle.CurrentSession!;
+        await session.SuspendAsync(Token);
+        session.Retire();
+
+        var result = await runtime.Capability.ConfigureAsync(session, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Null(result);
+        Assert.Empty(runtime.CapabilityDialogs.Errors);
+        Assert.Empty(runtime.Results.Shown);
+        Assert.True(runtime.Shell.CapabilityAnalysisCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task WhenColumnReadThrowsUnexpectedRecoverableException_ShowsErrorAndRecovers()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n12\n");
+
+        var worksheet = runtime.Project.SelectedWorksheet!;
+        var failingColumns = new FaultingColumnRepository(new InvalidOperationException("unexpected column read failure"));
+        var metadata = new ProjectMetadataQueryService(null!, new StubWorksheetRepository(worksheet), failingColumns);
+        var failingSession = new MainWindowSession(
+            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            failingColumns, null!, null!, null!, metadata, null!, null!, null!, null);
+
+        var result = await runtime.Capability.ConfigureAsync(failingSession, worksheet, Token);
+
+        Assert.Null(result);
+        Assert.Equal("The worksheet columns could not be read.", Assert.Single(runtime.CapabilityDialogs.Errors));
+        Assert.Empty(runtime.Results.Shown);
+        Assert.True(runtime.Shell.CapabilityAnalysisCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task WhenAnalysisQueryThrowsNonAnalysisDataException_ShowsErrorPreservesExistingResultsAndRecovers()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n12\n14\n");
+
+        runtime.CapabilityDialogs.Answer = ConfirmWith(null, [("Reg1", "5", "20")]);
+        await runtime.RunAsync();
+        var existingResult = Assert.Single(runtime.Results.Shown);
+
+        var worksheet = runtime.Project.SelectedWorksheet!;
+        var columns = await runtime.Lifecycle.CurrentSession!.LoadWorksheetColumnsAsync(worksheet.Id, Token);
+        var metadata = new ProjectMetadataQueryService(null!, new StubWorksheetRepository(worksheet), new StubColumnRepository(columns));
+        var query = new AnalysisDataQueryService(
+            new FaultingWorksheetRepository(new InvalidOperationException("unexpected query failure")),
+            new StubColumnRepository(columns),
+            null!);
+        var failingSession = new MainWindowSession(
+            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            null!, null!, null!, null!, metadata, null!, null!, query, null);
+
+        await runtime.Capability.ConfigureAsync(failingSession, worksheet, Token);
+
+        Assert.Equal(CapabilityAnalysisController.AnalysisFailedMessage, Assert.Single(runtime.CapabilityDialogs.Errors));
+        Assert.Same(existingResult, Assert.Single(runtime.Results.Shown));
+        Assert.True(runtime.Shell.CapabilityAnalysisCommand.CanExecute(null));
+
+        runtime.CapabilityDialogs.Errors.Clear();
+        await runtime.RunAsync();
+        Assert.Equal(2, runtime.Results.Shown.Count);
+    }
+
+    [Fact]
+    public async Task WhenPresenterThrows_ShowsErrorPreservesExistingResultsAndRecoversForRetry()
+    {
+        using var runtime = new Runtime();
+        await runtime.StartAsync();
+        await runtime.PasteAsync("Reg1\n10\n12\n14\n");
+
+        var presenter = new FaultingAnalysisResultPresenter(runtime.Results);
+        var controller = new CapabilityAnalysisController(
+            runtime.CapabilityDialogs,
+            presenter,
+            new CapabilityAnalysisBuilder());
+
+        runtime.CapabilityDialogs.Answer = ConfirmWith(null, [("Reg1", "5", "20")]);
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+        var existingResult = Assert.Single(runtime.Results.Shown);
+
+        presenter.NextFailure = new InvalidOperationException("simulated presenter failure");
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+
+        Assert.Equal(CapabilityAnalysisController.AnalysisFailedMessage, Assert.Single(runtime.CapabilityDialogs.Errors));
+        Assert.Same(existingResult, Assert.Single(runtime.Results.Shown));
+        Assert.True(runtime.Shell.CapabilityAnalysisCommand.CanExecute(null));
+
+        await controller.ConfigureAsync(runtime.Lifecycle.CurrentSession, runtime.Project.SelectedWorksheet, Token);
+        Assert.Equal(2, runtime.Results.Shown.Count);
+        Assert.Same(existingResult, runtime.Results.Shown[0]);
+    }
+
+    private sealed class FaultingAnalysisResultPresenter(IAnalysisResultPresenter inner) : IAnalysisResultPresenter
+    {
+        public Exception? NextFailure { get; set; }
+
+        public void ShowResult(AnalysisResultTable table)
+        {
+            if (NextFailure is { } failure)
+            {
+                NextFailure = null;
+                throw failure;
+            }
+
+            inner.ShowResult(table);
+        }
+    }
+
+    private sealed class StubWorksheetRepository(Worksheet worksheet) : IWorksheetRepository
+    {
+        public Task<Worksheet?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Worksheet?>(id == worksheet.Id ? worksheet : null);
+        public Task<IReadOnlyList<Worksheet>> GetByProjectIdAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Worksheet>>([worksheet]);
+        public Task AddAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FaultingWorksheetRepository(Exception failure) : IWorksheetRepository
+    {
+        public Task<Worksheet?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => throw failure;
+        public Task<IReadOnlyList<Worksheet>> GetByProjectIdAsync(Guid projectId, CancellationToken cancellationToken = default) => throw failure;
+        public Task AddAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(Worksheet item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class StubColumnRepository(IReadOnlyList<WorksheetColumn> columns) : IWorksheetColumnRepository
+    {
+        public Task<WorksheetColumn?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(columns.FirstOrDefault(c => c.Id == id));
+        public Task<IReadOnlyList<WorksheetColumn>> GetByWorksheetIdAsync(Guid worksheetId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(columns);
+        public Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FaultingColumnRepository(Exception failure) : IWorksheetColumnRepository
+    {
+        public Task<WorksheetColumn?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => throw failure;
+        public Task<IReadOnlyList<WorksheetColumn>> GetByWorksheetIdAsync(Guid worksheetId, CancellationToken cancellationToken = default) => throw failure;
+        public Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

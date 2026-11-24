@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using YAT.Application.Analyses;
 using YAT.Application.Exceptions;
 using YAT.Application.Filtering;
@@ -17,6 +18,7 @@ namespace YAT.app.Analyses;
 public sealed class CapabilityAnalysisController
 {
     public const string SetupTitle = "Capability Analysis";
+    public const string AnalysisFailedMessage = "This analysis could not be completed.";
 
     private const string NoWorksheetMessage = "Select a worksheet before running an analysis.";
     private const string NoColumnsMessage = "This worksheet has no numeric columns to analyse.";
@@ -28,16 +30,17 @@ public sealed class CapabilityAnalysisController
 
     private readonly ICapabilityAnalysisSetupDialogs _dialogs;
     private readonly IAnalysisResultPresenter _results;
-    private readonly CapabilityAnalysisBuilder _builder;
+    private readonly Func<AnalysisData, CapabilityAnalysisConfiguration, CancellationToken, AnalysisResultTable> _build;
 
     internal CapabilityAnalysisController(
         ICapabilityAnalysisSetupDialogs dialogs,
         IAnalysisResultPresenter results,
-        CapabilityAnalysisBuilder builder)
+        CapabilityAnalysisBuilder builder,
+        Func<AnalysisData, CapabilityAnalysisConfiguration, CancellationToken, AnalysisResultTable>? build = null)
     {
         _dialogs = dialogs;
         _results = results;
-        _builder = builder;
+        _build = build ?? builder.Build;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until analyses become documents.
@@ -67,6 +70,12 @@ public sealed class CapabilityAnalysisController
         }
         catch (Exception exception) when (exception is ProjectStorageException or RawDataStorageException or EntityNotFoundException)
         {
+            await _dialogs.ShowErrorAsync(ColumnsUnreadableMessage);
+            return null;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Reading worksheet columns for Capability Analysis failed: {exception}");
             await _dialogs.ShowErrorAsync(ColumnsUnreadableMessage);
             return null;
         }
@@ -120,6 +129,12 @@ public sealed class CapabilityAnalysisController
             await _dialogs.ShowErrorAsync(exception.Message);
             return;
         }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Loading Capability Analysis data failed: {exception}");
+            await _dialogs.ShowErrorAsync(AnalysisFailedMessage);
+            return;
+        }
 
         if (data.RowCount == 0 && configuration.Filter is not null)
         {
@@ -132,10 +147,16 @@ public sealed class CapabilityAnalysisController
         {
             // Walking a million rows is real work: it runs off the UI thread and can be cancelled, so a cancelled
             // request never leaves a half-built table behind.
-            table = await Task.Run(() => _builder.Build(data, configuration, cancellationToken), cancellationToken);
+            table = await Task.Run(() => _build(data, configuration, cancellationToken), cancellationToken);
         }
         catch (OperationCanceledException)
         {
+            return;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Building Capability Analysis failed: {exception}");
+            await _dialogs.ShowErrorAsync(AnalysisFailedMessage);
             return;
         }
 
@@ -151,6 +172,21 @@ public sealed class CapabilityAnalysisController
             table = table with { Note = $"Filter: {RowFilter.Describe(filter)}" };
         }
 
-        _results.ShowResult(table);
+        try
+        {
+            _results.ShowResult(table);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Showing Capability Analysis result failed: {exception}");
+            await _dialogs.ShowErrorAsync(AnalysisFailedMessage);
+        }
     }
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or AccessViolationException;
 }

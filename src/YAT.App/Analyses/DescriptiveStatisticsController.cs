@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using YAT.Application.Analyses;
 using YAT.Application.Exceptions;
 using YAT.Application.Filtering;
@@ -16,6 +17,7 @@ namespace YAT.app.Analyses;
 public sealed class DescriptiveStatisticsController
 {
     public const string SetupTitle = "Descriptive Statistics";
+    public const string AnalysisFailedMessage = "This analysis could not be completed.";
 
     private const string NoWorksheetMessage = "Select a worksheet before running an analysis.";
     private const string NoColumnsMessage = "This worksheet has no numeric columns to analyse.";
@@ -27,16 +29,17 @@ public sealed class DescriptiveStatisticsController
 
     private readonly IAnalysisSetupDialogs _dialogs;
     private readonly IAnalysisResultPresenter _results;
-    private readonly DescriptiveStatisticsBuilder _builder;
+    private readonly Func<AnalysisData, CancellationToken, AnalysisResultTable> _build;
 
     internal DescriptiveStatisticsController(
         IAnalysisSetupDialogs dialogs,
         IAnalysisResultPresenter results,
-        DescriptiveStatisticsBuilder builder)
+        DescriptiveStatisticsBuilder builder,
+        Func<AnalysisData, CancellationToken, AnalysisResultTable>? build = null)
     {
         _dialogs = dialogs;
         _results = results;
-        _builder = builder;
+        _build = build ?? builder.Build;
     }
 
     // The last configuration a user confirmed, kept for tests and debugging until analyses become documents.
@@ -66,6 +69,12 @@ public sealed class DescriptiveStatisticsController
         }
         catch (Exception exception) when (exception is ProjectStorageException or RawDataStorageException or EntityNotFoundException)
         {
+            await _dialogs.ShowErrorAsync(ColumnsUnreadableMessage);
+            return null;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Reading worksheet columns for Descriptive Statistics failed: {exception}");
             await _dialogs.ShowErrorAsync(ColumnsUnreadableMessage);
             return null;
         }
@@ -121,6 +130,12 @@ public sealed class DescriptiveStatisticsController
             await _dialogs.ShowErrorAsync(exception.Message);
             return;
         }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Loading Descriptive Statistics data failed: {exception}");
+            await _dialogs.ShowErrorAsync(AnalysisFailedMessage);
+            return;
+        }
 
         if (data.RowCount == 0 && configuration.Filter is not null)
         {
@@ -133,10 +148,16 @@ public sealed class DescriptiveStatisticsController
         {
             // Summarising a million rows is real work: it runs off the UI thread and can be cancelled, so a cancelled
             // request never leaves a half-built table behind.
-            table = await Task.Run(() => _builder.Build(data, cancellationToken), cancellationToken);
+            table = await Task.Run(() => _build(data, cancellationToken), cancellationToken);
         }
         catch (OperationCanceledException)
         {
+            return;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Building Descriptive Statistics failed: {exception}");
+            await _dialogs.ShowErrorAsync(AnalysisFailedMessage);
             return;
         }
 
@@ -152,6 +173,21 @@ public sealed class DescriptiveStatisticsController
             table = table with { Note = $"Filter: {RowFilter.Describe(filter)}" };
         }
 
-        _results.ShowResult(table);
+        try
+        {
+            _results.ShowResult(table);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            Trace.TraceError($"Showing Descriptive Statistics result failed: {exception}");
+            await _dialogs.ShowErrorAsync(AnalysisFailedMessage);
+        }
     }
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or AccessViolationException;
 }
