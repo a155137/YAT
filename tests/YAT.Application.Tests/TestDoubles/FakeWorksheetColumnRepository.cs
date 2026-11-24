@@ -67,6 +67,45 @@ internal sealed class FakeWorksheetColumnRepository : IWorksheetColumnRepository
         return Task.CompletedTask;
     }
 
+    public Task SaveBatchAsync(
+        IReadOnlyList<WorksheetColumn> added,
+        IReadOnlyList<WorksheetColumn> updated,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(added);
+        ArgumentNullException.ThrowIfNull(updated);
+
+        var addedCopy = added.ToArray();
+        var updatedCopy = updated.ToArray();
+        if (addedCopy.Length == 0 && updatedCopy.Length == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        ThrowIfFailingWrite();
+        foreach (var column in updatedCopy)
+        {
+            if (!_stored.ContainsKey(column.Id))
+            {
+                throw new EntityNotFoundException(nameof(WorksheetColumn), column.Id);
+            }
+        }
+
+        foreach (var column in addedCopy)
+        {
+            _stored[column.Id] = column;
+            Added.Add(column);
+        }
+
+        foreach (var column in updatedCopy)
+        {
+            _stored[column.Id] = column;
+            Updated.Add(column);
+        }
+
+        return Task.CompletedTask;
+    }
+
     private void ThrowIfFailingWrite()
     {
         if (FailingWrite is { } failing && failing.WriteNumber == WriteCount + 1)

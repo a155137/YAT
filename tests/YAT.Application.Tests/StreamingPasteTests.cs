@@ -177,7 +177,7 @@ public class StreamingPasteTests
     }
 
     [Fact]
-    public async Task StreamingMetadataFailurePreservesDocumentedPartialSemantics()
+    public async Task StreamingMetadataFailureLeavesRawWrittenAndMetadataBatchUnchanged()
     {
         var worksheet = new Worksheet { Id = Guid.NewGuid(), Name = "WAT" };
         var worksheets = new FakeWorksheetRepository();
@@ -186,7 +186,7 @@ public class StreamingPasteTests
         var existing = new WorksheetColumn { Id = Guid.NewGuid(), WorksheetId = worksheet.Id, Index = 0, Name = "No", DataType = WorksheetDataType.Numeric };
         columns.Seed(existing);
         var failure = new InvalidOperationException("Simulated metadata failure.");
-        columns.FailingWrite = (2, failure);
+        columns.FailingWrite = (1, failure);
         var rawStore = new FakeWorksheetRawDataStore();
 
         var plan = new WorksheetPastePlanner(new ColumnDataTypeDetector()).PlanFromText(worksheet.Id, [existing], 0, "Lot\tReg1\nN1\t5\n", Token);
@@ -195,8 +195,9 @@ public class StreamingPasteTests
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ExecuteFromTextAsync(plan, "Lot\tReg1\nN1\t5\n", Token));
         Assert.Same(failure, thrown);
         Assert.Single(rawStore.Writes);
-        Assert.Single(columns.Updated);
+        Assert.Empty(columns.Updated);
         Assert.Empty(columns.Added);
+        Assert.Same(existing, Assert.Single(await columns.GetByWorksheetIdAsync(worksheet.Id, Token)));
     }
 
     private static async Task<(WorksheetPastePlan Plan, PasteExecutionResult Result, RawDataBlock Block)> ExecuteLegacyAsync(

@@ -581,14 +581,15 @@ public class PasteExecutionServiceTests
         Assert.Same(no, Assert.Single(await fixture.StoredColumnsAsync()));
     }
 
-    // 22 — documents the known limitation: metadata and raw data do not share a transaction.
+    // 22 — documents the known limitation: metadata and raw data do not share a transaction,
+    // while the metadata batch itself is atomic (all or nothing).
     [Fact]
-    public async Task MetadataFailureAfterRawWriteLeavesRawDataWrittenAndMetadataPartial()
+    public async Task MetadataFailureAfterRawWriteLeavesRawDataWrittenAndMetadataUnchanged()
     {
         var fixture = new Fixture();
         var no = fixture.SeedColumn(0, "No");
         var failure = new InvalidOperationException("Simulated metadata failure.");
-        fixture.Columns.FailingWrite = (2, failure);
+        fixture.Columns.FailingWrite = (1, failure);
 
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.PasteAsync("Lot\tReg1\tReg2\nN1\t5\t0.1\n"));
 
@@ -597,11 +598,11 @@ public class PasteExecutionServiceTests
         // The raw write completed for all three columns and is not rolled back.
         Assert.Equal(3, fixture.SingleWrittenBlock.Columns.Count);
 
-        // Metadata is written in plan order: the first write (update of index 0) succeeded, the rest did not happen.
-        Assert.Equal([no.Id], fixture.Columns.Updated.Select(column => column.Id));
+        // The metadata batch rolled back as a unit: nothing was updated or added.
+        Assert.Empty(fixture.Columns.Updated);
         Assert.Empty(fixture.Columns.Added);
         var stored = Assert.Single(await fixture.StoredColumnsAsync());
-        Assert.Equal((no.Id, "Lot", WorksheetDataType.String), (stored.Id, stored.Name, stored.DataType));
+        Assert.Same(no, stored);
     }
 
     [Fact]

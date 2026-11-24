@@ -276,11 +276,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             WritePhaseHook?.Invoke(DuckDbRawWritePhase.AfterAppend);
 
             DuckDbRawCatalog.InsertBlock(connection, blockId, worksheetId, tableName, rowCount);
-            foreach (var column in schema)
-            {
-                DuckDbRawCatalog.UpsertColumn(
-                    connection, column.ColumnId, worksheetId, blockId, DuckDbIdentifiers.ValueColumn(column.ColumnId), column.DataType);
-            }
+            DuckDbRawCatalog.UpsertColumns(connection, worksheetId, blockId, schema);
 
             WritePhaseHook?.Invoke(DuckDbRawWritePhase.AfterCatalogUpdate);
 

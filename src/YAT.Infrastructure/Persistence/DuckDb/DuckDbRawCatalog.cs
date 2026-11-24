@@ -1,5 +1,6 @@
 using System.Globalization;
 using DuckDB.NET.Data;
+using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Exceptions;
 using YAT.Domain.Enums;
 
@@ -115,6 +116,101 @@ internal static class DuckDbRawCatalog
             "ON CONFLICT (column_id) DO UPDATE SET worksheet_id = EXCLUDED.worksheet_id, block_id = EXCLUDED.block_id, " +
             "physical_name = EXCLUDED.physical_name, data_type = EXCLUDED.data_type",
             ("column", columnId), ("worksheet", worksheetId), ("block", blockId), ("name", physicalName), ("type", dataType.ToString()));
+
+    public static void UpsertColumns(
+        DuckDBConnection connection,
+        Guid worksheetId,
+        Guid blockId,
+        IReadOnlyList<RawColumnSchema> columns)
+    {
+        if (columns.Count == 1)
+        {
+            var single = columns[0];
+            UpsertColumn(connection, single.ColumnId, worksheetId, blockId, DuckDbIdentifiers.ValueColumn(single.ColumnId), single.DataType);
+            return;
+        }
+
+        const string stagingTable = "_yat_raw_cols_stage";
+        Execute(connection, $"DROP TABLE IF EXISTS {stagingTable}");
+        Execute(connection,
+            $"CREATE TEMP TABLE {stagingTable} (column_id UUID NOT NULL, worksheet_id UUID NOT NULL, block_id UUID NOT NULL, physical_name VARCHAR NOT NULL, data_type VARCHAR NOT NULL)");
+        try
+        {
+            AppendStagingRows(connection, stagingTable, columns, (row, column) =>
+                row.AppendValue(column.ColumnId)
+                    .AppendValue(worksheetId)
+                    .AppendValue(blockId)
+                    .AppendValue(DuckDbIdentifiers.ValueColumn(column.ColumnId))
+                    .AppendValue(column.DataType.ToString()));
+
+            Execute(connection,
+                $"DELETE FROM raw_column USING {stagingTable} s WHERE raw_column.column_id = s.column_id");
+            Execute(connection,
+                $"INSERT INTO raw_column SELECT column_id, worksheet_id, block_id, physical_name, data_type FROM {stagingTable}");
+        }
+        finally
+        {
+            TryDropTempTable(connection, stagingTable);
+        }
+    }
+
+    internal static void AppendStagingRows<T>(
+        DuckDBConnection connection,
+        string tableName,
+        IReadOnlyList<T> items,
+        Action<IDuckDBAppenderRow, T> appendRow)
+    {
+        DuckDBAppender? appender = null;
+        Exception? primaryException = null;
+        try
+        {
+            appender = connection.CreateAppender(tableName);
+            foreach (var item in items)
+            {
+                var row = appender.CreateRow();
+                appendRow(row, item);
+                row.EndRow();
+            }
+
+            appender.Close();
+        }
+        catch (Exception exception)
+        {
+            primaryException = exception;
+            throw;
+        }
+        finally
+        {
+            if (appender is not null)
+            {
+                try
+                {
+                    if (primaryException is not null)
+                    {
+                        appender.Clear();
+                    }
+
+                    appender.Dispose();
+                }
+                catch when (primaryException is not null)
+                {
+                    // Preserve the primary failure so the outer transaction rollback reports it.
+                }
+            }
+        }
+    }
+
+    internal static void TryDropTempTable(DuckDBConnection connection, string tableName)
+    {
+        try
+        {
+            Execute(connection, $"DROP TABLE IF EXISTS {tableName}");
+        }
+        catch (DuckDBException)
+        {
+            // Ignore cleanup failure when the transaction is already aborted for rollback.
+        }
+    }
 
     public static void DeleteColumn(DuckDBConnection connection, Guid columnId) =>
         Execute(connection, "DELETE FROM raw_column WHERE column_id = $column", ("column", columnId));

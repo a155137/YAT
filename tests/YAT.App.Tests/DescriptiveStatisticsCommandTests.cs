@@ -493,6 +493,7 @@ public class DescriptiveStatisticsCommandTests
         public Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task SaveBatchAsync(IReadOnlyList<WorksheetColumn> added, IReadOnlyList<WorksheetColumn> updated, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FaultingColumnRepository(Exception failure) : IWorksheetColumnRepository
@@ -502,5 +503,6 @@ public class DescriptiveStatisticsCommandTests
         public Task AddAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task UpdateAsync(WorksheetColumn column, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task SaveBatchAsync(IReadOnlyList<WorksheetColumn> added, IReadOnlyList<WorksheetColumn> updated, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

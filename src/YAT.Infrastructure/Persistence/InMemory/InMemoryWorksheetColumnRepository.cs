@@ -39,4 +39,51 @@ public sealed class InMemoryWorksheetColumnRepository : IWorksheetColumnReposito
         _columns.Remove(columnId)
             ? Task.CompletedTask
             : Task.FromException(new EntityNotFoundException(nameof(WorksheetColumn), columnId));
+
+    public Task SaveBatchAsync(
+        IReadOnlyList<WorksheetColumn> added,
+        IReadOnlyList<WorksheetColumn> updated,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(added);
+        ArgumentNullException.ThrowIfNull(updated);
+
+        var addedCopy = added.ToArray();
+        var updatedCopy = updated.ToArray();
+        if (addedCopy.Any(column => column is null))
+        {
+            return Task.FromException(new ArgumentException("Added columns must not contain null entries.", nameof(added)));
+        }
+
+        if (updatedCopy.Any(column => column is null))
+        {
+            return Task.FromException(new ArgumentException("Updated columns must not contain null entries.", nameof(updated)));
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
+        // Validate all updated IDs before mutating state so the batch is all-or-nothing.
+        foreach (var column in updatedCopy)
+        {
+            if (!_columns.ContainsKey(column.Id))
+            {
+                return Task.FromException(new EntityNotFoundException(nameof(WorksheetColumn), column.Id));
+            }
+        }
+
+        foreach (var column in addedCopy)
+        {
+            _columns[column.Id] = column;
+        }
+
+        foreach (var column in updatedCopy)
+        {
+            _columns[column.Id] = column;
+        }
+
+        return Task.CompletedTask;
+    }
 }

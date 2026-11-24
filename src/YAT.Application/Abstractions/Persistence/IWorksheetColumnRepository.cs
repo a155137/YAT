@@ -15,4 +15,12 @@ public interface IWorksheetColumnRepository
     // Removes the column with this Id. Other columns are not changed (no reindexing). Throws EntityNotFoundException
     // when no such column exists. A deleted Id is never reused.
     Task DeleteAsync(Guid columnId, CancellationToken cancellationToken);
+
+    // Atomically persists newly added columns (with upsert semantics matching AddAsync) and updated columns
+    // (throwing EntityNotFoundException and rolling back the batch if any updated column does not exist).
+    // All changes in the batch are stored together, or none.
+    Task SaveBatchAsync(
+        IReadOnlyList<WorksheetColumn> added,
+        IReadOnlyList<WorksheetColumn> updated,
+        CancellationToken cancellationToken);
 }

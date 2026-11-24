@@ -8,8 +8,9 @@ namespace YAT.Application.Ingestion;
 // Executes a planned column-oriented paste. Everything is prepared in memory first (column identities, metadata,
 // one RawDataBlock); only then is the block written with a single raw store call, followed by the column metadata.
 //
-// Known limitation: column metadata and raw data are not persisted in one transaction. If a metadata write fails
-// after the raw write has completed, the raw values stay replaced while some or all metadata changes are missing.
+// Known limitation: column metadata and raw data are not persisted in one transaction. Raw data is committed first,
+// then column metadata is persisted in one atomic batch. If the metadata batch fails after the raw write has
+// completed, the raw values stay replaced while the metadata stays unchanged.
 public sealed class PasteExecutionService
 {
     private readonly IWorksheetRepository _worksheets;
@@ -132,19 +133,23 @@ public sealed class PasteExecutionService
         return preparedColumns;
     }
 
-    private async Task PersistMetadataAsync(PreparedColumn[] preparedColumns)
+    private Task PersistMetadataAsync(PreparedColumn[] preparedColumns)
     {
+        var added = new List<WorksheetColumn>();
+        var updated = new List<WorksheetColumn>();
         foreach (var prepared in preparedColumns)
         {
             if (prepared.IsNew)
             {
-                await _columns.AddAsync(prepared.Column, CancellationToken.None);
+                added.Add(prepared.Column);
             }
             else
             {
-                await _columns.UpdateAsync(prepared.Column, CancellationToken.None);
+                updated.Add(prepared.Column);
             }
         }
+
+        return _columns.SaveBatchAsync(added, updated, CancellationToken.None);
     }
 
     private static PasteExecutionResult BuildResult(WorksheetPastePlan plan, int rowCount, PreparedColumn[] preparedColumns)
