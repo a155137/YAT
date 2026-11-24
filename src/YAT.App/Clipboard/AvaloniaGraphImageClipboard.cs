@@ -31,18 +31,49 @@ internal sealed class AvaloniaGraphImageClipboard : IGraphImageClipboard
         var clipboard = _topLevel.Clipboard
             ?? throw new InvalidOperationException("The clipboard is not available.");
 
-        // The bitmap is not disposed here: the clipboard may still read it until the flush below has handed everything
-        // to the system.
+        await CopyPngAsync(clipboard.SetDataAsync, clipboard.FlushAsync, static stream => new Bitmap(stream), png);
+    }
+
+    internal static async Task CopyPngAsync(
+        Func<IAsyncDataTransfer, Task> setDataAsync,
+        Func<Task> flushAsync,
+        Func<Stream, Bitmap> createBitmap,
+        byte[] png)
+    {
+        ArgumentNullException.ThrowIfNull(setDataAsync);
+        ArgumentNullException.ThrowIfNull(flushAsync);
+        ArgumentNullException.ThrowIfNull(createBitmap);
+        ArgumentNullException.ThrowIfNull(png);
+
+        // Keep the bitmap alive until FlushAsync completes (so the platform clipboard can render every format to OS
+        // memory). If SetDataAsync fails, the clipboard never retained the transfer, so dispose immediately. If
+        // SetDataAsync succeeds and FlushAsync fails, leave the bitmap alive so Windows delayed rendering remains valid.
         using var stream = new MemoryStream(png, writable: false);
-        var bitmap = new Bitmap(stream);
+        var bitmap = createBitmap(stream);
 
-        var item = new DataTransferItem();
-        item.SetBitmap(bitmap);
+        var setDataSucceeded = false;
+        try
+        {
+            var item = new DataTransferItem();
+            item.SetBitmap(bitmap);
 
-        var transfer = new DataTransfer();
-        transfer.Add(item);
+            var transfer = new DataTransfer();
+            transfer.Add(item);
 
-        await clipboard.SetDataAsync(transfer);
-        await clipboard.FlushAsync();
+            await setDataAsync(transfer);
+            setDataSucceeded = true;
+            await flushAsync();
+
+            bitmap.Dispose();
+        }
+        catch
+        {
+            if (!setDataSucceeded)
+            {
+                bitmap.Dispose();
+            }
+
+            throw;
+        }
     }
 }
