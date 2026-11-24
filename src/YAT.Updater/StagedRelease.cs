@@ -104,15 +104,25 @@ internal sealed class StagedRelease
     {
         try
         {
-            if (Directory.Exists(folder))
+            var dir = new DirectoryInfo(folder);
+            if (dir.Exists)
             {
+                if (dir.LinkTarget is not null || dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return;
+                }
+
                 Directory.Delete(folder, recursive: true);
             }
 
             var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(folder));
-            if (parent is not null && Directory.Exists(parent) && !Directory.EnumerateFileSystemEntries(parent).Any())
+            if (parent is not null && Directory.Exists(parent))
             {
-                Directory.Delete(parent);
+                var parentInfo = new DirectoryInfo(parent);
+                if (parentInfo.LinkTarget is null && !parentInfo.Attributes.HasFlag(FileAttributes.ReparsePoint) && !Directory.EnumerateFileSystemEntries(parent).Any())
+                {
+                    Directory.Delete(parent);
+                }
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -191,7 +201,23 @@ internal sealed class StagedRelease
         string json;
         try
         {
-            if (new FileInfo(path).Length > MaximumManifestBytes)
+            var parent = Path.GetDirectoryName(path);
+            if (parent is not null)
+            {
+                var parentInfo = new DirectoryInfo(parent);
+                if (parentInfo.Exists && (parentInfo.LinkTarget is not null || parentInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+                {
+                    throw new UpdaterException($"The update information folder {parent} is a link.");
+                }
+            }
+
+            var snapshotInfo = new FileInfo(path);
+            if (snapshotInfo.Exists && (snapshotInfo.LinkTarget is not null || snapshotInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+            {
+                throw new UpdaterException($"The update information {path} is a link.");
+            }
+
+            if (snapshotInfo.Length > MaximumManifestBytes)
             {
                 throw new UpdaterException($"The update information {path} is larger than 1 MB.");
             }

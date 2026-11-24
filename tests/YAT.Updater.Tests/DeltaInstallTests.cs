@@ -486,6 +486,74 @@ public sealed class DeltaInstallTests : IDisposable
     }
 
     [Fact]
+    public void Recover_Refuses_WhenWorkFolderIsReparsePoint()
+    {
+        var external = Path.Combine(_sandbox.Root, "external-work");
+        Directory.CreateDirectory(external);
+        var sentinel = Path.Combine(external, "keep.txt");
+        File.WriteAllText(sentinel, "do not touch");
+
+        var workFolder = ReleaseInstallation.WorkFolder(_sandbox.Installation);
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{workFolder}\" \"{external}\"")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false
+        })!;
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+
+        Assert.Equal(InstallOutcome.RollbackFailed, CreateInstaller().Recover());
+        Assert.True(File.Exists(sentinel));
+    }
+
+    [Fact]
+    public void DeltaInstall_Refuses_WhenSnapshotDirectoryIsReparsePoint()
+    {
+        var realUpdates = Path.Combine(_sandbox.Root, "real-updates");
+        CreateDeltaPackage(realUpdates, V2, V3);
+        var realDeltaDir = Path.GetDirectoryName(UpdatePackageLayout.DeltaSnapshotPath(realUpdates, V2, V3))!;
+        var linkDeltaDir = Path.GetDirectoryName(UpdatePackageLayout.DeltaSnapshotPath(_sandbox.Updates, V2, V3))!;
+        Directory.CreateDirectory(Path.GetDirectoryName(linkDeltaDir)!);
+
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{linkDeltaDir}\" \"{realDeltaDir}\"")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false
+        })!;
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+
+        Assert.Equal(InstallOutcome.Unchanged, CreateInstaller().Install(V2, V3, isDelta: true));
+        Assert.Contains(_host.Notices, n => n.Error && n.Message.Contains("link", StringComparison.Ordinal));
+        AssertOld();
+    }
+
+    [Fact]
+    public void DeltaInstall_RefusesAndPreservesExternalData_WhenBackupFolderIsReparsePoint()
+    {
+        CreateDeltaPackage(_sandbox.Updates, V2, V3);
+        var external = Path.Combine(_sandbox.Root, "external-backup");
+        Directory.CreateDirectory(external);
+        var sentinel = Path.Combine(external, "important.txt");
+        File.WriteAllText(sentinel, "must not be deleted");
+
+        Directory.CreateDirectory(ReleaseInstallation.WorkFolder(_sandbox.Installation));
+        var backupFolder = ReleaseInstallation.BackupFolder(_sandbox.Installation);
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{backupFolder}\" \"{external}\"")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false
+        })!;
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+
+        Assert.Equal(InstallOutcome.Unchanged, CreateInstaller().Install(V2, V3, isDelta: true));
+        Assert.True(File.Exists(sentinel));
+        Assert.Equal("must not be deleted", File.ReadAllText(sentinel));
+        AssertOld();
+    }
+
+    [Fact]
     public void FullInstall_ContinuesToWorkAlongsideDeltaInstall()
     {
         Package(_sandbox.Updates, V3);

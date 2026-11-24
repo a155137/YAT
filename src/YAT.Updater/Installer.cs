@@ -80,17 +80,7 @@ internal sealed class Installer
         var started = DateTime.UtcNow;
         try
         {
-            var workFolder = new DirectoryInfo(ReleaseInstallation.WorkFolder(_installation));
-            if (workFolder.Exists && (workFolder.LinkTarget is not null || workFolder.Attributes.HasFlag(FileAttributes.ReparsePoint)))
-            {
-                throw new UpdaterException($"{workFolder.FullName} is a link.");
-            }
-
-            var backupFolder = new DirectoryInfo(ReleaseInstallation.BackupFolder(_installation));
-            if (backupFolder.Exists && (backupFolder.LinkTarget is not null || backupFolder.Attributes.HasFlag(FileAttributes.ReparsePoint)))
-            {
-                throw new UpdaterException($"{backupFolder.FullName} is a link.");
-            }
+            EnsureSafeWorkPaths();
 
             switch (replacement.Recover())
             {
@@ -167,6 +157,8 @@ internal sealed class Installer
         RecoveryResult result;
         try
         {
+            EnsureSafeWorkPaths();
+
             if (_host.OthersRunning(Executable).Count > 0)
             {
                 _host.Notify($"YAT is running from {_installation}. Close every YAT window, then run the recovery again.", error: true);
@@ -196,6 +188,32 @@ internal sealed class Installer
             default:
                 _host.Notify(RecoveryInstructions("YAT's interrupted update could not be undone."), error: true);
                 return InstallOutcome.RollbackFailed;
+        }
+    }
+
+    private void EnsureSafeWorkPaths()
+    {
+        var directories = new[]
+        {
+            _installation,
+            ReleaseInstallation.WorkFolder(_installation),
+            ReleaseInstallation.BackupFolder(_installation),
+            Path.Combine(ReleaseInstallation.WorkFolder(_installation), "staging")
+        };
+
+        foreach (var path in directories)
+        {
+            var dir = new DirectoryInfo(path);
+            if (dir.Exists && (dir.LinkTarget is not null || dir.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+            {
+                throw new UpdaterException($"{dir.FullName} is a link.");
+            }
+        }
+
+        var journal = new FileInfo(ReleaseInstallation.JournalPath(_installation));
+        if (journal.Exists && (journal.LinkTarget is not null || journal.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+        {
+            throw new UpdaterException($"{journal.FullName} is a link.");
         }
     }
 

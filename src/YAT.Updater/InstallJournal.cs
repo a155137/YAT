@@ -69,7 +69,9 @@ internal sealed record InstallJournal(
     // Written to a temporary file, flushed to disk, then renamed over the journal: never half written.
     public void Write(string path)
     {
+        EnsureNotLink(path);
         var temporary = path + ".tmp";
+        EnsureNotLink(temporary);
         using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
         {
             stream.Write(ToJson());
@@ -84,6 +86,7 @@ internal sealed record InstallJournal(
     // The journal at this path, or UpdaterException when it cannot be one (it is then left where it is).
     public static InstallJournal Read(string path)
     {
+        EnsureNotLink(path);
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
@@ -126,6 +129,15 @@ internal sealed record InstallJournal(
             or FormatException or IOException or UnauthorizedAccessException)
         {
             throw new UpdaterException($"The installation journal {path} cannot be read: {exception.Message}", exception);
+        }
+    }
+
+    private static void EnsureNotLink(string path)
+    {
+        var info = new FileInfo(path);
+        if (info.Exists && (info.LinkTarget is not null || info.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+        {
+            throw new UpdaterException($"The installation journal {path} is a link.");
         }
     }
 }

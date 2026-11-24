@@ -90,11 +90,20 @@ internal sealed class Replacement
                 BeforeMove?.Invoke(index, move);
                 if (move.Kind == MoveKind.Backup)
                 {
-                    _mover.Move(Installed(move.Path), Backup(move.Path));
+                    var source = Installed(move.Path);
+                    var destination = Backup(move.Path);
+                    EnsureRealPath(source, _installation);
+                    EnsureRealPath(destination, BackupFolder);
+                    _mover.Move(source, destination);
                 }
                 else
                 {
-                    _mover.Move(Staged(journal, move.Path), Installed(move.Path));
+                    var stagingRoot = ReleaseInstallation.StagingFolder(_installation, journal.To);
+                    var source = Staged(journal, move.Path);
+                    var destination = Installed(move.Path);
+                    EnsureRealPath(source, stagingRoot);
+                    EnsureRealPath(destination, _installation);
+                    _mover.Move(source, destination);
                 }
             }
 
@@ -163,6 +172,8 @@ internal sealed class Replacement
                     if (!File.Exists(staged) && File.Exists(installed)
                         && InstallPlan.IsFile(installed, new ReleaseFile(move.Path, move.Size, move.Sha256)))
                     {
+                        EnsureRealPath(installed, _installation);
+                        EnsureRealPath(staged, ReleaseInstallation.StagingFolder(_installation, journal.To));
                         _mover.Move(installed, staged);
                     }
                 }
@@ -171,7 +182,10 @@ internal sealed class Replacement
                     var backup = Backup(move.Path);
                     if (File.Exists(backup))
                     {
-                        _mover.Move(backup, Installed(move.Path));
+                        var installed = Installed(move.Path);
+                        EnsureRealPath(backup, BackupFolder);
+                        EnsureRealPath(installed, _installation);
+                        _mover.Move(backup, installed);
                     }
                 }
             }
@@ -356,11 +370,40 @@ internal sealed class Replacement
         }
     }
 
+    private static void EnsureRealPath(string path, string stopAtRoot)
+    {
+        var fullRoot = Path.GetFullPath(stopAtRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fileInfo = new FileInfo(path);
+        if (fileInfo.Exists && (fileInfo.LinkTarget is not null || fileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+        {
+            throw new UpdaterException($"{path} is a link.");
+        }
+
+        var current = Path.GetDirectoryName(Path.GetFullPath(path));
+        while (!string.IsNullOrEmpty(current))
+        {
+            var dirInfo = new DirectoryInfo(current);
+            if (dirInfo.Exists && (dirInfo.LinkTarget is not null || dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+            {
+                throw new UpdaterException($"{current} is a link.");
+            }
+
+            if (string.Equals(current.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), fullRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            current = Path.GetDirectoryName(current);
+        }
+    }
+
     private static void DeleteIfEmpty(string folder)
     {
         try
         {
-            if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any())
+            var dirInfo = new DirectoryInfo(folder);
+            if (dirInfo.Exists && dirInfo.LinkTarget is null && !dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)
+                && !Directory.EnumerateFileSystemEntries(folder).Any())
             {
                 Directory.Delete(folder);
             }
@@ -372,9 +415,12 @@ internal sealed class Replacement
 
     private static void DeleteTree(string folder)
     {
-        if (Directory.Exists(folder))
+        var dirInfo = new DirectoryInfo(folder);
+        if (!dirInfo.Exists || dirInfo.LinkTarget is not null || dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            Directory.Delete(folder, recursive: true);
+            return;
         }
+
+        Directory.Delete(folder, recursive: true);
     }
 }
