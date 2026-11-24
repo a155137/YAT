@@ -36,6 +36,12 @@ public static class UpdateInstallProtocol
 
     public const string PipeOutOption = "--pipe-out";
 
+    public const string PackageKindOption = "--package-kind";
+
+    public const string FullPackageKind = "full";
+
+    public const string DeltaPackageKind = "delta";
+
     public const string Ready = "ready";
 
     public const string Go = "go";

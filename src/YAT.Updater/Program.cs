@@ -48,7 +48,7 @@ internal static class Program
                 arguments,
                 handshake,
                 ReleaseInstallation.Executable(arguments.InstallDirectory),
-                () => new Installer(arguments.InstallDirectory, arguments.UpdatesRoot!, host, log).Install(arguments.FromVersion!.Value, arguments.Version!.Value));
+                () => new Installer(arguments.InstallDirectory, arguments.UpdatesRoot!, host, log).Install(arguments.FromVersion!.Value, arguments.Version!.Value, arguments.IsDelta));
         }
         catch (Exception exception)
         {

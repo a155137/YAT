@@ -73,16 +73,23 @@ internal sealed class Installer
 
     private string Executable => ReleaseInstallation.Executable(_installation);
 
-    public InstallOutcome Install(ReleaseVersion from, ReleaseVersion to)
+    public InstallOutcome Install(ReleaseVersion from, ReleaseVersion to, bool isDelta = false)
     {
         _log.Write($"Installing {to} over {from} in {_installation}.");
         var replacement = NewReplacement();
         var started = DateTime.UtcNow;
         try
         {
-            if (new DirectoryInfo(ReleaseInstallation.WorkFolder(_installation)).LinkTarget is not null)
+            var workFolder = new DirectoryInfo(ReleaseInstallation.WorkFolder(_installation));
+            if (workFolder.Exists && (workFolder.LinkTarget is not null || workFolder.Attributes.HasFlag(FileAttributes.ReparsePoint)))
             {
-                throw new UpdaterException($"{ReleaseInstallation.WorkFolder(_installation)} is a link.");
+                throw new UpdaterException($"{workFolder.FullName} is a link.");
+            }
+
+            var backupFolder = new DirectoryInfo(ReleaseInstallation.BackupFolder(_installation));
+            if (backupFolder.Exists && (backupFolder.LinkTarget is not null || backupFolder.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+            {
+                throw new UpdaterException($"{backupFolder.FullName} is a link.");
             }
 
             switch (replacement.Recover())
@@ -108,7 +115,10 @@ internal sealed class Installer
             }
 
             DeleteLeftovers();
-            var staged = StagedRelease.Prepare(_installation, _updatesRoot ?? throw new InvalidOperationException("No updates folder was given."), to, _log, AfterFileExtracted);
+            var updatesRoot = _updatesRoot ?? throw new InvalidOperationException("No updates folder was given.");
+            var staged = isDelta
+                ? StagedRelease.PrepareDelta(installed, updatesRoot, from, to, _log, AfterFileExtracted)
+                : StagedRelease.Prepare(installation: _installation, updatesRoot, to, _log, AfterFileExtracted);
             _log.Write($"Timing: staging {(DateTime.UtcNow - started).TotalMilliseconds:F0} ms.");
             InstallPlan plan;
             try

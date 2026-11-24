@@ -55,6 +55,7 @@ internal sealed class InstallPlan
         var installation = installed.Folder;
         var oldFiles = installed.Inventory.Files.ToDictionary(file => file.Path, StringComparer.OrdinalIgnoreCase);
         var newPaths = staged.Inventory.Files.Select(file => file.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var changed = staged.Delta?.ChangedFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var backups = new List<PlannedMove>();
         var places = new List<PlannedMove>();
         var kept = new List<string>();
@@ -72,20 +73,31 @@ internal sealed class InstallPlan
                     throw new UpdaterException($"There is a folder where YAT's file {file.Path} should be: {target}.");
                 }
 
+                var isKeptInDelta = changed is not null && !changed.Contains(file.Path);
                 if (File.Exists(target))
                 {
-                    if (new FileInfo(target).LinkTarget is not null)
+                    var info = new FileInfo(target);
+                    if (info.LinkTarget is not null || info.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     {
                         throw new UpdaterException($"YAT's file {file.Path} is a link; YAT updates only real files.");
                     }
 
-                    if (old.Sha256 == file.Sha256 && IsFile(target, file))
+                    if ((isKeptInDelta || changed is null) && old.Sha256 == file.Sha256 && IsFile(target, file))
                     {
                         kept.Add(file.Path);
                         continue;
                     }
 
+                    if (isKeptInDelta)
+                    {
+                        throw new UpdaterException($"YAT's kept file {file.Path} does not match the installed release; cannot apply delta update.");
+                    }
+
                     backups.Add(new PlannedMove(MoveKind.Backup, old.Path, old.Size, old.Sha256));
+                }
+                else if (isKeptInDelta)
+                {
+                    throw new UpdaterException($"YAT's kept file {file.Path} is missing; cannot apply delta update.");
                 }
 
                 places.Add(new PlannedMove(MoveKind.Place, file.Path, file.Size, file.Sha256));
@@ -107,7 +119,8 @@ internal sealed class InstallPlan
             Ancestors(installation, old.Path, oldFiles, newPaths, null, null);
             if (File.Exists(target))
             {
-                if (new FileInfo(target).LinkTarget is not null)
+                var info = new FileInfo(target);
+                if (info.LinkTarget is not null || info.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
                     throw new UpdaterException($"YAT's file {old.Path} is a link; YAT updates only real files.");
                 }
@@ -127,7 +140,8 @@ internal sealed class InstallPlan
         // The inventory itself: always replaced.
         var inventory = ReleaseInventory.FileName;
         var oldInventory = ReleaseInstallation.InventoryPath(installation);
-        if (new FileInfo(oldInventory).LinkTarget is not null)
+        var oldInventoryInfo = new FileInfo(oldInventory);
+        if (oldInventoryInfo.LinkTarget is not null || oldInventoryInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
             throw new UpdaterException($"{inventory} is a link; YAT updates only real files.");
         }
@@ -147,7 +161,8 @@ internal sealed class InstallPlan
     {
         try
         {
-            if (new FileInfo(path).Length != file.Size)
+            var info = new FileInfo(path);
+            if (info.LinkTarget is not null || info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.Length != file.Size)
             {
                 return false;
             }
@@ -185,7 +200,8 @@ internal sealed class InstallPlan
             var path = ReleaseInstallation.PathOf(installation, relative);
             if (Directory.Exists(path))
             {
-                if (new DirectoryInfo(path).LinkTarget is not null)
+                var dirInfo = new DirectoryInfo(path);
+                if (dirInfo.LinkTarget is not null || dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
                     throw new UpdaterException($"The folder {relative} in YAT's folder is a link; YAT updates only real folders.");
                 }

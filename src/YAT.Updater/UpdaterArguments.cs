@@ -15,7 +15,8 @@ internal sealed record UpdaterArguments(
     int ProcessId,
     long ProcessStart,
     string? PipeIn,
-    string? PipeOut)
+    string? PipeOut,
+    bool IsDelta = false)
 {
     public bool IsInstall => Command == UpdateInstallProtocol.InstallCommand;
 
@@ -33,7 +34,7 @@ internal sealed record UpdaterArguments(
 
         var command = args[0];
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
-        string[] known = command == UpdateInstallProtocol.InstallCommand
+        string[] required = command == UpdateInstallProtocol.InstallCommand
             ?
             [
                 UpdateInstallProtocol.ProtocolOption, UpdateInstallProtocol.InstallDirectoryOption, UpdateInstallProtocol.UpdatesRootOption,
@@ -41,11 +42,14 @@ internal sealed record UpdaterArguments(
                 UpdateInstallProtocol.ProcessStartOption, UpdateInstallProtocol.PipeInOption, UpdateInstallProtocol.PipeOutOption
             ]
             : [UpdateInstallProtocol.ProtocolOption, UpdateInstallProtocol.InstallDirectoryOption];
+        string[] optional = command == UpdateInstallProtocol.InstallCommand
+            ? [UpdateInstallProtocol.PackageKindOption]
+            : [];
 
         for (var index = 1; index < args.Count; index += 2)
         {
             var name = args[index];
-            if (!known.Contains(name))
+            if (!required.Contains(name) && !optional.Contains(name))
             {
                 problem = $"Unknown option '{name}'.";
                 return false;
@@ -64,9 +68,10 @@ internal sealed record UpdaterArguments(
             }
         }
 
-        if (options.Count != known.Length)
+        var missing = required.Where(name => !options.ContainsKey(name)).ToArray();
+        if (missing.Length > 0)
         {
-            problem = $"Missing option(s): {string.Join(", ", known.Where(name => !options.ContainsKey(name)))}.";
+            problem = $"Missing option(s): {string.Join(", ", missing)}.";
             return false;
         }
 
@@ -116,7 +121,21 @@ internal sealed record UpdaterArguments(
             return false;
         }
 
-        parsed = new UpdaterArguments(command, installation!, updates, version, from, processId, start, pipeIn, pipeOut);
+        var isDelta = false;
+        if (options.TryGetValue(UpdateInstallProtocol.PackageKindOption, out var packageKind))
+        {
+            if (packageKind == UpdateInstallProtocol.DeltaPackageKind)
+            {
+                isDelta = true;
+            }
+            else if (packageKind != UpdateInstallProtocol.FullPackageKind)
+            {
+                problem = $"Package kind '{packageKind}' is not supported.";
+                return false;
+            }
+        }
+
+        parsed = new UpdaterArguments(command, installation!, updates, version, from, processId, start, pipeIn, pipeOut, isDelta);
         return true;
     }
 

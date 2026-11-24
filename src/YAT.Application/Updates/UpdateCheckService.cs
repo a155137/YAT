@@ -172,7 +172,7 @@ public sealed class UpdateCheckService
     }
 
     // Prepares installing a verified package: the updater is ready, or why it is not. Never throws for a failure.
-    // Differential packages cannot be installed before Stage 4.
+    // Differential packages are rejected on the default UI path until Stage 4B enables UI integration.
     public Task<UpdateInstallPreparation> PrepareInstallAsync(VerifiedUpdatePackage package, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -180,7 +180,24 @@ public sealed class UpdateCheckService
         {
             return Task.FromResult(UpdateInstallPreparation.Failed(
                 UpdateInstallFailure.NotAReleaseInstallation,
-                "Differential package installation is not enabled before Stage 4."));
+                "Differential package installation is not enabled on the default UI path before Stage 4B."));
+        }
+
+        return _installer is null
+            ? Task.FromResult(UpdateInstallPreparation.Failed(UpdateInstallFailure.NotAReleaseInstallation))
+            : _installer.PrepareAsync(package, cancellationToken);
+    }
+
+    // Stage 4A explicit delta installation path: delegates to IUpdateInstaller, which independently re-verifies
+    // the delta package, snapshot, and updater binary without trusting package.IsDelta alone.
+    public Task<UpdateInstallPreparation> PrepareDeltaInstallAsync(VerifiedUpdatePackage package, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        if (!package.IsDelta)
+        {
+            return Task.FromResult(UpdateInstallPreparation.Failed(
+                UpdateInstallFailure.PackageInvalid,
+                "Expected a differential update package."));
         }
 
         return _installer is null

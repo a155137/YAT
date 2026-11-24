@@ -95,9 +95,12 @@ public sealed class UpdateInstaller : IUpdateInstaller
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // 4-6. The package again, and the updater out of it.
+        // 4-6. The package again, and the updater out of it (or verified local kept updater for delta).
         var updater = ReleaseInstallation.UpdaterPath(installation);
-        var failure = PlaceUpdater(package.Version, installation, updater);
+        var isDelta = package.IsDelta;
+        var failure = isDelta
+            ? PlaceDeltaUpdater(installed, package, installation, updater)
+            : PlaceUpdater(package.Version, installation, updater);
         if (failure is not null)
         {
             return failure;
@@ -106,7 +109,177 @@ public sealed class UpdateInstaller : IUpdateInstaller
         cancellationToken.ThrowIfCancellationRequested();
 
         // 7. Started, and ready.
-        return Start(updater, installation, package.Version, installed);
+        return Start(updater, installation, package.Version, installed, isDelta);
+    }
+
+    private UpdateInstallPreparation? PlaceDeltaUpdater(
+        ReleaseVersion installed,
+        VerifiedUpdatePackage package,
+        string installation,
+        string updater)
+    {
+        if (package.BaseVersion is not { } baseVersion || baseVersion != installed)
+        {
+            return UpdateInstallPreparation.Failed(
+                UpdateInstallFailure.PackageInvalid,
+                $"Differential package base version {package.BaseVersion} does not match installed {installed}.");
+        }
+
+        var snapshot = UpdatePackageLayout.DeltaSnapshotPath(_updatesRoot, installed, package.Version);
+        ReleaseDeltaPackage? listed;
+        try
+        {
+            var read = ReleaseManifestReader.Read(File.ReadAllText(snapshot, Encoding.UTF8));
+            listed = read.IsValid && read.Manifest!.Version == package.Version
+                ? read.Manifest.DeltaFor(ReleaseInstallation.Rid, installed)
+                : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, exception.Message);
+        }
+
+        if (listed is null || listed.Size != package.Size || !string.Equals(listed.Sha256, package.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, $"{snapshot} is not a valid delta manifest for {installed} -> {package.Version}.");
+        }
+
+        string? baseInventorySha256;
+        try
+        {
+            var inventoryBytes = File.ReadAllBytes(ReleaseInstallation.InventoryPath(installation));
+            baseInventorySha256 = Convert.ToHexStringLower(SHA256.HashData(inventoryBytes));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, exception.Message);
+        }
+
+        var deltaPath = UpdatePackageLayout.DeltaPackagePath(_updatesRoot, installed, package.Version, ReleaseInstallation.Rid);
+        try
+        {
+            using var stream = new FileStream(deltaPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
+            if (stream.Length != listed.Size || Convert.ToHexStringLower(SHA256.HashData(stream)) != listed.Sha256)
+            {
+                return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, "The differential package is not the one its manifest names.");
+            }
+
+            stream.Position = 0;
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            var deltaContents = ReleasePackageVerifier.ReadDelta(archive, installed, package.Version, ReleaseInstallation.Rid, baseInventorySha256);
+            if (!deltaContents.IsValid)
+            {
+                return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, string.Join(" ", deltaContents.Problems.Take(3)));
+            }
+
+            var targetUpdaterFile = deltaContents.TargetInventory!.Files.FirstOrDefault(file =>
+                string.Equals(file.Path, ReleaseInstallation.UpdaterName, StringComparison.OrdinalIgnoreCase));
+            if (targetUpdaterFile is null)
+            {
+                return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, $"The target inventory has no {ReleaseInstallation.UpdaterName}.");
+            }
+
+            try
+            {
+                Directory.CreateDirectory(ReleaseInstallation.UpdaterFolder(installation));
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return UpdateInstallPreparation.Failed(UpdateInstallFailure.InstallationNotWritable, exception.Message);
+            }
+
+            var changedBytes = deltaContents.ChangedFiles.Sum(f => f.File.Size);
+            if (!HasRoom(installation, changedBytes + targetUpdaterFile.Size))
+            {
+                return UpdateInstallPreparation.Failed(UpdateInstallFailure.InsufficientSpace);
+            }
+
+            var changedUpdater = deltaContents.ChangedFiles.FirstOrDefault(file =>
+                string.Equals(file.File.Path, ReleaseInstallation.UpdaterName, StringComparison.OrdinalIgnoreCase));
+
+            var partial = updater + ".partial";
+            try
+            {
+                File.Delete(partial);
+                if (changedUpdater is not null)
+                {
+                    using var output = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                    if (!ReleasePackageVerifier.TryCopy(changedUpdater, output))
+                    {
+                        return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, ReleasePackageVerifier.NotTheListedFile(changedUpdater.File.Path));
+                    }
+                }
+                else
+                {
+                    var localUpdaterPath = ReleaseInstallation.PathOf(installation, ReleaseInstallation.UpdaterName);
+                    if (!TryCopyVerifiedLocalFile(localUpdaterPath, partial, targetUpdaterFile))
+                    {
+                        return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, $"The local {ReleaseInstallation.UpdaterName} failed integrity verification.");
+                    }
+                }
+
+                File.Move(partial, updater, overwrite: true);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return UpdateInstallPreparation.Failed(UpdateInstallFailure.InstallationNotWritable, exception.Message);
+            }
+            catch (IOException exception)
+            {
+                return UpdateInstallPreparation.Failed(
+                    File.Exists(updater) && LockHeld(installation) ? UpdateInstallFailure.UpdateInProgress : UpdateInstallFailure.InstallationNotWritable,
+                    exception.Message);
+            }
+            finally
+            {
+                TryDelete(partial);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            return UpdateInstallPreparation.Failed(UpdateInstallFailure.PackageInvalid, exception.Message);
+        }
+
+        return null;
+    }
+
+    private static bool TryCopyVerifiedLocalFile(string sourcePath, string destinationPath, ReleaseFile expected)
+    {
+        if (!File.Exists(sourcePath))
+        {
+            return false;
+        }
+
+        var info = new FileInfo(sourcePath);
+        if (info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.LinkTarget is not null)
+        {
+            return false;
+        }
+
+        using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
+        if (source.Length != expected.Size)
+        {
+            return false;
+        }
+
+        using var output = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[81920];
+        long total = 0;
+        int read;
+        while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            total += read;
+            if (total > expected.Size)
+            {
+                return false;
+            }
+
+            hash.AppendData(buffer, 0, read);
+            output.Write(buffer, 0, read);
+        }
+
+        return total == expected.Size && Convert.ToHexStringLower(hash.GetHashAndReset()) == expected.Sha256;
     }
 
     private UpdateInstallPreparation? PlaceUpdater(ReleaseVersion version, string installation, string updater)
@@ -201,7 +374,7 @@ public sealed class UpdateInstaller : IUpdateInstaller
         return null;
     }
 
-    private UpdateInstallPreparation Start(string updater, string installation, ReleaseVersion version, ReleaseVersion installed)
+    private UpdateInstallPreparation Start(string updater, string installation, ReleaseVersion version, ReleaseVersion installed, bool isDelta = false)
     {
         var toUpdater = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
         var fromUpdater = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
@@ -213,8 +386,8 @@ public sealed class UpdateInstaller : IUpdateInstaller
                 UseShellExecute = false,
                 WorkingDirectory = Path.GetDirectoryName(updater)!
             };
-            string[] arguments =
-            [
+            var arguments = new List<string>
+            {
                 UpdateInstallProtocol.InstallCommand,
                 UpdateInstallProtocol.ProtocolOption, UpdateInstallProtocol.Version.ToString(CultureInfo.InvariantCulture),
                 UpdateInstallProtocol.InstallDirectoryOption, installation,
@@ -225,7 +398,12 @@ public sealed class UpdateInstaller : IUpdateInstaller
                 UpdateInstallProtocol.ProcessStartOption, _target.ProcessStartUtcTicks.ToString(CultureInfo.InvariantCulture),
                 UpdateInstallProtocol.PipeInOption, toUpdater.GetClientHandleAsString(),
                 UpdateInstallProtocol.PipeOutOption, fromUpdater.GetClientHandleAsString()
-            ];
+            };
+            if (isDelta)
+            {
+                arguments.Add(UpdateInstallProtocol.PackageKindOption);
+                arguments.Add(UpdateInstallProtocol.DeltaPackageKind);
+            }
             foreach (var argument in arguments)
             {
                 start.ArgumentList.Add(argument);

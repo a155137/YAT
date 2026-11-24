@@ -22,12 +22,13 @@ internal sealed class StagedRelease
 {
     public const long MaximumManifestBytes = 1024 * 1024;
 
-    private StagedRelease(ReleaseVersion version, string folder, ReleaseInventory inventory, byte[] inventoryJson)
+    private StagedRelease(ReleaseVersion version, string folder, ReleaseInventory inventory, byte[] inventoryJson, ReleaseDeltaManifest? delta = null)
     {
         Version = version;
         Folder = folder;
         Inventory = inventory;
         InventoryJson = inventoryJson;
+        Delta = delta;
     }
 
     public ReleaseVersion Version { get; }
@@ -38,6 +39,8 @@ internal sealed class StagedRelease
 
     // yat-files.json exactly as the package has it.
     public byte[] InventoryJson { get; }
+
+    public ReleaseDeltaManifest? Delta { get; }
 
     // afterFile: a test seam, called after each file is extracted (to interrupt an extraction).
     public static StagedRelease Prepare(string installation, string updatesRoot, ReleaseVersion version, UpdaterLog log, Action<string>? afterFile = null)
@@ -119,7 +122,72 @@ internal sealed class StagedRelease
 
     private static ReleaseManifest ReadSnapshot(string updatesRoot, ReleaseVersion version)
     {
-        var path = UpdatePackageLayout.SnapshotPath(updatesRoot, version);
+        return ReadSnapshotFile(UpdatePackageLayout.SnapshotPath(updatesRoot, version), version);
+    }
+
+    public static StagedRelease PrepareDelta(
+        InstalledRelease installed,
+        string updatesRoot,
+        ReleaseVersion from,
+        ReleaseVersion to,
+        UpdaterLog log,
+        Action<string>? afterFile = null)
+    {
+        var manifest = ReadSnapshotFile(UpdatePackageLayout.DeltaSnapshotPath(updatesRoot, from, to), to);
+        var deltaPackage = manifest.DeltaFor(ReleaseInstallation.Rid, from)
+            ?? throw new UpdaterException($"The update information of {to} has no {ReleaseInstallation.Rid} delta package from {from}.");
+        var zip = UpdatePackageLayout.DeltaPackagePath(updatesRoot, from, to, ReleaseInstallation.Rid);
+        var folder = ReleaseInstallation.StagingFolder(installed.Folder, to);
+
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(zip, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new UpdaterException($"The delta package {zip} cannot be opened: {exception.Message}", exception);
+        }
+
+        using (stream)
+        {
+            if (stream.Length != deltaPackage.Size)
+            {
+                throw new UpdaterException($"The delta package is {stream.Length} bytes, not the {deltaPackage.Size} its update information gives.");
+            }
+
+            if (Convert.ToHexStringLower(SHA256.HashData(stream)) != deltaPackage.Sha256)
+            {
+                throw new UpdaterException("The delta package does not have the SHA-256 its update information gives.");
+            }
+
+            stream.Position = 0;
+            log.Write($"Delta package verified: {zip} ({deltaPackage.Size} bytes, SHA-256 {deltaPackage.Sha256}).");
+            try
+            {
+                using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+                return ExtractDelta(archive, installed, to, folder, log, afterFile);
+            }
+            catch (InvalidDataException exception)
+            {
+                Remove(folder);
+                throw new UpdaterException($"The delta package is not a valid ZIP file: {exception.Message}", exception);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                Remove(folder);
+                throw new UpdaterException($"The delta update could not be extracted: {exception.Message}", exception);
+            }
+            catch
+            {
+                Remove(folder);
+                throw;
+            }
+        }
+    }
+
+    private static ReleaseManifest ReadSnapshotFile(string path, ReleaseVersion version)
+    {
         string json;
         try
         {
@@ -147,6 +215,162 @@ internal sealed class StagedRelease
         }
 
         return manifest;
+    }
+
+    private static StagedRelease ExtractDelta(
+        ZipArchive archive,
+        InstalledRelease installed,
+        ReleaseVersion to,
+        string folder,
+        UpdaterLog log,
+        Action<string>? afterFile)
+    {
+        var contents = ReleasePackageVerifier.ReadDelta(
+            archive,
+            installed.Inventory.Version,
+            to,
+            ReleaseInstallation.Rid,
+            installed.InventorySha256);
+        if (!contents.IsValid)
+        {
+            throw new UpdaterException($"The delta package is not a valid YAT {installed.Inventory.Version} -> {to} delta: {string.Join(" ", contents.Problems.Take(5))}");
+        }
+
+        var inventory = contents.TargetInventory!;
+        var delta = contents.Delta!;
+        if (inventory.Files.FirstOrDefault(file => ReleaseInstallation.IsReserved(file.Path)) is { } reserved)
+        {
+            throw new UpdaterException($"The delta package claims {reserved.Path}, which belongs to the updater.");
+        }
+
+        if (delta.RemovedFiles.FirstOrDefault(ReleaseInstallation.IsReserved) is { } removedReserved)
+        {
+            throw new UpdaterException($"The delta package removes {removedReserved}, which belongs to the updater.");
+        }
+
+        if (!inventory.Files.Any(file => file.Path == ReleaseInstallation.ExecutableName))
+        {
+            throw new UpdaterException($"The delta package has no {ReleaseInstallation.ExecutableName}.");
+        }
+
+        VerifyDeltaCompleteness(installed.Inventory, inventory, delta);
+
+        Remove(folder);
+        if (Directory.Exists(folder))
+        {
+            throw new UpdaterException($"The old staging folder {folder} cannot be removed.");
+        }
+
+        Directory.CreateDirectory(folder);
+        var root = Path.GetFullPath(folder);
+        CheckSpace(root, contents.ChangedFiles.Sum(file => file.File.Size));
+
+        foreach (var file in contents.ChangedFiles)
+        {
+            var target = Inside(root, file.File.Path);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                if (!ReleasePackageVerifier.TryCopy(file, output))
+                {
+                    throw new UpdaterException(ReleasePackageVerifier.NotTheListedFile(file.File.Path));
+                }
+            }
+
+            afterFile?.Invoke(file.File.Path);
+        }
+
+        var json = ReadAndValidateInventoryJson(contents.InventoryEntry!, inventory);
+        File.WriteAllBytes(Path.Combine(root, ReleaseInventory.FileName), json);
+
+        VerifyStagedFiles(root, delta.ChangedFiles);
+
+        log.Write($"Staged {contents.ChangedFiles.Count} changed file(s) for delta {installed.Inventory.Version} -> {to} in {root}.");
+        return new StagedRelease(to, root, inventory, json, delta);
+    }
+
+    private static void VerifyDeltaCompleteness(ReleaseInventory oldInventory, ReleaseInventory newInventory, ReleaseDeltaManifest delta)
+    {
+        var oldFiles = oldInventory.Files.ToDictionary(file => file.Path, StringComparer.OrdinalIgnoreCase);
+        var newFiles = newInventory.Files.ToDictionary(file => file.Path, StringComparer.OrdinalIgnoreCase);
+        var changed = delta.ChangedFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removed = delta.RemovedFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var path in delta.RemovedFiles)
+        {
+            if (!oldFiles.ContainsKey(path))
+            {
+                throw new UpdaterException($"The delta package removes {path}, which is not in the installed release.");
+            }
+
+            if (newFiles.ContainsKey(path) || changed.Contains(path))
+            {
+                throw new UpdaterException($"The delta package removes {path}, which is still in the target release.");
+            }
+        }
+
+        foreach (var file in newInventory.Files)
+        {
+            if (changed.Contains(file.Path))
+            {
+                continue;
+            }
+
+            if (!oldFiles.TryGetValue(file.Path, out var old) || old.Size != file.Size || old.Sha256 != file.Sha256)
+            {
+                throw new UpdaterException($"The delta package keeps {file.Path}, which does not match the installed release.");
+            }
+        }
+
+        foreach (var old in oldInventory.Files)
+        {
+            if (!newFiles.ContainsKey(old.Path) && !removed.Contains(old.Path))
+            {
+                throw new UpdaterException($"The delta package omits {old.Path} without listing it in removedFiles.");
+            }
+        }
+    }
+
+    private static byte[] ReadAndValidateInventoryJson(ZipArchiveEntry entry, ReleaseInventory inventory)
+    {
+        byte[] json;
+        using (var source = entry.Open())
+        using (var buffer = new MemoryStream())
+        {
+            source.CopyTo(buffer);
+            json = buffer.ToArray();
+        }
+
+        if (!ReleaseInventory.TryRead(System.Text.Encoding.UTF8.GetString(json), out var again, out _)
+            || again!.Version != inventory.Version || !again.Files.SequenceEqual(inventory.Files))
+        {
+            throw new UpdaterException($"The package's {ReleaseInventory.FileName} changed while it was read.");
+        }
+
+        return json;
+    }
+
+    private static void VerifyStagedFiles(string root, IEnumerable<string> expectedFiles)
+    {
+        var expected = expectedFiles.Append(ReleaseInventory.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in new DirectoryInfo(root).EnumerateFileSystemInfos("*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(root, entry.FullName).Replace('\\', '/');
+            if (entry.LinkTarget is not null || entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new UpdaterException($"The staged release has a link: {relative}.");
+            }
+
+            if (entry is FileInfo && !expected.Remove(relative))
+            {
+                throw new UpdaterException($"The staged release has a file its inventory does not list: {relative}.");
+            }
+        }
+
+        if (expected.Count > 0)
+        {
+            throw new UpdaterException($"The staged release is missing {string.Join(", ", expected.Take(5))}.");
+        }
     }
 
     private static StagedRelease Extract(ZipArchive archive, ReleaseVersion version, string folder, UpdaterLog log, Action<string>? afterFile)

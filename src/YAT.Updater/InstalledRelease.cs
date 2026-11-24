@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using YAT.Application.Distribution;
 
@@ -6,7 +7,7 @@ namespace YAT.Updater;
 // The release installed in a folder (Task #051.C): its yat-files.json - which says which of the folder's files are the
 // release's own - for the version YAT said it was, for win-x64. An installation that is a link, or has no such
 // inventory, is not updated.
-internal sealed record InstalledRelease(string Folder, ReleaseInventory Inventory)
+internal sealed record InstalledRelease(string Folder, ReleaseInventory Inventory, string InventorySha256)
 {
     public static InstalledRelease Read(string installation, ReleaseVersion expected)
     {
@@ -16,27 +17,41 @@ internal sealed record InstalledRelease(string Folder, ReleaseInventory Inventor
             throw new UpdaterException($"The installation {installation} does not exist.");
         }
 
-        if (folder.LinkTarget is not null)
+        if (folder.LinkTarget is not null || folder.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
             throw new UpdaterException($"The installation {installation} is a link; YAT updates only a real folder.");
         }
 
         var path = ReleaseInstallation.InventoryPath(installation);
-        string json;
+        byte[] bytes;
         try
         {
-            if (new FileInfo(path).Length > ReleasePackageVerifier.MaximumInventoryBytes)
+            var inventoryInfo = new FileInfo(path);
+            if (inventoryInfo.Exists)
+            {
+                if (inventoryInfo.LinkTarget is not null || inventoryInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    throw new UpdaterException($"The installed release's {ReleaseInventory.FileName} is a link.");
+                }
+
+                if (inventoryInfo.Length > ReleasePackageVerifier.MaximumInventoryBytes)
+                {
+                    throw new UpdaterException($"{path} is too large to be an inventory.");
+                }
+            }
+
+            bytes = File.ReadAllBytes(path);
+            if (bytes.Length > ReleasePackageVerifier.MaximumInventoryBytes)
             {
                 throw new UpdaterException($"{path} is too large to be an inventory.");
             }
-
-            json = File.ReadAllText(path, Encoding.UTF8);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             throw new UpdaterException($"The installed release's {ReleaseInventory.FileName} cannot be read: {exception.Message}", exception);
         }
 
+        var json = Encoding.UTF8.GetString(bytes);
         if (!ReleaseInventory.TryRead(json, out var inventory, out var problem))
         {
             throw new UpdaterException($"The installed release's {ReleaseInventory.FileName} is not valid: {problem}");
@@ -52,6 +67,7 @@ internal sealed record InstalledRelease(string Folder, ReleaseInventory Inventor
             throw new UpdaterException($"The installed release claims {reserved.Path}, which belongs to the updater.");
         }
 
-        return new InstalledRelease(Path.GetFullPath(installation), inventory);
+        var inventorySha256 = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        return new InstalledRelease(Path.GetFullPath(installation), inventory, inventorySha256);
     }
 }

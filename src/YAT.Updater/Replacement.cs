@@ -81,6 +81,7 @@ internal sealed class Replacement
         }
 
         _log.Write($"Journal written: {journal.Moves.Count} moves.");
+        var verifyBase = staged.Delta is not null;
         try
         {
             for (var index = 0; index < journal.Moves.Count; index++)
@@ -97,12 +98,13 @@ internal sealed class Replacement
                 }
             }
 
+            verifyBase = true;
             Validate(staged);
         }
         catch (Exception exception) when (exception is not SimulatedCrashException)
         {
             _log.Write($"Installation failed: {exception.Message}. Rolling back.");
-            var restored = Rollback(journal);
+            var restored = Rollback(journal, verifyBase);
             throw new InstallFailedException(exception is UpdaterException ? exception.Message : $"Replacing YAT's files failed: {exception.Message}", restored, exception);
         }
 
@@ -140,12 +142,12 @@ internal sealed class Replacement
             return RecoveryResult.Completed;
         }
 
-        return Rollback(journal) ? RecoveryResult.RolledBack : RecoveryResult.Failed;
+        return Rollback(journal, verifyBase: true) ? RecoveryResult.RolledBack : RecoveryResult.Failed;
     }
 
     // The moves made, undone newest first - read from the files, so undoing twice is undoing once. True when the old
     // release is back and nothing is left of the attempt but the log.
-    private bool Rollback(InstallJournal journal)
+    private bool Rollback(InstallJournal journal, bool verifyBase = false)
     {
         var failures = new List<string>();
         for (var index = journal.Moves.Count - 1; index >= 0; index--)
@@ -200,6 +202,13 @@ internal sealed class Replacement
             return false;
         }
 
+        if (verifyBase && !VerifyBaseInstallation(journal.From, out var baseProblem))
+        {
+            _log.Write($"Base installation verification failed after rollback: {baseProblem}");
+            TryWrite(journal.With(JournalState.RollbackFailed));
+            return false;
+        }
+
         try
         {
             DeleteTree(BackupFolder);
@@ -213,6 +222,30 @@ internal sealed class Replacement
 
         _log.Write($"Rolled back: {journal.From} restored.");
         return true;
+    }
+
+    private bool VerifyBaseInstallation(ReleaseVersion expected, out string? problem)
+    {
+        try
+        {
+            var installed = InstalledRelease.Read(_installation, expected);
+            foreach (var file in installed.Inventory.Files)
+            {
+                if (!InstallPlan.IsFile(Installed(file.Path), file))
+                {
+                    problem = $"{file.Path} is missing or does not match {expected}.";
+                    return false;
+                }
+            }
+
+            problem = null;
+            return true;
+        }
+        catch (UpdaterException exception)
+        {
+            problem = exception.Message;
+            return false;
+        }
     }
 
     // The new release is in place: YAT is told once, and backup, staging and journal go (the journal last, so an
@@ -260,9 +293,21 @@ internal sealed class Replacement
         foreach (var file in staged.Inventory.Files)
         {
             var path = Installed(file.Path);
-            if (!File.Exists(path) || new FileInfo(path).Length != file.Size)
+            if (!InstallPlan.IsFile(path, file))
             {
                 throw new UpdaterException($"After replacing, {file.Path} is not the new release's file.");
+            }
+        }
+
+        if (staged.Delta is { } delta)
+        {
+            foreach (var removed in delta.RemovedFiles)
+            {
+                var path = Installed(removed);
+                if (File.Exists(path) || Directory.Exists(path))
+                {
+                    throw new UpdaterException($"After replacing, removed file {removed} is still present.");
+                }
             }
         }
 
