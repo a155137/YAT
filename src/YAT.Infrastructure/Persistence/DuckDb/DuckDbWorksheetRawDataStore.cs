@@ -46,7 +46,51 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             ArgumentNullException.ThrowIfNull(block);
             cancellationToken.ThrowIfCancellationRequested();
 
-            Execute(connection => WriteColumns(connection, worksheetId, block, cancellationToken));
+            var schema = block.Columns
+                .Select(column => new RawColumnSchema(column.ColumnId, column.DataType))
+                .ToArray();
+            Execute(connection => WriteColumnsCore(
+                connection,
+                worksheetId,
+                schema,
+                nameof(block),
+                tableName =>
+                {
+                    AppendRows(connection, tableName, block, cancellationToken);
+                    return block.RowCount;
+                },
+                cancellationToken));
+            return Task.CompletedTask;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException(exception);
+        }
+    }
+
+    public Task WriteColumnsAsync(
+        Guid worksheetId,
+        IReadOnlyList<RawColumnSchema> columns,
+        Action<IRawDataRowWriter> writeRows,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var schema = ValidateSchema(columns);
+            ArgumentNullException.ThrowIfNull(writeRows);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Execute(connection => WriteColumnsCore(
+                connection,
+                worksheetId,
+                schema,
+                nameof(columns),
+                tableName => AppendStreamingRows(connection, tableName, schema, writeRows, cancellationToken),
+                cancellationToken));
             return Task.CompletedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -206,27 +250,33 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             DuckDbRawCatalog.Scalar(connection, "SELECT current_setting($name)", ("name", name)),
             CultureInfo.InvariantCulture) ?? string.Empty);
 
-    private void WriteColumns(DuckDBConnection connection, Guid worksheetId, RawDataBlock block, CancellationToken cancellationToken)
+    private void WriteColumnsCore(
+        DuckDBConnection connection,
+        Guid worksheetId,
+        IReadOnlyList<RawColumnSchema> schema,
+        string schemaParamName,
+        Func<string, long> appendRows,
+        CancellationToken cancellationToken)
     {
         // Hard rule: raw appends only ever run inside this explicit transaction.
         using var transaction = connection.BeginTransaction();
         try
         {
-            var previous = DuckDbRawCatalog.FindColumns(connection, block.Columns.Select(column => column.ColumnId).ToArray());
+            var previous = DuckDbRawCatalog.FindColumns(connection, schema.Select(column => column.ColumnId).ToArray());
             var foreignColumn = previous.Values.FirstOrDefault(column => column.WorksheetId != worksheetId);
             if (foreignColumn is not null)
             {
-                throw new ArgumentException($"Raw column '{foreignColumn.ColumnId}' belongs to a different worksheet.", nameof(block));
+                throw new ArgumentException($"Raw column '{foreignColumn.ColumnId}' belongs to a different worksheet.", schemaParamName);
             }
 
             var blockId = Guid.NewGuid();
             var tableName = DuckDbIdentifiers.BlockTable(blockId);
-            CreateBlockTable(connection, tableName, block);
-            AppendRows(connection, tableName, block, cancellationToken);
+            CreateBlockTable(connection, tableName, schema);
+            var rowCount = appendRows(tableName);
             WritePhaseHook?.Invoke(DuckDbRawWritePhase.AfterAppend);
 
-            DuckDbRawCatalog.InsertBlock(connection, blockId, worksheetId, tableName, block.RowCount);
-            foreach (var column in block.Columns)
+            DuckDbRawCatalog.InsertBlock(connection, blockId, worksheetId, tableName, rowCount);
+            foreach (var column in schema)
             {
                 DuckDbRawCatalog.UpsertColumn(
                     connection, column.ColumnId, worksheetId, blockId, DuckDbIdentifiers.ValueColumn(column.ColumnId), column.DataType);
@@ -245,6 +295,29 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             DuckDbTransactions.RollBack(transaction);
             throw;
         }
+    }
+
+    private static RawColumnSchema[] ValidateSchema(IReadOnlyList<RawColumnSchema> columns)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+
+        var copy = columns.ToArray();
+        if (copy.Length == 0)
+        {
+            throw new ArgumentException("A streaming write must contain at least one column.", nameof(columns));
+        }
+
+        if (copy.Any(column => column is null))
+        {
+            throw new ArgumentException("A streaming write must not contain null columns.", nameof(columns));
+        }
+
+        if (copy.Select(column => column.ColumnId).Distinct().Count() != copy.Length)
+        {
+            throw new ArgumentException("A streaming write must not contain the same column id twice.", nameof(columns));
+        }
+
+        return copy;
     }
 
     // Removes the columns' catalog entries, then retires their physical storage with the same step a replacing write
@@ -280,10 +353,10 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         }
     }
 
-    private static void CreateBlockTable(DuckDBConnection connection, string tableName, RawDataBlock block)
+    private static void CreateBlockTable(DuckDBConnection connection, string tableName, IReadOnlyList<RawColumnSchema> columns)
     {
         var sql = new StringBuilder($"CREATE TABLE {DuckDbIdentifiers.Quote(tableName)} ({DuckDbIdentifiers.RowIndexColumn} BIGINT NOT NULL");
-        foreach (var column in block.Columns)
+        foreach (var column in columns)
         {
             var physicalType = column.DataType switch
             {
@@ -296,6 +369,58 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
 
         sql.Append(')');
         DuckDbRawCatalog.Execute(connection, sql.ToString());
+    }
+
+    private static long AppendStreamingRows(
+        DuckDBConnection connection,
+        string tableName,
+        IReadOnlyList<RawColumnSchema> columns,
+        Action<IRawDataRowWriter> writeRows,
+        CancellationToken cancellationToken)
+    {
+        DuckDBAppender? appender = null;
+        DuckDbRawRowWriter? writer = null;
+        Exception? primaryException = null;
+        try
+        {
+            appender = connection.CreateAppender(tableName);
+            writer = new DuckDbRawRowWriter(appender, columns, cancellationToken);
+            writeRows(writer);
+            if (writer.IsRowOpen)
+            {
+                throw new InvalidOperationException("The streaming write left an open row.");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            appender.Close();
+            return writer.RowCount;
+        }
+        catch (Exception exception)
+        {
+            primaryException = exception;
+            throw;
+        }
+        finally
+        {
+            writer?.Detach();
+            if (appender is not null)
+            {
+                try
+                {
+                    if (primaryException is not null)
+                    {
+                        // Discard any partially-written row/chunk before Dispose() flushes, avoiding native AVs.
+                        appender.Clear();
+                    }
+
+                    appender.Dispose();
+                }
+                catch when (primaryException is not null)
+                {
+                    // Preserve the primary failure so the outer transaction rollback runs and reports it.
+                }
+            }
+        }
     }
 
     private static void AppendRows(DuckDBConnection connection, string tableName, RawDataBlock block, CancellationToken cancellationToken)

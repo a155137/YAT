@@ -374,7 +374,7 @@ public class DescriptiveStatisticsCommandTests
         var failingColumns = new FaultingColumnRepository(new InvalidOperationException("unexpected column read failure"));
         var metadata = new ProjectMetadataQueryService(null!, new StubWorksheetRepository(worksheet), failingColumns);
         var failingSession = new MainWindowSession(
-            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            null!, null!, null!, null!, null!, null!, null!, null!, null!,
             failingColumns, null!, null!, null!, metadata, null!, null!, null!, null);
 
         var result = await runtime.Statistics.ConfigureAsync(failingSession, worksheet, Token);
@@ -404,7 +404,7 @@ public class DescriptiveStatisticsCommandTests
             new StubColumnRepository(columns),
             null!);
         var failingSession = new MainWindowSession(
-            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            null!, null!, null!, null!, null!, null!, null!, null!, null!,
             null!, null!, null!, null!, metadata, null!, null!, query, null);
 
         await runtime.Statistics.ConfigureAsync(failingSession, worksheet, Token);

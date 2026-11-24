@@ -35,7 +35,6 @@ public sealed class MainWindowSession
     private readonly AddWorksheetColumnHandler _addWorksheetColumn;
     private readonly IClipboardTextReader _clipboard;
     private readonly IClipboardTextWriter _clipboardWriter;
-    private readonly TabularTextParser _parser;
     private readonly WorksheetPastePlanner _planner;
     private readonly PasteExecutionService _pasteExecution;
     private readonly IWorksheetColumnRepository _worksheetColumns;
@@ -58,7 +57,6 @@ public sealed class MainWindowSession
         AddWorksheetColumnHandler addWorksheetColumn,
         IClipboardTextReader clipboard,
         IClipboardTextWriter clipboardWriter,
-        TabularTextParser parser,
         WorksheetPastePlanner planner,
         PasteExecutionService pasteExecution,
         IWorksheetColumnRepository worksheetColumns,
@@ -78,7 +76,6 @@ public sealed class MainWindowSession
         _addWorksheetColumn = addWorksheetColumn;
         _clipboard = clipboard;
         _clipboardWriter = clipboardWriter;
-        _parser = parser;
         _planner = planner;
         _pasteExecution = pasteExecution;
         _worksheetColumns = worksheetColumns;
@@ -214,12 +211,11 @@ public sealed class MainWindowSession
         string text,
         CancellationToken cancellationToken)
     {
-        var data = _parser.Parse(text);
         var existingColumns = await _worksheetColumns.GetByWorksheetIdAsync(worksheetId, cancellationToken);
         var startColumnIndex = activeColumnIndex ?? NextColumnIndex(existingColumns);
-        var plan = _planner.Plan(worksheetId, existingColumns, startColumnIndex, data);
+        var plan = _planner.PlanFromText(worksheetId, existingColumns, startColumnIndex, text, cancellationToken);
 
-        await _pasteExecution.ExecuteAsync(plan, data, cancellationToken);
+        await _pasteExecution.ExecuteFromTextAsync(plan, text, cancellationToken);
 
         // The paste is persisted at this point, so the reload is not cancellable: the UI always gets current metadata.
         var columns = await _worksheetColumns.GetByWorksheetIdAsync(worksheetId, CancellationToken.None);

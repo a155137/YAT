@@ -109,7 +109,6 @@ public sealed class CompositionRoot
             new AddWorksheetColumnHandler(projectSession.Worksheets, projectSession.WorksheetColumns),
             clipboardReader,
             clipboardWriter,
-            new TabularTextParser(),
             new WorksheetPastePlanner(new ColumnDataTypeDetector()),
             projectSession.PasteExecution,
             projectSession.WorksheetColumns,

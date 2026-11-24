@@ -7,7 +7,10 @@ namespace YAT.Application.Ingestion;
 // allowed; thousands separators are not. NaN, Infinity and out-of-range values are not numeric.
 internal static class NumericCellParser
 {
-    public static bool TryParse(string cell, out double value) =>
+    public static bool TryParse(ReadOnlySpan<char> cell, out double value) =>
         double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
         && double.IsFinite(value);
+
+    public static bool TryParse(string cell, out double value) =>
+        TryParse(cell.AsSpan(), out value);
 }

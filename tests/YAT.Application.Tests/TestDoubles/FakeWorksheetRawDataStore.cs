@@ -1,5 +1,6 @@
 using YAT.Application.Abstractions.Persistence;
 using YAT.Application.Exceptions;
+using YAT.Domain.Enums;
 
 namespace YAT.Application.Tests.TestDoubles;
 
@@ -34,6 +35,65 @@ internal sealed class FakeWorksheetRawDataStore : IWorksheetRawDataStore
             throw WriteFailure;
         }
 
+        Writes.Add((worksheetId, block));
+        foreach (var column in block.Columns)
+        {
+            _stored[column.ColumnId] = (worksheetId, column);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task WriteColumnsAsync(
+        Guid worksheetId,
+        IReadOnlyList<RawColumnSchema> columns,
+        Action<IRawDataRowWriter> writeRows,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        var schema = columns.ToArray();
+        if (schema.Length == 0)
+        {
+            throw new ArgumentException("A streaming write must contain at least one column.", nameof(columns));
+        }
+
+        if (schema.Any(column => column is null))
+        {
+            throw new ArgumentException("A streaming write must not contain null columns.", nameof(columns));
+        }
+
+        if (schema.Select(column => column.ColumnId).Distinct().Count() != schema.Length)
+        {
+            throw new ArgumentException("A streaming write must not contain the same column id twice.", nameof(columns));
+        }
+
+        ArgumentNullException.ThrowIfNull(writeRows);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        OnWrite?.Invoke();
+
+        if (WriteFailure is not null)
+        {
+            throw WriteFailure;
+        }
+
+        var writer = new FakeRowWriter(schema, cancellationToken);
+        try
+        {
+            writeRows(writer);
+            if (writer.IsRowOpen)
+            {
+                throw new InvalidOperationException("The streaming write left an open row.");
+            }
+        }
+        finally
+        {
+            writer.Detach();
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var block = writer.ToBlock();
         Writes.Add((worksheetId, block));
         foreach (var column in block.Columns)
         {
@@ -222,5 +282,116 @@ internal sealed class FakeWorksheetRawDataStore : IWorksheetRawDataStore
         }
 
         return window;
+    }
+
+    private sealed class FakeRowWriter : IRawDataRowWriter
+    {
+        private readonly RawColumnSchema[] _schema;
+        private readonly object[] _buffers;
+        private readonly CancellationToken _cancellationToken;
+        private bool _rowOpen;
+        private int _nextColumn;
+        private int _rowCount;
+        private bool _detached;
+
+        public FakeRowWriter(RawColumnSchema[] schema, CancellationToken cancellationToken)
+        {
+            _schema = schema;
+            _buffers = schema
+                .Select(column => column.DataType == WorksheetDataType.Numeric ? (object)new List<double?>() : new List<string?>())
+                .ToArray();
+            _cancellationToken = cancellationToken;
+        }
+
+        public bool IsRowOpen => _rowOpen;
+
+        public void BeginRow()
+        {
+            ObjectDisposedException.ThrowIf(_detached, this);
+            if (_rowOpen)
+            {
+                throw new InvalidOperationException("The previous row has not been ended.");
+            }
+
+            _cancellationToken.ThrowIfCancellationRequested();
+            _rowOpen = true;
+            _nextColumn = 0;
+        }
+
+        public void WriteNull()
+        {
+            var index = NextColumn();
+            if (_schema[index].DataType == WorksheetDataType.Numeric)
+            {
+                ((List<double?>)_buffers[index]).Add(null);
+            }
+            else
+            {
+                ((List<string?>)_buffers[index]).Add(null);
+            }
+        }
+
+        public void WriteDouble(double value)
+        {
+            var index = NextColumn(WorksheetDataType.Numeric);
+            if (!double.IsFinite(value))
+            {
+                throw new ArgumentException($"Row {_rowCount} contains a non-finite numeric value ({value}).", nameof(value));
+            }
+
+            ((List<double?>)_buffers[index]).Add(value);
+        }
+
+        public void WriteString(ReadOnlySpan<char> value)
+        {
+            var index = NextColumn(WorksheetDataType.String);
+            ((List<string?>)_buffers[index]).Add(value.ToString());
+        }
+
+        public void EndRow()
+        {
+            ObjectDisposedException.ThrowIf(_detached, this);
+            if (!_rowOpen)
+            {
+                throw new InvalidOperationException("No row has been begun.");
+            }
+
+            if (_nextColumn != _schema.Length)
+            {
+                throw new InvalidOperationException($"The row has {_nextColumn} of {_schema.Length} values.");
+            }
+
+            _rowOpen = false;
+            _rowCount++;
+        }
+
+        public void Detach() => _detached = true;
+
+        public RawDataBlock ToBlock() => new(_schema
+            .Select((column, index) => column.DataType == WorksheetDataType.Numeric
+                ? (RawDataColumn)new NumericRawDataColumn(column.ColumnId, ((List<double?>)_buffers[index]).ToArray())
+                : new StringRawDataColumn(column.ColumnId, ((List<string?>)_buffers[index]).ToArray()))
+            .ToArray());
+
+        private int NextColumn(WorksheetDataType? expected = null)
+        {
+            ObjectDisposedException.ThrowIf(_detached, this);
+            if (!_rowOpen)
+            {
+                throw new InvalidOperationException("No row has been begun.");
+            }
+
+            if (_nextColumn >= _schema.Length)
+            {
+                throw new InvalidOperationException($"The row already has all {_schema.Length} values.");
+            }
+
+            if (expected is { } type && _schema[_nextColumn].DataType != type)
+            {
+                throw new InvalidOperationException($"Column {_nextColumn} is {_schema[_nextColumn].DataType}; cannot write {type}.");
+            }
+
+            return _nextColumn++;
+        }
     }
 }

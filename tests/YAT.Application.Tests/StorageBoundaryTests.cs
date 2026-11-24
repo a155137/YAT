@@ -16,7 +16,9 @@ public class StorageBoundaryTests
         typeof(StringRawDataColumn),
         typeof(RawDistinctValues),
         typeof(NumericRawDistinctValues),
-        typeof(StringRawDistinctValues)
+        typeof(StringRawDistinctValues),
+        typeof(RawColumnSchema),
+        typeof(IRawDataRowWriter)
     ];
 
     private static readonly Type[] MetadataRepositoryTypes =
@@ -115,6 +117,25 @@ public class StorageBoundaryTests
         Assert.Equal(["ColumnId", "DataType", "RowCount", "Values"], PropertyNames(typeof(NumericRawDataColumn)));
         Assert.Equal(["ColumnId", "DataType", "RowCount", "Values"], PropertyNames(typeof(StringRawDataColumn)));
         Assert.Equal(["Columns", "RowCount"], PropertyNames(typeof(RawDataBlock)));
+    }
+
+    [Fact]
+    public void StreamingWriteContractCarriesNoValuesOrIngestionTypes()
+    {
+        // The schema is identity and type only; the writer exposes no state, only the row protocol.
+        Assert.Equal(["ColumnId", "DataType"], PropertyNames(typeof(RawColumnSchema)));
+        Assert.Empty(PropertyNames(typeof(IRawDataRowWriter)));
+        Assert.Equal(
+            ["BeginRow", "EndRow", "WriteDouble", "WriteNull", "WriteString"],
+            typeof(IRawDataRowWriter).GetMethods().Select(method => method.Name).Order(StringComparer.Ordinal));
+
+        var streamingWrite = Assert.Single(
+            typeof(IWorksheetRawDataStore).GetMethods(),
+            method => method.Name == nameof(IWorksheetRawDataStore.WriteColumnsAsync)
+                && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(Action<IRawDataRowWriter>)));
+        Assert.Equal(
+            [typeof(Guid), typeof(IReadOnlyList<RawColumnSchema>), typeof(Action<IRawDataRowWriter>), typeof(CancellationToken)],
+            streamingWrite.GetParameters().Select(parameter => parameter.ParameterType));
     }
 
     [Fact]

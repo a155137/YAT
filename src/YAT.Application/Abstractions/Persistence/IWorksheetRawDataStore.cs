@@ -9,6 +9,18 @@ public interface IWorksheetRawDataStore
     // The block is a transfer unit; storing datasets too large for one block is left to a future contract.
     Task WriteColumnsAsync(Guid worksheetId, RawDataBlock block, CancellationToken cancellationToken);
 
+    // Streaming whole-column replacement with the same semantics as the block write above: once this completes, each
+    // column in columns contains exactly the rows writeRows wrote (possibly none). writeRows is invoked once,
+    // synchronously, and writes the rows through the IRawDataRowWriter protocol. Nothing is stored unless writeRows
+    // returns normally with no open row and the write commits: an exception from writeRows (or a protocol violation,
+    // or cancellation observed before the commit) leaves the stored values unchanged and is rethrown.
+    // columns: at least one, no null entries, distinct ids.
+    Task WriteColumnsAsync(
+        Guid worksheetId,
+        IReadOnlyList<RawColumnSchema> columns,
+        Action<IRawDataRowWriter> writeRows,
+        CancellationToken cancellationToken);
+
     // Bounded row window starting at rowOffset, returning at most rowCount rows for the requested columns.
     // Reading columns whose stored row counts differ is not yet defined; that belongs to the storage implementation task.
     Task<RawDataBlock> ReadColumnsAsync(

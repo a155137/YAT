@@ -1,6 +1,7 @@
 using System.Globalization;
 using YAT.Application.Exceptions;
 using YAT.Domain.Entities;
+using YAT.Domain.Enums;
 
 namespace YAT.Application.Ingestion;
 
@@ -25,18 +26,42 @@ public sealed class WorksheetPastePlanner
         ArgumentNullException.ThrowIfNull(existingColumns);
         ArgumentNullException.ThrowIfNull(data);
 
+        var dataTypes = _dataTypeDetector.DetectColumnTypes(data);
+        return PlanCore(worksheetId, existingColumns, startColumnIndex, data.Headers, dataTypes, data.Rows.Count);
+    }
+
+    public WorksheetPastePlan PlanFromText(
+        Guid worksheetId,
+        IReadOnlyCollection<WorksheetColumn> existingColumns,
+        int startColumnIndex,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(existingColumns);
+
+        var inspection = TabularTextScanner.Inspect(text, cancellationToken);
+        return PlanCore(worksheetId, existingColumns, startColumnIndex, inspection.Headers, inspection.DataTypes, inspection.DataRowCount);
+    }
+
+    private static WorksheetPastePlan PlanCore(
+        Guid worksheetId,
+        IReadOnlyCollection<WorksheetColumn> existingColumns,
+        int startColumnIndex,
+        IReadOnlyList<string> headers,
+        IReadOnlyList<WorksheetDataType> dataTypes,
+        int dataRowCount)
+    {
         if (startColumnIndex < 0)
         {
             throw new ValidationException("Start column index must not be negative.");
         }
 
-        var columnCount = data.Headers.Count;
+        var columnCount = headers.Count;
         if ((long)startColumnIndex + columnCount - 1 > int.MaxValue)
         {
             throw new ValidationException("Pasted columns exceed the maximum column index.");
         }
 
-        var dataTypes = _dataTypeDetector.DetectColumnTypes(data);
         var lastTargetIndex = startColumnIndex + columnCount - 1;
 
         // Existing columns inside the target range are being replaced, so they do not reserve their names.
@@ -48,7 +73,7 @@ public sealed class WorksheetPastePlanner
 
         for (var sourceIndex = 0; sourceIndex < columnCount; sourceIndex++)
         {
-            var header = data.Headers[sourceIndex];
+            var header = headers[sourceIndex];
             var targetIndex = startColumnIndex + sourceIndex;
             var finalHeader = ResolveUniqueName(CleanHeader(header, targetIndex), namesInScope);
             namesInScope.Add(finalHeader);
@@ -61,7 +86,7 @@ public sealed class WorksheetPastePlanner
                 dataTypes[sourceIndex]);
         }
 
-        return new WorksheetPastePlan(worksheetId, startColumnIndex, columnCount, data.Rows.Count, Array.AsReadOnly(columns));
+        return new WorksheetPastePlan(worksheetId, startColumnIndex, columnCount, dataRowCount, Array.AsReadOnly(columns));
     }
 
     // Leading and trailing whitespace is removed; internal whitespace is kept. A blank header is named after
