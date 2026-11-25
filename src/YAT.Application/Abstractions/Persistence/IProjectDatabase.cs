@@ -17,6 +17,10 @@ public interface IProjectDatabase : IDisposable
     // stays open, unchanged and usable, whether the copy succeeds or fails (ProjectStorageException).
     Task SaveCopyAsync(string destinationPath, CancellationToken cancellationToken);
 
+    // Creates a complete, validated copy of this project at destinationPath, optionally replacing an existing closed
+    // destination file safely after validation. This database stays open, unchanged and usable on failure.
+    Task SaveCopyAsync(string destinationPath, bool overwrite, CancellationToken cancellationToken);
+
     // Deletes the storage of a temporary project once it has been disposed. Not allowed for project files or while open.
     void DeleteTemporaryStorage();
 }

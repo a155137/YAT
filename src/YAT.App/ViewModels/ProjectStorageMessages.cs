@@ -13,6 +13,11 @@ public static class ProjectStorageMessages
         ProjectStorageError.UnsupportedSchemaVersion => "This project was created by a newer version of YAT.",
         ProjectStorageError.CannotOpen => "The project could not be opened.",
         ProjectStorageError.DestinationExists => DestinationExists,
+        ProjectStorageError.DestinationInUse => "The destination file is currently in use by another process and could not be replaced.",
+        ProjectStorageError.DestinationUncertain => "The selected destination cannot be safely overwritten because it is a folder, a symbolic link, or has an unrecovered journal (.wal).",
+        ProjectStorageError.DestinationRestoreFailed => exception.RecoveryBackupPath is { Length: > 0 } backupPath
+            ? $"Replacing the destination failed and the original file could not be restored automatically. Do not delete the preserved backup file:\n{backupPath}"
+            : "Replacing the destination failed and the original file could not be restored automatically. Do not delete any preserved .bak backup file.",
         ProjectStorageError.CopyFailed => "The project could not be saved to the selected location.",
         _ => "The project operation could not be completed."
     };

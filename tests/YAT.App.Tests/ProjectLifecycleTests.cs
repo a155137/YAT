@@ -351,16 +351,14 @@ public class ProjectLifecycleTests
         await runtime.StartAsync();
         await runtime.PasteAsync("Lot\nA\n");
         var project = runtime.Project;
-        var existing = runtime.File("Existing.yat");
-        File.WriteAllText(existing, "keep me");
+        var missing = Path.Combine(runtime.Directory.DirectoryPath, "missing", "B.yat");
         runtime.Dialogs.Choices.Enqueue(SaveChangesChoice.Save);
-        runtime.Dialogs.SavePaths.Enqueue(existing);
+        runtime.Dialogs.SavePaths.Enqueue(missing);
 
         Assert.False(await runtime.Lifecycle.NewProjectAsync());
 
-        Assert.Equal(["A file with that name already exists. Please choose another file name."], runtime.Dialogs.Errors);
+        Assert.Equal(["The project could not be saved to the selected location."], runtime.Dialogs.Errors);
         Assert.Same(project, runtime.Project);
-        Assert.Equal("keep me", File.ReadAllText(existing));
         await runtime.PasteAsync("Vth\n1\n");
         Assert.Equal(["Lot", "Vth"], runtime.Project.GridColumns.Select(column => column.Name));
     }
@@ -678,7 +676,7 @@ public class ProjectLifecycleTests
     }
 
     [Fact]
-    public async Task SaveAsNeverOverwritesAndKeepsTheCurrentProject()
+    public async Task SaveAsDecliningOverwriteKeepsExistingFileAndCurrentProject()
     {
         using var runtime = new Runtime();
         await runtime.StartAsync();
@@ -686,10 +684,12 @@ public class ProjectLifecycleTests
         var project = runtime.Project;
         File.WriteAllText(runtime.File("Existing.yat"), "keep me");
         runtime.Dialogs.SavePaths.Enqueue(runtime.File("Existing"));
+        runtime.Dialogs.OverwriteConfirmations.Enqueue(false);
 
         Assert.False(await runtime.Lifecycle.SaveAsAsync());
 
-        Assert.Equal(["A file with that name already exists. Please choose another file name."], runtime.Dialogs.Errors);
+        Assert.Equal([runtime.File("Existing.yat")], runtime.Dialogs.OverwritePrompts);
+        Assert.Empty(runtime.Dialogs.Errors);
         Assert.Equal("keep me", File.ReadAllText(runtime.File("Existing.yat")));
         Assert.Same(project, runtime.Project);
         Assert.True(runtime.Lifecycle.IsTemporaryProject);
@@ -807,11 +807,10 @@ public class ProjectLifecycleTests
         using var runtime = new Runtime();
         await runtime.StartAsync();
         await runtime.PasteAsync("Lot\nA\n");
-        File.WriteAllText(runtime.File("Existing.yat"), "keep me");
         runtime.Dialogs.Choices.Enqueue(SaveChangesChoice.Save);
         runtime.Dialogs.SavePaths.Enqueue(null);
         runtime.Dialogs.Choices.Enqueue(SaveChangesChoice.Save);
-        runtime.Dialogs.SavePaths.Enqueue(runtime.File("Existing.yat"));
+        runtime.Dialogs.SavePaths.Enqueue(Path.Combine(runtime.Directory.DirectoryPath, "missing", "B.yat"));
 
         Assert.False(await runtime.Lifecycle.CloseAsync());
         Assert.False(await runtime.Lifecycle.CloseAsync());

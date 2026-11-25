@@ -168,15 +168,41 @@ public sealed class ProjectLifecycleController
         }
 
         path = WithProjectExtension(Path.GetFullPath(path));
-        if (File.Exists(path) || Directory.Exists(path))
+        if (Directory.Exists(path))
         {
-            await _dialogs.ShowErrorAsync(ProjectStorageMessages.DestinationExists);
+            await _dialogs.ShowErrorAsync(ProjectStorageMessages.For(
+                new ProjectStorageException(ProjectStorageError.DestinationUncertain, "The selected destination is a directory.")));
             return false;
+        }
+
+        if (!_workspace.IsTemporaryProject
+            && _workspace.ProjectFilePath is { } openPath
+            && string.Equals(path, Path.GetFullPath(openPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return await CheckpointAsync();
+        }
+
+        var overwrite = false;
+        if (File.Exists(path))
+        {
+            if (IsReparsePoint(path) || HasUncertainWal(path))
+            {
+                await _dialogs.ShowErrorAsync(ProjectStorageMessages.For(
+                    new ProjectStorageException(ProjectStorageError.DestinationUncertain, "The destination cannot be safely overwritten.")));
+                return false;
+            }
+
+            if (!await _dialogs.ConfirmOverwriteAsync(path))
+            {
+                return false;
+            }
+
+            overwrite = true;
         }
 
         // The copy shows the same worksheet that is active now.
         var activeWorksheetId = Project?.SelectedWorksheet?.Id;
-        return await ReplaceProjectAsync(activating => _workspace.SaveAsAsync(path, CancellationToken.None, activating), activeWorksheetId);
+        return await ReplaceProjectAsync(activating => _workspace.SaveAsAsync(path, overwrite, CancellationToken.None, activating), activeWorksheetId);
     }
 
     private async Task<bool> CheckpointAsync()
@@ -285,4 +311,26 @@ public sealed class ProjectLifecycleController
     // "MyProject" becomes "MyProject.yat"; a name already ending in .yat is kept.
     private static string WithProjectExtension(string path) =>
         path.EndsWith(".yat", StringComparison.OrdinalIgnoreCase) ? path : path + ".yat";
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    private static bool HasUncertainWal(string path)
+    {
+        var walPath = path + ".wal";
+        return File.Exists(walPath) || Directory.Exists(walPath);
+    }
 }

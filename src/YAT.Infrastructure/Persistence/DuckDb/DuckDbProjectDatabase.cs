@@ -43,6 +43,10 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
     // file path). Always null in production.
     internal Action<string>? BeforeCopyMoveHook { get; set; }
 
+    // Test-only fault injection right before File.Replace(staging, destination, backup) (receives staging, backup).
+    // Always null in production.
+    internal Action<string, string>? BeforeReplaceHook { get; set; }
+
     // Creates a new database file with the version 1 YAT schema (metadata and raw catalog) and keeps it open.
     // The file must not exist; a partially created file is removed again when creation fails.
     internal static DuckDbProjectDatabase Create(DuckDbRawDataStoreSettings settings, bool isTemporary, string workingDirectory)
@@ -137,13 +141,16 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
     // database) → move it to the destination without overwriting. Copying the open file itself is not possible on
     // Windows, so the copy is made by DuckDB from the live database. On failure the staging file is deleted and this
     // database is left open and unchanged.
-    public Task SaveCopyAsync(string destinationPath, CancellationToken cancellationToken)
+    public Task SaveCopyAsync(string destinationPath, CancellationToken cancellationToken) =>
+        SaveCopyAsync(destinationPath, overwrite: false, cancellationToken);
+
+    public Task SaveCopyAsync(string destinationPath, bool overwrite, CancellationToken cancellationToken)
     {
         try
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
             cancellationToken.ThrowIfCancellationRequested();
-            SaveCopy(Path.GetFullPath(destinationPath));
+            SaveCopy(Path.GetFullPath(destinationPath), overwrite);
             return Task.CompletedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -254,12 +261,9 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
         _connection = connection;
     }
 
-    private void SaveCopy(string destination)
+    private void SaveCopy(string destination, bool overwrite)
     {
-        if (string.Equals(destination, FilePath, StringComparison.OrdinalIgnoreCase) || File.Exists(destination) || Directory.Exists(destination))
-        {
-            throw new ProjectStorageException(ProjectStorageError.DestinationExists, "A file with this name already exists.");
-        }
+        ValidateDestinationTarget(destination, overwrite);
 
         var directory = Path.GetDirectoryName(destination);
         if (directory is null || !Directory.Exists(directory))
@@ -268,25 +272,180 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
         }
 
         var staging = Path.Combine(directory, $".{Path.GetFileName(destination)}.{Guid.NewGuid():N}.tmp");
+        string? backup = null;
+        var preserveBackup = false;
         try
         {
             var sourceCounts = Execute(connection => CopyInto(connection, staging));
             ValidateCopy(staging, sourceCounts);
             BeforeCopyMoveHook?.Invoke(staging);
-            File.Move(staging, destination, overwrite: false);
+            ValidateDestinationTarget(destination, overwrite);
+
+            if (overwrite && File.Exists(destination))
+            {
+                backup = Path.Combine(directory, $".{Path.GetFileName(destination)}.{Guid.NewGuid():N}.bak");
+                try
+                {
+                    BeforeReplaceHook?.Invoke(staging, backup);
+                    File.Replace(staging, destination, backup, ignoreMetadataErrors: true);
+                }
+                catch (Exception replaceException)
+                {
+                    if (!File.Exists(destination) && File.Exists(backup))
+                    {
+                        try
+                        {
+                            File.Move(backup, destination, overwrite: false);
+                        }
+                        catch (IOException)
+                        {
+                            preserveBackup = true;
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            preserveBackup = true;
+                        }
+                    }
+                    else
+                    {
+                        TryDeleteFile(backup);
+                    }
+
+                    if (preserveBackup)
+                    {
+                        throw new ProjectStorageException(
+                            ProjectStorageError.DestinationRestoreFailed,
+                            $"Could not replace the destination file or restore the original backup. Do not delete the preserved backup file: {backup}",
+                            replaceException)
+                        {
+                            RecoveryBackupPath = backup
+                        };
+                    }
+
+                    if (replaceException is IOException or UnauthorizedAccessException)
+                    {
+                        throw new ProjectStorageException(
+                            ProjectStorageError.DestinationInUse,
+                            "The destination file is currently in use or cannot be replaced.",
+                            replaceException);
+                    }
+
+                    throw;
+                }
+
+                TryDeleteFile(backup);
+            }
+            else
+            {
+                try
+                {
+                    File.Move(staging, destination, overwrite: false);
+                }
+                catch (IOException moveException) when (File.Exists(destination))
+                {
+                    throw new ProjectStorageException(
+                        overwrite ? ProjectStorageError.DestinationInUse : ProjectStorageError.DestinationExists,
+                        overwrite ? "The destination file is currently in use or cannot be replaced." : "A file with this name already exists.",
+                        moveException);
+                }
+            }
         }
         catch (Exception exception)
         {
             DeleteDatabaseFiles(staging);
-            if (exception is IOException && File.Exists(destination))
+            if (backup is not null && !preserveBackup)
             {
-                throw new ProjectStorageException(ProjectStorageError.DestinationExists, "A file with this name already exists.", exception);
+                TryDeleteFile(backup);
             }
 
             // Any other failure, including a copy that does not validate, is a failed copy.
-            throw exception is ProjectStorageException { Error: ProjectStorageError.DestinationExists } or ObjectDisposedException
+            throw exception is ProjectStorageException { Error: ProjectStorageError.DestinationExists or ProjectStorageError.DestinationInUse or ProjectStorageError.DestinationUncertain or ProjectStorageError.DestinationRestoreFailed }
+                or ObjectDisposedException
                 ? exception
                 : new ProjectStorageException(ProjectStorageError.CopyFailed, "The project could not be copied.", exception);
+        }
+    }
+
+    private void ValidateDestinationTarget(string destination, bool overwrite)
+    {
+        if (string.Equals(destination, FilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ProjectStorageException(ProjectStorageError.DestinationExists, "A file with this name already exists.");
+        }
+
+        if (Directory.Exists(destination))
+        {
+            throw new ProjectStorageException(ProjectStorageError.DestinationUncertain, "A folder with this name already exists.");
+        }
+
+        var directory = Path.GetDirectoryName(destination);
+        if (directory is not null && IsReparsePoint(directory))
+        {
+            throw new ProjectStorageException(ProjectStorageError.DestinationUncertain, "The destination folder is a symbolic link or reparse point.");
+        }
+
+        var walPath = destination + ".wal";
+        if (IsReparsePoint(destination) || IsReparsePoint(walPath))
+        {
+            throw new ProjectStorageException(ProjectStorageError.DestinationUncertain, "The destination target is a symbolic link or reparse point.");
+        }
+
+        if (!overwrite && File.Exists(destination))
+        {
+            throw new ProjectStorageException(ProjectStorageError.DestinationExists, "A file with this name already exists.");
+        }
+
+        if (overwrite && (File.Exists(walPath) || Directory.Exists(walPath)))
+        {
+            throw new ProjectStorageException(ProjectStorageError.DestinationUncertain, "The destination project has an active or unrecovered journal (.wal).");
+        }
+
+        if (overwrite && File.Exists(destination))
+        {
+            try
+            {
+                using var exclusiveProbe = new FileStream(destination, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                throw new ProjectStorageException(
+                    ProjectStorageError.DestinationInUse,
+                    "The destination file is currently in use or cannot be replaced.",
+                    exception);
+            }
+        }
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

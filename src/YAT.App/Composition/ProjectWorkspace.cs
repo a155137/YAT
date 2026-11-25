@@ -97,10 +97,17 @@ public sealed class ProjectWorkspace : IDisposable
         string destinationPath,
         CancellationToken cancellationToken,
         Func<ProjectSession, Task>? activating = null) =>
+        SaveAsAsync(destinationPath, overwrite: false, cancellationToken, activating);
+
+    public Task<ProjectSession> SaveAsAsync(
+        string destinationPath,
+        bool overwrite,
+        CancellationToken cancellationToken,
+        Func<ProjectSession, Task>? activating = null) =>
         ReplaceCurrentAsync(async () =>
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
-            await CurrentDatabase().SaveCopyAsync(destinationPath, cancellationToken);
+            await CurrentDatabase().SaveCopyAsync(destinationPath, overwrite, cancellationToken);
             return await _composition.OpenProjectFileSessionAsync(destinationPath, cancellationToken);
         }, activating, cancellationToken);
 

@@ -17,4 +17,6 @@ public sealed class ProjectStorageException : Exception
     }
 
     public ProjectStorageError Error { get; }
+
+    public string? RecoveryBackupPath { get; init; }
 }

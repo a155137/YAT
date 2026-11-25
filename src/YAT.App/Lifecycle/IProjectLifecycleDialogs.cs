@@ -7,9 +7,11 @@ public interface IProjectLifecycleDialogs
     // A single existing YAT project file (*.yat), or null when the user cancels.
     Task<string?> PickProjectToOpenAsync();
 
-    // A location to save the project to (default extension .yat), or null when the user cancels. The file may exist; YAT
-    // never overwrites it.
+    // A location to save the project to (default extension .yat), or null when the user cancels.
     Task<string?> PickSaveLocationAsync(string suggestedFileName);
+
+    // Asks whether to overwrite an existing project file at destinationPath (already normalized with .yat).
+    Task<bool> ConfirmOverwriteAsync(string destinationPath);
 
     // Asks whether to save the temporary project before it is discarded: before closing YAT (closing) or before
     // continuing with New or Open.

@@ -14,6 +14,15 @@ public enum ProjectStorageError
     // The destination of a new project or project copy already exists; it is never overwritten.
     DestinationExists,
 
+    // The destination file is currently in use or locked by another process.
+    DestinationInUse,
+
+    // The destination target cannot be safely overwritten (e.g. directory, reparse point, or unrecovered WAL journal).
+    DestinationUncertain,
+
+    // Replacing the destination failed and automatic restoration from the preserved backup also failed.
+    DestinationRestoreFailed,
+
     // Copying a project to a new file failed; the source project is unchanged.
     CopyFailed,
 

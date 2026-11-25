@@ -32,8 +32,7 @@ public sealed class AvaloniaProjectLifecycleDialogs : IProjectLifecycleDialogs
         return files.Count == 0 ? null : files[0].TryGetLocalPath();
     }
 
-    // The picker's own overwrite prompt is turned off: YAT never overwrites an existing file, so choosing one is reported
-    // as an error instead of being confirmed as a replacement.
+    // The picker's own overwrite prompt is turned off so YAT can normalize the .yat extension first and confirm once.
     public async Task<string?> PickSaveLocationAsync(string suggestedFileName)
     {
         var file = await _owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
@@ -47,6 +46,13 @@ public sealed class AvaloniaProjectLifecycleDialogs : IProjectLifecycleDialogs
 
         return file?.TryGetLocalPath();
     }
+
+    public Task<bool> ConfirmOverwriteAsync(string destinationPath) =>
+        LifecycleMessageWindow.ConfirmAsync(
+            _owner,
+            $"Replace “{Path.GetFileName(destinationPath)}”?",
+            $"“{destinationPath}” already exists. Replacing it will overwrite its contents.",
+            "Replace");
 
     public Task<SaveChangesChoice> AskSaveChangesAsync(string projectName, bool closing) =>
         LifecycleMessageWindow.AskSaveChangesAsync(_owner, projectName, closing);

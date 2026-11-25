@@ -387,6 +387,7 @@ public sealed class Stage3BFinalAcceptanceTests
     {
         public Task<string?> PickProjectToOpenAsync() => Task.FromResult<string?>(path);
         public Task<string?> PickSaveLocationAsync(string suggestedName) => Task.FromResult<string?>(path);
+        public Task<bool> ConfirmOverwriteAsync(string destinationPath) => Task.FromResult(false);
         public Task<YAT.app.Lifecycle.SaveChangesChoice> AskSaveChangesAsync(string projectName, bool canSaveInPlace) =>
             Task.FromResult(YAT.app.Lifecycle.SaveChangesChoice.Discard);
         public Task ShowErrorAsync(string message) => Task.CompletedTask;
