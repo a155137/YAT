@@ -37,6 +37,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // Identifies the latest grid load; results of superseded loads (e.g. after switching worksheets) are dropped.
     private int _gridLoadVersion;
+    private string? _lastViewportErrorMessage;
 
     public MainWindowViewModel(MainWindowSession session)
     {
@@ -45,6 +46,28 @@ public partial class MainWindowViewModel : ViewModelBase
             NewWorksheetCommand,
             worksheet => SelectedWorksheet = worksheet,
             RenameExplorerItemAsync);
+    }
+
+    internal MainWindowSession Session => _session;
+
+    public bool UseMetadataOnlyGridLoad { get; internal set; }
+
+    internal void ReportViewportError(string? message)
+    {
+        if (!string.IsNullOrEmpty(message))
+        {
+            _lastViewportErrorMessage = message;
+            ErrorMessage = message;
+        }
+        else if (_lastViewportErrorMessage is not null)
+        {
+            if (string.Equals(ErrorMessage, _lastViewportErrorMessage, StringComparison.Ordinal))
+            {
+                ErrorMessage = null;
+            }
+
+            _lastViewportErrorMessage = null;
+        }
     }
 
     // Left panel navigation tree: the current Project and its worksheets (metadata only).
@@ -195,10 +218,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(NextPageCommand))]
     public partial bool IsGridLoading { get; private set; }
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GridPageSummary))]
+    public partial int GridPageRowCount { get; private set; }
+
     // e.g. "Rows 1–500 of 1,234".
-    public string GridPageSummary => GridRows.Count == 0
+    public string GridPageSummary => GridPageRowCount == 0
         ? "No rows"
-        : $"Rows {GridRowOffset + 1:N0}–{GridRowOffset + GridRows.Count:N0} of {TotalRowCount:N0}";
+        : $"Rows {GridRowOffset + 1:N0}–{GridRowOffset + GridPageRowCount:N0} of {TotalRowCount:N0}";
 
     // The most recently started grid page load; completes once its page (or error) has been applied.
     public Task GridLoadTask { get; private set; } = Task.CompletedTask;
@@ -307,10 +334,21 @@ public partial class MainWindowViewModel : ViewModelBase
         IsGridLoading = true;
         try
         {
-            var page = await _session.LoadWorksheetPageAsync(worksheet.Id, rowOffset, CancellationToken.None);
-            if (version == _gridLoadVersion)
+            if (UseMetadataOnlyGridLoad)
             {
-                ApplyGridPage(page);
+                var metadata = await _session.LoadWorksheetPageMetadataAsync(worksheet.Id, rowOffset, CancellationToken.None);
+                if (version == _gridLoadVersion)
+                {
+                    ApplyGridMetadata(metadata);
+                }
+            }
+            else
+            {
+                var page = await _session.LoadWorksheetPageAsync(worksheet.Id, rowOffset, CancellationToken.None);
+                if (version == _gridLoadVersion)
+                {
+                    ApplyGridPage(page);
+                }
             }
         }
         catch (Exception ex) when (ex is ValidationException or EntityNotFoundException)
@@ -356,8 +394,24 @@ public partial class MainWindowViewModel : ViewModelBase
 
         GridColumns = page.Columns;
         GridRows = page.Rows;
+        GridPageRowCount = page.Rows.Count;
         TotalRowCount = page.TotalRowCount;
         GridRowOffset = page.RowOffset;
+    }
+
+    private void ApplyGridMetadata(YAT.Application.Queries.WorksheetPageMetadata metadata)
+    {
+        if (GridRows.Count > 0)
+        {
+            GridRows = [];
+        }
+
+        GridColumns = metadata.Columns
+            .Select(column => new WorksheetGridColumn(column.Id, column.Index, column.Name, column.DataType))
+            .ToArray();
+        GridPageRowCount = metadata.RowCount;
+        TotalRowCount = metadata.TotalRowCount;
+        GridRowOffset = metadata.RowOffset;
     }
 
     private Task ReloadGridFromFirstPageAsync()

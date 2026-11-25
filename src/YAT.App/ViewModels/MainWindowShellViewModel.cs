@@ -58,6 +58,12 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     public MainWindowViewModel? Project => Lifecycle.Project;
 
+    internal bool UseMetadataOnlyGridLoad
+    {
+        get => Lifecycle.UseMetadataOnlyGridLoad;
+        set => Lifecycle.UseMetadataOnlyGridLoad = value;
+    }
+
     // "YAT — <project name>"; never the file name, path or a modified marker.
     public string WindowTitle => Project?.CurrentProject is { } project ? $"{ApplicationName} — {project.Name}" : ApplicationName;
 

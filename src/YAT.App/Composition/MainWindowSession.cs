@@ -27,6 +27,7 @@ public sealed class MainWindowSession
 {
     // Rows per grid page; the query service never returns more.
     public const int GridPageSize = WorksheetDataQueryService.MaxPageRowCount;
+    public const int MaxWindowColumnCount = WorksheetDataQueryService.MaxWindowColumnCount;
 
     private readonly CreateProjectHandler _createProject;
     private readonly RenameProjectHandler _renameProject;
@@ -202,6 +203,30 @@ public sealed class MainWindowSession
             () => Task.Run(
                 async () => WorksheetGridPage.FromDataPage(
                     await _dataQuery.GetPageAsync(worksheetId, rowOffset, GridPageSize, cancellationToken)),
+                cancellationToken),
+            cancellationToken);
+
+    // Loads page metadata (columns in Index order and row counts) without reading raw cell values, off the UI thread.
+    public Task<WorksheetPageMetadata> LoadWorksheetPageMetadataAsync(
+        Guid worksheetId,
+        long rowOffset,
+        CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(
+                () => _dataQuery.GetPageMetadataAsync(worksheetId, rowOffset, GridPageSize, cancellationToken),
+                cancellationToken),
+            cancellationToken);
+
+    // Loads a bounded column window (at most MaxWindowColumnCount columns) for one row page, off the UI thread,
+    // returning typed raw columns without string formatting.
+    public Task<WorksheetColumnWindow> LoadWorksheetColumnWindowAsync(
+        Guid worksheetId,
+        long rowOffset,
+        IReadOnlyList<Guid> columnIds,
+        CancellationToken cancellationToken) =>
+        RunExclusiveAsync(
+            () => Task.Run(
+                () => _dataQuery.GetColumnWindowAsync(worksheetId, rowOffset, GridPageSize, columnIds, cancellationToken),
                 cancellationToken),
             cancellationToken);
 

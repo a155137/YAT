@@ -1,13 +1,8 @@
 using System.ComponentModel;
 using Avalonia;
-using Avalonia.Collections;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
-using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Layout;
-using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using YAT.app.Composition;
@@ -17,19 +12,11 @@ namespace YAT.app.Views;
 
 public partial class MainWindow : Window
 {
-    // Window resource (MainWindow.axaml): cell theme for the cells of selected worksheet columns.
-    private const string SelectedCellThemeKey = "SelectedWorksheetCellTheme";
-
-    // Grid column → worksheet column id, for header clicks. Rebuilt with the columns.
-    private readonly Dictionary<TableViewColumn, Guid> _gridColumnIds = [];
     private MainWindowShellViewModel? _shell;
 
     // The shown project's view model (the shell's Project).
     private MainWindowViewModel? _viewModel;
 
-    // The grid columns currently built; null forces a rebuild (e.g. for another project with the same columns).
-    private IReadOnlyList<WorksheetGridColumn>? _shownGridColumns = [];
-    private readonly ColumnHeaderDragSelection _headerDrag = new();
     private bool _closeApproved;
     private bool _closeDecisionRunning;
 
@@ -38,17 +25,18 @@ public partial class MainWindow : Window
     private GridLength? _hiddenExplorerRow;
     private GridLength? _hiddenGraphsRow;
     private OpenGraphsViewModel? _openGraphs;
+    private WorksheetViewportDataCoordinator? _viewportCoordinator;
+    private WorksheetViewportSessionBridge? _viewportBridge;
 
     public MainWindow()
     {
         InitializeComponent();
-        WorksheetGrid.AddHandler(PointerPressedEvent, OnWorksheetGridPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
-        WorksheetGrid.AddHandler(PointerMovedEvent, OnWorksheetGridPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
-        WorksheetGrid.AddHandler(PointerReleasedEvent, OnWorksheetGridPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
-        WorksheetGrid.AddHandler(PointerCaptureLostEvent, OnWorksheetGridPointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
+
         // The list marks Enter handled as it selects; the Graphs list (Task #061) still takes it to bring the graph back.
         GraphsList.AddHandler(KeyDownEvent, OnGraphsListKeyDown, RoutingStrategies.Bubble, handledEventsToo: true);
     }
+
+    internal WorksheetViewportDataCoordinator? ViewportCoordinator => _viewportCoordinator;
 
     private void OnExitClick(object? sender, RoutedEventArgs e) => Close();
 
@@ -172,6 +160,7 @@ public partial class MainWindow : Window
         _openGraphs = _shell?.OpenGraphs;
         if (_shell is not null)
         {
+            _shell.UseMetadataOnlyGridLoad = true;
             _shell.PropertyChanged += OnShellPropertyChanged;
         }
 
@@ -192,8 +181,33 @@ public partial class MainWindow : Window
         }
     }
 
-    // Shows another project's view model: the grid columns, header menus and selection highlight are rebuilt from it, and
-    // nothing of the previous project (drag state, header state) remains. The explorer column keeps its width.
+    protected override void OnClosed(EventArgs e)
+    {
+        DetachViewportServices();
+        VirtualizedWorksheetGrid.Dispose();
+        base.OnClosed(e);
+    }
+
+    private void DetachViewportServices()
+    {
+        if (_viewportCoordinator is not null)
+        {
+            _viewportCoordinator.ViewportDataChanged -= OnViewportDataChanged;
+        }
+
+        _viewportBridge?.Dispose();
+        _viewportBridge = null;
+        _viewportCoordinator?.Dispose();
+        _viewportCoordinator = null;
+        VirtualizedWorksheetGrid.Attach(null, null);
+    }
+
+    private void OnViewportDataChanged(object? sender, EventArgs e)
+    {
+        _viewModel?.ReportViewportError(_viewportCoordinator?.LastErrorMessage);
+    }
+
+    // Shows another project's view model: the virtualized worksheet coordinator and bridge are rebuilt for it.
     private void AttachProject(MainWindowViewModel? viewModel)
     {
         if (ReferenceEquals(viewModel, _viewModel))
@@ -206,15 +220,19 @@ public partial class MainWindow : Window
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         }
 
+        DetachViewportServices();
+
         _viewModel = viewModel;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            _viewModel.UseMetadataOnlyGridLoad = true;
+            _viewportCoordinator = new WorksheetViewportDataCoordinator(_viewModel.Session);
+            _viewportCoordinator.ViewportDataChanged += OnViewportDataChanged;
+            _viewportBridge = new WorksheetViewportSessionBridge(_viewModel, _viewModel.Session, _viewportCoordinator);
+            VirtualizedWorksheetGrid.Attach(_viewModel, _viewportCoordinator);
         }
 
-        _headerDrag.End();
-        _shownGridColumns = null;
-        RebuildGridColumns();
         ApplyLeftPanelVisibility();
     }
 
@@ -231,13 +249,6 @@ public partial class MainWindow : Window
                 // not change), so the title kept its previous width and was clipped. Invalidating the header here
                 // makes the layout pass arrange it again.
                 WorksheetHeader.InvalidateMeasure();
-                break;
-            case nameof(MainWindowViewModel.GridColumns):
-                RebuildGridColumns();
-                break;
-            case nameof(MainWindowViewModel.ActiveColumn):
-            case nameof(MainWindowViewModel.SelectedColumns):
-                UpdateHeaderSelection();
                 break;
         }
     }
@@ -391,185 +402,4 @@ public partial class MainWindow : Window
             await _viewModel.ProjectExplorer.CommitOrCancelRenameAsync(item);
         }
     }
-
-    // View-only mapping of the ViewModel's column descriptors to TableView columns: a row-number column, then one
-    // read-only text column per worksheet column in Index order. Cells show the row's preformatted display text.
-    private void RebuildGridColumns()
-    {
-        var gridColumns = _viewModel?.GridColumns ?? [];
-        if (_shownGridColumns is not null && gridColumns.SequenceEqual(_shownGridColumns))
-        {
-            UpdateHeaderSelection();
-            return;
-        }
-
-        _shownGridColumns = gridColumns;
-        _gridColumnIds.Clear();
-
-        var columns = new AvaloniaList<TableViewColumn>(gridColumns.Count + 1);
-
-        var rowNumberHeader = WorksheetGridLayout.CreateHeader(null);
-        columns.Add(CreateGridColumn(
-            new TableViewColumn
-            {
-                Header = rowNumberHeader,
-                Binding = new ReflectionBinding(nameof(WorksheetGridRow.RowNumber)),
-                Width = new GridLength(WorksheetGridLayout.RowNumberColumnWidth),
-                HorizontalContentAlignment = HorizontalAlignment.Right,
-                CanUserResize = false
-            },
-            rowNumberHeader));
-
-        for (var position = 0; position < gridColumns.Count; position++)
-        {
-            var gridColumn = gridColumns[position];
-            var header = WorksheetGridLayout.CreateHeader(gridColumn);
-            var column = new TableViewColumn
-            {
-                Header = header,
-                Binding = new ReflectionBinding($"{nameof(WorksheetGridRow.Cells)}[{position}]"),
-                Width = new GridLength(WorksheetGridLayout.GetColumnWidth(gridColumn)),
-                HorizontalContentAlignment = WorksheetGridLayout.GetCellAlignment(gridColumn.DataType)
-            };
-
-            header.ContextMenu = CreateHeaderContextMenu();
-            _gridColumnIds[column] = gridColumn.ColumnId;
-            columns.Add(CreateGridColumn(column, header));
-        }
-
-        WorksheetGrid.Columns = columns;
-        UpdateHeaderSelection();
-    }
-
-    // "Copy Column" / "Copy N Columns" and "Delete Column" / "Delete N Columns": the same commands Ctrl+C and Delete run.
-    // Bound to the ViewModel explicitly, because header content does not inherit the window's DataContext (it sits
-    // outside the window's logical tree).
-    private ContextMenu? CreateHeaderContextMenu()
-    {
-        if (_viewModel is null)
-        {
-            return null;
-        }
-
-        var copyItem = new MenuItem { Command = _viewModel.CopySelectedColumnsCommand };
-        copyItem.Bind(MenuItem.HeaderProperty, new ReflectionBinding(nameof(MainWindowViewModel.CopySelectedColumnsMenuText)) { Source = _viewModel });
-
-        var deleteItem = new MenuItem { Command = _viewModel.DeleteSelectedColumnsCommand };
-        deleteItem.Bind(MenuItem.HeaderProperty, new ReflectionBinding(nameof(MainWindowViewModel.DeleteSelectedColumnsMenuText)) { Source = _viewModel });
-
-        var menu = new ContextMenu();
-        menu.Items.Add(copyItem);
-        menu.Items.Add(deleteItem);
-        return menu;
-    }
-
-    // The column's content alignment applies to its header as well, so the header element cannot stretch by itself;
-    // it follows the column's actual width instead, keeping its background and underline across the full header.
-    private static TableViewColumn CreateGridColumn(TableViewColumn column, Border header)
-    {
-        header.Bind(WidthProperty, column.GetObservable(TableViewColumn.ActualWidthProperty));
-        return column;
-    }
-
-    // Marks each column as normal, selected, or active (selected and the Ctrl+V start): its header and its visible cells.
-    private void UpdateHeaderSelection()
-    {
-        var selectedCellTheme = this.TryFindResource(SelectedCellThemeKey, ActualThemeVariant, out var theme) ? theme as ControlTheme : null;
-        WorksheetGridLayout.ApplyColumnStates(
-            _gridColumnIds,
-            _viewModel?.ActiveColumn?.Id,
-            _viewModel?.SelectedColumns.Select(column => column.Id) ?? [],
-            selectedCellTheme);
-    }
-
-    // Header presses:
-    // - right button: prepares the selection before the context menu opens (on release) — an unselected column
-    //   becomes the only selection, a selected column keeps the whole selection;
-    // - plain left button (not on a resize grip): selects that column and starts a drag selection anchored on it.
-    // Ctrl/Cmd and Shift clicks are applied on release.
-    private void OnWorksheetGridPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        var properties = e.GetCurrentPoint(WorksheetGrid).Properties;
-        var columnId = GetHeaderColumnId(e.Source as Visual);
-
-        if (properties.IsRightButtonPressed)
-        {
-            _headerDrag.End();
-            if (columnId is { } rightClicked && !IsOnResizeGrip(e.Source as Visual))
-            {
-                _viewModel!.SelectColumnForContextMenu(rightClicked);
-            }
-
-            return;
-        }
-
-        if (_headerDrag.TryStart(columnId, properties.IsLeftButtonPressed, IsOnResizeGrip(e.Source as Visual), e.KeyModifiers))
-        {
-            _viewModel!.SelectColumn(_headerDrag.AnchorColumnId!.Value);
-        }
-    }
-
-    // During a header drag, the selection follows the header under the pointer (live, in either direction).
-    private void OnWorksheetGridPointerMoved(object? sender, PointerEventArgs e)
-    {
-        if (!_headerDrag.IsDragging)
-        {
-            return;
-        }
-
-        if (!e.GetCurrentPoint(WorksheetGrid).Properties.IsLeftButtonPressed)
-        {
-            _headerDrag.End();
-            return;
-        }
-
-        var underPointer = WorksheetGrid.InputHitTest(e.GetPosition(WorksheetGrid)) as Visual;
-        if (_headerDrag.TryMoveTo(GetHeaderColumnId(underPointer)))
-        {
-            _viewModel!.SelectColumnRange(_headerDrag.AnchorColumnId!.Value, _headerDrag.CurrentColumnId!.Value);
-        }
-    }
-
-    // Left release: ends a drag (its selection is already applied), or applies a Ctrl/Cmd (toggle) or Shift (range)
-    // click on a header. Presses on a resize grip never select.
-    private void OnWorksheetGridPointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        if (e.InitialPressMouseButton != MouseButton.Left)
-        {
-            return;
-        }
-
-        if (_headerDrag.IsDragging)
-        {
-            _headerDrag.End();
-            return;
-        }
-
-        if (IsOnResizeGrip(e.Source as Visual) || GetHeaderColumnId(e.Source as Visual) is not { } columnId)
-        {
-            return;
-        }
-
-        switch (WorksheetKeyRouting.GetHeaderClick(e.KeyModifiers))
-        {
-            case ColumnHeaderClick.Toggle:
-                _viewModel!.ToggleColumnSelection(columnId);
-                break;
-            case ColumnHeaderClick.Extend:
-                _viewModel!.ExtendColumnSelection(columnId);
-                break;
-        }
-    }
-
-    private void OnWorksheetGridPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => _headerDrag.End();
-
-    // The worksheet column whose header contains the visual, if any (including its resize grip).
-    private Guid? GetHeaderColumnId(Visual? visual) =>
-        _viewModel is not null
-        && visual?.FindAncestorOfType<TableViewColumnHeader>(includeSelf: true)?.Column is { } column
-        && _gridColumnIds.TryGetValue(column, out var columnId)
-            ? columnId
-            : null;
-
-    private static bool IsOnResizeGrip(Visual? visual) => visual?.FindAncestorOfType<Thumb>(includeSelf: true) is not null;
 }

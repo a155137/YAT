@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:YAT.app.ViewModels"
+        xmlns:grid="using:YAT.app.Views.WorksheetGrid"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
@@ -23,16 +24,6 @@
 
     <Window.Resources>
         <ResourceDictionary>
-            <!-- Cells of selected worksheet columns (active included): the default cell theme plus a light accent tint.
-                 Assigned per column as TableViewColumn.CellTheme by the window (see WorksheetGridLayout.ApplyColumnState). -->
-            <ControlTheme x:Key="SelectedWorksheetCellTheme"
-                          TargetType="TableViewCell"
-                          BasedOn="{StaticResource {x:Type TableViewCell}}">
-                <Setter Property="Background">
-                    <SolidColorBrush Color="{DynamicResource SystemAccentColor}" Opacity="0.10" />
-                </Setter>
-            </ControlTheme>
-
             <!-- Project Explorer glyphs (16×16, drawn in the icon's theme foreground): a folder and a table with a header row. -->
             <StreamGeometry x:Key="ProjectExplorerProjectIcon">M1,3 L6,3 L7.5,4.5 L15,4.5 L15,13.5 L1,13.5 Z</StreamGeometry>
             <StreamGeometry x:Key="ProjectExplorerWorksheetIcon">F0 M1,2 L15,2 L15,14 L1,14 Z M2,5.5 L7.5,5.5 L7.5,9 L2,9 Z M8.5,5.5 L14,5.5 L14,9 L8.5,9 Z M2,10 L7.5,10 L7.5,13 L2,13 Z M8.5,10 L14,10 L14,13 L8.5,13 Z</StreamGeometry>
@@ -53,34 +44,6 @@
     </Window.Resources>
 
     <Window.Styles>
-        <!-- Worksheet grid density: TableView's Fluent defaults are list-sized; the grid uses compact rows and headers. -->
-        <Style Selector="TableView#WorksheetGrid">
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundAltHighBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-        </Style>
-        <!-- The header strip's padding (6,9,6,12) is fixed in the TableView template; cancel it so headers line up
-             with the cells and the strip is only as tall as the headers. -->
-        <Style Selector="TableView#WorksheetGrid TableViewColumnHeadersPresenter">
-            <Setter Property="Margin" Value="-6,-9,-6,-12" />
-        </Style>
-        <Style Selector="TableView#WorksheetGrid TableViewRow">
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="MinHeight" Value="0" />
-        </Style>
-        <!-- Spreadsheet grid lines: each cell draws its right and bottom edge (headers do the same in WorksheetGridLayout). -->
-        <Style Selector="TableView#WorksheetGrid TableViewCell">
-            <Setter Property="Padding" Value="6,2,6,1" />
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
-            <Setter Property="BorderThickness" Value="0,0,1,1" />
-        </Style>
-        <Style Selector="TableView#WorksheetGrid TableViewColumnHeader">
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="VerticalContentAlignment" Value="Stretch" />
-        </Style>
-        <!-- Header content (incl. the selection highlight) is styled in WorksheetGridLayout: window styles do not reach it. -->
-
         <!-- Project Explorer: hover and selection use the Fluent TreeViewItem theme brushes (light and dark). The active
              worksheet is also marked by a semibold name and an accent icon, so it stays visible when the selection moves
              to the project item. -->
@@ -453,13 +416,10 @@
                                        HorizontalAlignment="Center" />
                         </StackPanel>
 
-                        <!-- Read-only worksheet grid: one page of rows. Its columns are built from GridColumns in
-                             code-behind. Clicking a column header selects it as the Ctrl+V paste target. -->
-                        <TableView x:Name="WorksheetGrid"
-                                   ItemsSource="{Binding GridRows}"
-                                   CanUserResizeColumns="True"
-                                   IsVisible="{Binding HasGridColumns}"
-                                   ToolTip.Tip="Click a column header to paste into that column. With no column selected, Ctrl+V appends new columns." />
+                        <!-- Read-only virtualized Skia worksheet grid: one bounded page of rows, column windows loaded on demand. -->
+                        <grid:VirtualizedWorksheetControl x:Name="VirtualizedWorksheetGrid"
+                                                          IsVisible="{Binding HasGridColumns}"
+                                                          ToolTip.Tip="Click a column header to paste into that column. With no column selected, Ctrl+V appends new columns." />
                     </Panel>
                 </DockPanel>
             </Panel>

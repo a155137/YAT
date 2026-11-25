@@ -46,6 +46,8 @@ public sealed class ProjectLifecycleController
     // The current project's view model; null before the first project is shown.
     public MainWindowViewModel? Project { get; private set; }
 
+    internal bool UseMetadataOnlyGridLoad { get; set; }
+
     // Raised on the calling context after Project was replaced by another project's view model.
     public event EventHandler? ProjectReplaced;
 
@@ -213,6 +215,7 @@ public sealed class ProjectLifecycleController
             {
                 nextSession = _composition.CreateMainWindowSession(projectSession, _clipboardReader, _clipboardWriter);
                 nextProject = _composition.CreateMainWindowViewModel(nextSession);
+                nextProject.UseMetadataOnlyGridLoad = UseMetadataOnlyGridLoad;
                 await nextProject.LoadProjectAsync(preferredWorksheetId);
             });
         }
