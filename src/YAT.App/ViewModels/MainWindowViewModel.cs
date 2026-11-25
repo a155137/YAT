@@ -349,6 +349,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void ApplyGridPage(WorksheetGridPage page)
     {
+        if (GridRows.Count > 0 && !GridColumns.SequenceEqual(page.Columns))
+        {
+            GridRows = [];
+        }
+
         GridColumns = page.Columns;
         GridRows = page.Rows;
         TotalRowCount = page.TotalRowCount;

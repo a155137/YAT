@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Avalonia;
+using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
@@ -404,10 +405,11 @@ public partial class MainWindow : Window
 
         _shownGridColumns = gridColumns;
         _gridColumnIds.Clear();
-        WorksheetGrid.Columns.Clear();
+
+        var columns = new AvaloniaList<TableViewColumn>(gridColumns.Count + 1);
 
         var rowNumberHeader = WorksheetGridLayout.CreateHeader(null);
-        AddGridColumn(
+        columns.Add(CreateGridColumn(
             new TableViewColumn
             {
                 Header = rowNumberHeader,
@@ -416,7 +418,7 @@ public partial class MainWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Right,
                 CanUserResize = false
             },
-            rowNumberHeader);
+            rowNumberHeader));
 
         for (var position = 0; position < gridColumns.Count; position++)
         {
@@ -432,9 +434,10 @@ public partial class MainWindow : Window
 
             header.ContextMenu = CreateHeaderContextMenu();
             _gridColumnIds[column] = gridColumn.ColumnId;
-            AddGridColumn(column, header);
+            columns.Add(CreateGridColumn(column, header));
         }
 
+        WorksheetGrid.Columns = columns;
         UpdateHeaderSelection();
     }
 
@@ -462,10 +465,10 @@ public partial class MainWindow : Window
 
     // The column's content alignment applies to its header as well, so the header element cannot stretch by itself;
     // it follows the column's actual width instead, keeping its background and underline across the full header.
-    private void AddGridColumn(TableViewColumn column, Border header)
+    private static TableViewColumn CreateGridColumn(TableViewColumn column, Border header)
     {
         header.Bind(WidthProperty, column.GetObservable(TableViewColumn.ActualWidthProperty));
-        WorksheetGrid.Columns.Add(column);
+        return column;
     }
 
     // Marks each column as normal, selected, or active (selected and the Ctrl+V start): its header and its visible cells.
