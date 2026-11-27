@@ -87,6 +87,39 @@ internal sealed class AvaloniaImportProfileManagerPresenter : IImportProfileMana
         _owner = owner;
     }
 
-    public Task ShowAsync(ViewModels.ImportProfileManagerViewModel viewModel) =>
-        ImportProfileManagerWindow.ShowAsync(_owner, viewModel);
+    internal Window? ActiveWindow { get; private set; }
+
+    public async Task ShowAsync(ViewModels.ImportProfileManagerViewModel viewModel)
+    {
+        var window = new ImportProfileManagerWindow(viewModel);
+        ActiveWindow = window;
+        try
+        {
+            await window.ShowDialog(_owner);
+        }
+        finally
+        {
+            ActiveWindow = null;
+        }
+    }
+}
+
+internal sealed class AvaloniaImportProfileEditor : IImportProfileEditor
+{
+    private readonly Func<Window> _ownerProvider;
+
+    public AvaloniaImportProfileEditor(Func<Window> ownerProvider)
+    {
+        ArgumentNullException.ThrowIfNull(ownerProvider);
+        _ownerProvider = ownerProvider;
+    }
+
+    public bool IsAvailable => true;
+
+    public Task<ImportProfile?> EditAsync(ImportProfileEditorRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var vm = new ViewModels.ImportProfileBuilderViewModel(request);
+        return ImportProfileBuilderWindow.ShowAsync(_ownerProvider(), vm);
+    }
 }

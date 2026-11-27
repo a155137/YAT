@@ -88,7 +88,7 @@ public sealed partial class ImportProfileManagerViewModel : ObservableObject
     public bool IsEditorAvailable => _editor.IsAvailable;
 
     public string? EditorUnavailableNotice =>
-        IsEditorAvailable ? null : "New and Edit require the Visual Profile Builder (coming in FT-02.2).";
+        IsEditorAvailable ? null : "Profile editor is unavailable in this configuration.";
 
     public string EmptyStateText =>
         "No FT Import Profiles found. Use Import to load an existing profile JSON.";
