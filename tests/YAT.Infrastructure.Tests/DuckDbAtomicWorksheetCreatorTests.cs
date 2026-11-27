@@ -1090,4 +1090,73 @@ public sealed class DuckDbAtomicWorksheetCreatorTests : IDisposable
             Assert.Equal("VDD", result.Columns[1].Name);
         }
     }
+
+    [Fact]
+    public async Task CaseSensitiveLeadingZeroAndInternalSpaceHeadersRemainSeparatelyAddressable()
+    {
+        var tp = new MutableTimeProvider(BaseTime);
+        var (db, project, _) = await CreateProjectWithSeedWorksheetAsync(timeProvider: tp);
+        using (db)
+        {
+            var creator = new DuckDbAtomicWorksheetCreator(db, tp);
+            var cols = new WorksheetColumnDefinition[]
+            {
+                new("Lot_ID", WorksheetDataType.String, ColumnSemanticType.Lot),
+                new("Bin", WorksheetDataType.String, ColumnSemanticType.Bin),
+                new("Site", WorksheetDataType.String, ColumnSemanticType.Site),
+                new("Test_Role", WorksheetDataType.String),
+                new("1001_IDD", WorksheetDataType.Numeric, ColumnSemanticType.TestParameter),
+                new("1002_IDD", WorksheetDataType.Numeric, ColumnSemanticType.TestParameter),
+                new("IDD", WorksheetDataType.Numeric, ColumnSemanticType.TestParameter),
+                new("idd", WorksheetDataType.Numeric, ColumnSemanticType.TestParameter),
+                new("001_VTH", WorksheetDataType.Numeric, ColumnSemanticType.TestParameter),
+                new("1_VTH", WorksheetDataType.Numeric, ColumnSemanticType.TestParameter),
+                new("VTH (mV)", WorksheetDataType.Numeric, ColumnSemanticType.TestParameter)
+            };
+
+            var created = await creator.CreateWorksheetAsync(
+                new AtomicWorksheetCreateRequest(project.Id, "FtCaseSensitiveHeaders", cols),
+                writer =>
+                {
+                    writer.BeginRow();
+                    writer.WriteString("LOT1");
+                    writer.WriteString("01");
+                    writer.WriteNull();
+                    writer.WriteString("Original");
+                    writer.WriteDouble(10.1);
+                    writer.WriteDouble(10.2);
+                    writer.WriteDouble(1.0);
+                    writer.WriteDouble(2.0);
+                    writer.WriteDouble(0.35);
+                    writer.WriteDouble(0.45);
+                    writer.WriteDouble(350.0);
+                    writer.EndRow();
+                },
+                Token);
+
+            var colRepo = new DuckDbWorksheetColumnRepository(db, tp);
+            var storedCols = await colRepo.GetByWorksheetIdAsync(created.Worksheet.Id, Token);
+            Assert.Equal(cols.Select(c => c.Name).ToArray(), storedCols.Select(c => c.Name).ToArray());
+
+            var queryService = new WorksheetDataQueryService(
+                new DuckDbWorksheetRepository(db),
+                colRepo,
+                new DuckDbWorksheetRawDataStore(db));
+            var page = await queryService.GetPageAsync(created.Worksheet.Id, 0, 10, Token);
+
+            Assert.Equal(1, page.RowCount);
+            Assert.Equal(11, page.Columns.Count);
+            var iddUpperIdx = storedCols.Single(c => string.Equals(c.Name, "IDD", StringComparison.Ordinal)).Index;
+            var iddLowerIdx = storedCols.Single(c => string.Equals(c.Name, "idd", StringComparison.Ordinal)).Index;
+            var vthZeroIdx = storedCols.Single(c => string.Equals(c.Name, "001_VTH", StringComparison.Ordinal)).Index;
+            var vthOneIdx = storedCols.Single(c => string.Equals(c.Name, "1_VTH", StringComparison.Ordinal)).Index;
+            var vthSpaceIdx = storedCols.Single(c => string.Equals(c.Name, "VTH (mV)", StringComparison.Ordinal)).Index;
+
+            Assert.Equal(1.0, Assert.IsType<NumericRawDataColumn>(page.Columns[iddUpperIdx].Values).Values[0]);
+            Assert.Equal(2.0, Assert.IsType<NumericRawDataColumn>(page.Columns[iddLowerIdx].Values).Values[0]);
+            Assert.Equal(0.35, Assert.IsType<NumericRawDataColumn>(page.Columns[vthZeroIdx].Values).Values[0]);
+            Assert.Equal(0.45, Assert.IsType<NumericRawDataColumn>(page.Columns[vthOneIdx].Values).Values[0]);
+            Assert.Equal(350.0, Assert.IsType<NumericRawDataColumn>(page.Columns[vthSpaceIdx].Values).Values[0]);
+        }
+    }
 }

@@ -26,7 +26,19 @@ public enum FtImportDiagnosticCode
     PartialRoundSelection,
     OriginalFilesExcluded,
     HigherRetestRoundsExcluded,
-    RetestOnlySelection
+    RetestOnlySelection,
+    InvalidImportPlan,
+    SourceOpenFailed,
+    StructureScanFailed,
+    DuplicateMeasurementHeader,
+    NoAvailableMeasurementHeaders,
+    EmptyMeasurementSelection,
+    UnknownSelectedMeasurement,
+    DuplicateSelectedMeasurement,
+    ReservedColumnNameConflict,
+    IncompatibleWorksheetColumnName,
+    MeasurementColumnRoleConflict,
+    SourceFileChangedDuringScan
 }
 
 public sealed record FtImportDiagnostic(
