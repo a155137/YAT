@@ -36,29 +36,45 @@ public sealed class DuckDbWorksheetRepository : IWorksheetRepository
         DuckDbMetadata.RunAsync(_database, connection =>
         {
             ArgumentNullException.ThrowIfNull(worksheet);
-            DuckDbMetadata.Execute(connection,
-                "INSERT INTO worksheet (id, project_id, name, position, row_count, column_count, created_at, updated_at) " +
-                "SELECT $id, $project, $name, COALESCE(MAX(position) + 1, 0), $rows, $columns, $created, $updated " +
-                "FROM worksheet WHERE project_id = $project " +
-                "ON CONFLICT (id) DO UPDATE SET project_id = EXCLUDED.project_id, name = EXCLUDED.name, " +
-                "row_count = EXCLUDED.row_count, column_count = EXCLUDED.column_count, " +
-                "created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at",
-                Parameters(worksheet));
+            Insert(connection, worksheet);
         }, cancellationToken);
 
     public Task UpdateAsync(Worksheet worksheet, CancellationToken cancellationToken) =>
         DuckDbMetadata.RunAsync(_database, connection =>
         {
             ArgumentNullException.ThrowIfNull(worksheet);
-            var updated = DuckDbMetadata.Execute(connection,
-                "UPDATE worksheet SET project_id = $project, name = $name, row_count = $rows, column_count = $columns, " +
-                "created_at = $created, updated_at = $updated WHERE id = $id",
-                Parameters(worksheet));
-            if (updated == 0)
-            {
-                throw new EntityNotFoundException(nameof(Worksheet), worksheet.Id);
-            }
+            Update(connection, worksheet);
         }, cancellationToken);
+
+    internal static void Insert(DuckDBConnection connection, Worksheet worksheet) =>
+        DuckDbMetadata.Execute(connection,
+            "INSERT INTO worksheet (id, project_id, name, position, row_count, column_count, created_at, updated_at) " +
+            "SELECT $id, $project, $name, COALESCE(MAX(position) + 1, 0), $rows, $columns, $created, $updated " +
+            "FROM worksheet WHERE project_id = $project " +
+            "ON CONFLICT (id) DO UPDATE SET project_id = EXCLUDED.project_id, name = EXCLUDED.name, " +
+            "row_count = EXCLUDED.row_count, column_count = EXCLUDED.column_count, " +
+            "created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at",
+            Parameters(worksheet));
+
+    internal static void Update(DuckDBConnection connection, Worksheet worksheet)
+    {
+        var updated = DuckDbMetadata.Execute(connection,
+            "UPDATE worksheet SET project_id = $project, name = $name, row_count = $rows, column_count = $columns, " +
+            "created_at = $created, updated_at = $updated WHERE id = $id",
+            Parameters(worksheet));
+        if (updated == 0)
+        {
+            throw new EntityNotFoundException(nameof(Worksheet), worksheet.Id);
+        }
+    }
+
+    internal static bool ExistsByNameIgnoreCase(DuckDBConnection connection, Guid projectId, string name) =>
+        DuckDbMetadata.Query(
+            connection,
+            "SELECT name FROM worksheet WHERE project_id = $project",
+            reader => reader.GetString(0),
+            ("project", projectId))
+        .Any(existing => string.Equals(existing, name, StringComparison.OrdinalIgnoreCase));
 
     private static (string Name, object? Value)[] Parameters(Worksheet worksheet) =>
     [

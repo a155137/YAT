@@ -95,14 +95,7 @@ public sealed class DuckDbWorksheetColumnRepository : IWorksheetColumnRepository
         return DuckDbMetadata.RunAsync(_database, connection => DuckDbMetadata.InTransaction(connection, () =>
         {
             var now = DuckDbMetadata.ToStoredTimestamp(_timeProvider.GetUtcNow());
-            if (addedCopy.Length == 1)
-            {
-                AddSingle(connection, addedCopy[0], now);
-            }
-            else if (addedCopy.Length > 1)
-            {
-                AddBatch(connection, addedCopy, now);
-            }
+            InsertColumns(connection, addedCopy, now);
 
             if (updatedCopy.Length == 1)
             {
@@ -115,6 +108,18 @@ public sealed class DuckDbWorksheetColumnRepository : IWorksheetColumnRepository
 
             return true;
         }), cancellationToken);
+    }
+
+    internal static void InsertColumns(DuckDBConnection connection, WorksheetColumn[] columns, DateTimeOffset now)
+    {
+        if (columns.Length == 1)
+        {
+            AddSingle(connection, columns[0], now);
+        }
+        else if (columns.Length > 1)
+        {
+            AddBatch(connection, columns, now);
+        }
     }
 
     private static void AddSingle(DuckDBConnection connection, WorksheetColumn column, DateTimeOffset now) =>

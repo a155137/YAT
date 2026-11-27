@@ -122,7 +122,8 @@ public sealed class CompositionRoot
             new GraphDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
             new FilterValuesQueryService(projectSession.WorksheetColumns, projectSession.RawDataStore),
             new AnalysisDataQueryService(projectSession.Worksheets, projectSession.WorksheetColumns, projectSession.RawDataStore),
-            projectSession.ProjectId);
+            projectSession.ProjectId,
+            projectSession.AtomicWorksheetCreator);
     }
 
     public MainWindowViewModel CreateMainWindowViewModel(MainWindowSession session)
@@ -305,8 +306,9 @@ public sealed class CompositionRoot
             var worksheetColumns = new DuckDbWorksheetColumnRepository(database, _timeProvider);
             var rawDataStore = new DuckDbWorksheetRawDataStore(database);
             var pasteExecution = new PasteExecutionService(worksheets, worksheetColumns, rawDataStore);
+            var atomicWorksheetCreator = new DuckDbAtomicWorksheetCreator(database, _timeProvider);
 
-            return new ProjectSession(projects, worksheets, worksheetColumns, rawDataStore, pasteExecution, database);
+            return new ProjectSession(projects, worksheets, worksheetColumns, rawDataStore, pasteExecution, database, atomicWorksheetCreator);
         }
         catch
         {

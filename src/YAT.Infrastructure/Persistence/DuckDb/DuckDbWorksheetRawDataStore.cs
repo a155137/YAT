@@ -59,7 +59,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
                     AppendRows(connection, tableName, block, cancellationToken);
                     return block.RowCount;
                 },
-                cancellationToken));
+                cancellationToken), cancellationToken);
             return Task.CompletedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -90,7 +90,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
                 schema,
                 nameof(columns),
                 tableName => AppendStreamingRows(connection, tableName, schema, writeRows, cancellationToken),
-                cancellationToken));
+                cancellationToken), cancellationToken);
             return Task.CompletedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -127,7 +127,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             ArgumentOutOfRangeException.ThrowIfNegative(rowCount);
             cancellationToken.ThrowIfCancellationRequested();
 
-            var block = Execute(connection => ReadColumns(connection, worksheetId, columnIds, rowOffset, rowCount, cancellationToken));
+            var block = Execute(connection => ReadColumns(connection, worksheetId, columnIds, rowOffset, rowCount, cancellationToken), cancellationToken);
             return Task.FromResult(block);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -145,7 +145,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(Execute(connection => DuckDbRawCatalog.GetWorksheetRowCount(connection, worksheetId)));
+            return Task.FromResult(Execute(connection => DuckDbRawCatalog.GetWorksheetRowCount(connection, worksheetId), cancellationToken));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -162,7 +162,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            IReadOnlySet<Guid> columnIds = Execute(connection => DuckDbRawCatalog.FindWorksheetColumnIds(connection, worksheetId));
+            IReadOnlySet<Guid> columnIds = Execute(connection => DuckDbRawCatalog.FindWorksheetColumnIds(connection, worksheetId), cancellationToken);
             return Task.FromResult(columnIds);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -186,7 +186,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
             cancellationToken.ThrowIfCancellationRequested();
 
-            var values = Execute(connection => ReadDistinctValues(connection, worksheetId, columnId, limit, cancellationToken));
+            var values = Execute(connection => ReadDistinctValues(connection, worksheetId, columnId, limit, cancellationToken), cancellationToken);
             return Task.FromResult(values);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -216,7 +216,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            Execute(connection => DeleteColumns(connection, worksheetId, columnIds, cancellationToken));
+            Execute(connection => DeleteColumns(connection, worksheetId, columnIds, cancellationToken), cancellationToken);
             return Task.CompletedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -349,7 +349,7 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
         }
     }
 
-    private static void CreateBlockTable(DuckDBConnection connection, string tableName, IReadOnlyList<RawColumnSchema> columns)
+    internal static void CreateBlockTable(DuckDBConnection connection, string tableName, IReadOnlyList<RawColumnSchema> columns)
     {
         var sql = new StringBuilder($"CREATE TABLE {DuckDbIdentifiers.Quote(tableName)} ({DuckDbIdentifiers.RowIndexColumn} BIGINT NOT NULL");
         foreach (var column in columns)
@@ -650,21 +650,21 @@ public sealed class DuckDbWorksheetRawDataStore : IWorksheetRawDataStore, IDispo
             : new StringRawDistinctValues(columnId, texts, hasMissing, hasMore);
     }
 
-    private void Execute(Action<DuckDBConnection> operation) =>
+    private void Execute(Action<DuckDBConnection> operation, CancellationToken cancellationToken = default) =>
         Execute(connection =>
         {
             operation(connection);
             return true;
-        });
+        }, cancellationToken);
 
-    private T Execute<T>(Func<DuckDBConnection, T> operation)
+    private T Execute<T>(Func<DuckDBConnection, T> operation, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             try
             {
-                return _database is not null ? _database.Execute(operation) : operation(GetOpenConnection());
+                return _database is not null ? _database.Execute(operation, cancellationToken) : operation(GetOpenConnection());
             }
             catch (DuckDBException exception)
             {

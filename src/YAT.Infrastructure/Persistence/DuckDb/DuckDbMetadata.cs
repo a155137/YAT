@@ -25,7 +25,7 @@ internal static class DuckDbMetadata
                 {
                     throw new ProjectStorageException(ProjectStorageError.StorageFailure, "The project storage operation failed.", exception);
                 }
-            }));
+            }, cancellationToken));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

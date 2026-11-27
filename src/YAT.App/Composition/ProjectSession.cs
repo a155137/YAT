@@ -18,7 +18,8 @@ public sealed class ProjectSession : IDisposable
         IWorksheetColumnRepository worksheetColumns,
         IWorksheetRawDataStore rawDataStore,
         PasteExecutionService pasteExecution,
-        IProjectDatabase? database)
+        IProjectDatabase? database,
+        IAtomicWorksheetCreator? atomicWorksheetCreator = null)
     {
         Projects = projects;
         Worksheets = worksheets;
@@ -26,6 +27,7 @@ public sealed class ProjectSession : IDisposable
         RawDataStore = rawDataStore;
         PasteExecution = pasteExecution;
         Database = database;
+        AtomicWorksheetCreator = atomicWorksheetCreator;
     }
 
     public IProjectRepository Projects { get; }
@@ -37,6 +39,9 @@ public sealed class ProjectSession : IDisposable
     public IWorksheetRawDataStore RawDataStore { get; }
 
     public PasteExecutionService PasteExecution { get; }
+
+    // Atomic streaming worksheet creator for a persistent session; null for the legacy in-memory composition.
+    public IAtomicWorksheetCreator? AtomicWorksheetCreator { get; }
 
     // The project database of a persistent session; null for the legacy in-memory metadata composition.
     public IProjectDatabase? Database { get; }

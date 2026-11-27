@@ -24,9 +24,12 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
 
     private readonly DuckDbRawDataStoreSettings _settings;
     private readonly string _workingDirectory;
-    private readonly Lock _gate = new();
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private DuckDBConnection? _connection;
+    private int _holderThreadId;
     private bool _disposed;
+    private bool _faulted;
+    private string? _faultMessage;
 
     private DuckDbProjectDatabase(DuckDbRawDataStoreSettings settings, bool isTemporary, string workingDirectory)
     {
@@ -123,7 +126,7 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
             {
                 RunStorageOperation(() => DuckDbRawCatalog.Execute(connection, "CHECKPOINT"));
                 return true;
-            });
+            }, cancellationToken);
             return Task.CompletedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -150,7 +153,7 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
             cancellationToken.ThrowIfCancellationRequested();
-            SaveCopy(Path.GetFullPath(destinationPath), overwrite);
+            SaveCopy(Path.GetFullPath(destinationPath), overwrite, cancellationToken);
             return Task.CompletedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -170,12 +173,17 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
             throw new InvalidOperationException("Only the storage of a temporary project can be deleted.");
         }
 
-        lock (_gate)
+        _gate.Wait();
+        try
         {
             if (!_disposed)
             {
                 throw new InvalidOperationException("A temporary project must be disposed before its storage is deleted.");
             }
+        }
+        finally
+        {
+            _gate.Release();
         }
 
         if (Directory.Exists(_workingDirectory))
@@ -188,7 +196,8 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
     // folder, which holds its database, stays until DeleteTemporaryStorage.
     public void Dispose()
     {
-        lock (_gate)
+        _gate.Wait();
+        try
         {
             if (_disposed)
             {
@@ -199,6 +208,10 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
             _connection?.Dispose();
             _connection = null;
         }
+        finally
+        {
+            _gate.Release();
+        }
 
         if (!IsTemporary)
         {
@@ -206,13 +219,65 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
         }
     }
 
-    // Runs an operation alone on the shared connection. DuckDB exceptions are left to the caller to translate.
-    internal T Execute<T>(Func<DuckDBConnection, T> operation)
+    // Runs an operation alone on the shared connection. Supports cancellation while waiting for the gate, rejects
+    // same-thread re-entry to prevent nested-gate deadlocks, and blocks further use if a prior rollback failed.
+    // DuckDB exceptions are left to the caller to translate.
+    internal T Execute<T>(Func<DuckDBConnection, T> operation) => Execute(operation, CancellationToken.None);
+
+    internal T Execute<T>(Func<DuckDBConnection, T> operation, CancellationToken cancellationToken)
     {
-        lock (_gate)
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var currentThread = Environment.CurrentManagedThreadId;
+        if (Volatile.Read(ref _holderThreadId) == currentThread)
+        {
+            throw new InvalidOperationException(
+                "Nested project database access is not allowed while a database operation is already active on this thread.");
+        }
+
+        _gate.Wait(cancellationToken);
+        try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return operation(_connection!);
+            if (_faulted)
+            {
+                throw new ProjectStorageException(
+                    ProjectStorageError.StorageFailure,
+                    _faultMessage ?? "The project database connection is in an unsafe state after a failed rollback and can no longer be used.");
+            }
+
+            Volatile.Write(ref _holderThreadId, currentThread);
+            try
+            {
+                return operation(_connection!);
+            }
+            finally
+            {
+                Volatile.Write(ref _holderThreadId, 0);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    // Called only while holding _gate when a transaction rollback fails and the connection can no longer be trusted.
+    internal void MarkFaulted(string reason)
+    {
+        _faulted = true;
+        _faultMessage = reason;
+        try
+        {
+            _connection?.Dispose();
+        }
+        catch
+        {
+            // Ignore disposal failure on an already tainted connection.
+        }
+        finally
+        {
+            _connection = null;
         }
     }
 
@@ -261,7 +326,7 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
         _connection = connection;
     }
 
-    private void SaveCopy(string destination, bool overwrite)
+    private void SaveCopy(string destination, bool overwrite, CancellationToken cancellationToken)
     {
         ValidateDestinationTarget(destination, overwrite);
 
@@ -276,7 +341,7 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
         var preserveBackup = false;
         try
         {
-            var sourceCounts = Execute(connection => CopyInto(connection, staging));
+            var sourceCounts = Execute(connection => CopyInto(connection, staging), cancellationToken);
             ValidateCopy(staging, sourceCounts);
             BeforeCopyMoveHook?.Invoke(staging);
             ValidateDestinationTarget(destination, overwrite);
@@ -361,6 +426,7 @@ public sealed class DuckDbProjectDatabase : IProjectDatabase
             // Any other failure, including a copy that does not validate, is a failed copy.
             throw exception is ProjectStorageException { Error: ProjectStorageError.DestinationExists or ProjectStorageError.DestinationInUse or ProjectStorageError.DestinationUncertain or ProjectStorageError.DestinationRestoreFailed }
                 or ObjectDisposedException
+                or OperationCanceledException
                 ? exception
                 : new ProjectStorageException(ProjectStorageError.CopyFailed, "The project could not be copied.", exception);
         }

@@ -47,6 +47,7 @@ public sealed class MainWindowSession
     private readonly FilterValuesQueryService _filterValues;
     private readonly AnalysisDataQueryService _analysisData;
     private readonly Guid? _projectId;
+    private readonly IAtomicWorksheetCreator? _atomicWorksheetCreator;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _retired;
 
@@ -68,7 +69,8 @@ public sealed class MainWindowSession
         GraphDataQueryService graphData,
         FilterValuesQueryService filterValues,
         AnalysisDataQueryService analysisData,
-        Guid? projectId)
+        Guid? projectId,
+        IAtomicWorksheetCreator? atomicWorksheetCreator = null)
     {
         _createProject = createProject;
         _renameProject = renameProject;
@@ -88,6 +90,7 @@ public sealed class MainWindowSession
         _filterValues = filterValues;
         _analysisData = analysisData;
         _projectId = projectId;
+        _atomicWorksheetCreator = atomicWorksheetCreator;
     }
 
     // Raised on the calling context after a successful operation that changed the project: create or rename a project
@@ -152,6 +155,30 @@ public sealed class MainWindowSession
 
     public Task<WorksheetColumn> AddWorksheetColumnAsync(AddWorksheetColumnCommand command, CancellationToken cancellationToken) =>
         RunModifyingAsync(() => _addWorksheetColumn.HandleAsync(command, cancellationToken), cancellationToken);
+
+    // Atomically creates a new worksheet with streamed rows inside a single storage transaction, off the UI thread.
+    // Internal to YAT.App composition/import controllers so MainWindowSession's public UI surface never exposes
+    // persistence interfaces (IRawDataRowWriter). Failed or cancelled imports roll back completely and never raise
+    // ProjectModified. UI publication and worksheet activation belong to FT-03 / FT-04 after receiving the committed
+    // CreatedWorksheetResult.
+    internal Task<CreatedWorksheetResult> CreateWorksheetWithStreamingDataAsync(
+        string worksheetName,
+        IReadOnlyList<WorksheetColumnDefinition> columns,
+        Action<IRawDataRowWriter> writeRows,
+        CancellationToken cancellationToken = default)
+    {
+        if (_projectId is not { } projectId || _atomicWorksheetCreator is null)
+        {
+            throw new InvalidOperationException("Atomic streaming worksheet creation requires a persistent project session.");
+        }
+
+        var request = new AtomicWorksheetCreateRequest(projectId, worksheetName, columns);
+        return RunModifyingAsync(
+            () => Task.Run(
+                () => _atomicWorksheetCreator.CreateWorksheetAsync(request, writeRows, cancellationToken),
+                cancellationToken),
+            cancellationToken);
+    }
 
     // Pastes clipboard text into the worksheet column-wise, starting at the active column's index, or after the last
     // existing column when there is no active column. An empty clipboard is a no-op. Parsing, planning and storage
