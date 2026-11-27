@@ -175,8 +175,16 @@ public sealed class ImportProfileValidator
 
         switch (field.Kind)
         {
-            case FilenameFieldKind.MarkerBefore or FilenameFieldKind.MarkerAfter when string.IsNullOrEmpty(field.Marker):
-                errors.Add(new(ImportProfileValidationCode.InvalidFilenameRules, fieldName, $"{fieldName} Marker is required."));
+            case FilenameFieldKind.MarkerBefore or FilenameFieldKind.MarkerAfter:
+                if (string.IsNullOrEmpty(field.Marker))
+                {
+                    errors.Add(new(ImportProfileValidationCode.InvalidFilenameRules, fieldName, $"{fieldName} Marker is required."));
+                }
+
+                if (field.MarkerOccurrence < 1)
+                {
+                    errors.Add(new(ImportProfileValidationCode.InvalidFilenameRules, fieldName, $"{fieldName} MarkerOccurrence must be >= 1."));
+                }
                 break;
 
             case FilenameFieldKind.FixedRange when field.StartIndex is null or < 0 || field.Length is null or <= 0:

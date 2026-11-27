@@ -46,6 +46,9 @@ public sealed record FilenameFieldRule
     // Delimiter/marker token inside a composite segment (for MarkerBefore / MarkerAfter).
     public string? Marker { get; init; }
 
+    // 1-based occurrence of Marker within the segment (for MarkerBefore / MarkerAfter). Defaults to 1.
+    public int MarkerOccurrence { get; init; } = 1;
+
     // Character slice inside the segment (for FixedRange).
     public int? StartIndex { get; init; }
 

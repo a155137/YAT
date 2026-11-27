@@ -178,4 +178,30 @@ public sealed class ImportProfileValidationTests
         var conflict = Assert.Single(result.Errors, e => e.Code == ImportProfileValidationCode.ConflictingBinRules);
         Assert.Contains("01", conflict.Message);
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void InvalidMarkerOccurrenceIsRejected(int occurrence)
+    {
+        var baseProfile = CreateRepresentativeProfile();
+        var profile = baseProfile with
+        {
+            FilenameRules = baseProfile.FilenameRules with
+            {
+                LotId = new FilenameFieldRule
+                {
+                    Kind = FilenameFieldKind.MarkerAfter,
+                    SegmentIndex = 0,
+                    Marker = ".",
+                    MarkerOccurrence = occurrence
+                }
+            }
+        };
+
+        var result = _validator.Validate(profile);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == ImportProfileValidationCode.InvalidFilenameRules && e.Field == nameof(FilenameRuleSet.LotId));
+    }
 }

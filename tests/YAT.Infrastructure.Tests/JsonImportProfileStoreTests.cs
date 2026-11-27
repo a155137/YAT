@@ -41,7 +41,7 @@ public sealed class JsonImportProfileStoreTests : IDisposable
             AcceptedExtensions = [".Reg.zip", ".csv"],
             Mode = FilenameRuleMode.Structured,
             SegmentDelimiters = ['.', '_'],
-            LotId = new FilenameFieldRule { Kind = FilenameFieldKind.WholeSegment, SegmentIndex = 4 },
+            LotId = new FilenameFieldRule { Kind = FilenameFieldKind.MarkerAfter, SegmentIndex = 0, Marker = ".", MarkerOccurrence = 2 },
             TestStage = new FilenameFieldRule { Kind = FilenameFieldKind.FixedRange, SegmentIndex = 5, StartIndex = 0, Length = 2 },
             Retest = new FilenameRetestRule
             {
@@ -84,6 +84,7 @@ public sealed class JsonImportProfileStoreTests : IDisposable
         Assert.Equal("京元電子_FT_晶圓測試_Profile", restored.Name);
         Assert.Equal(original.SchemaVersion, restored.SchemaVersion);
         Assert.Equal([".Reg.zip", ".csv"], restored.FilenameRules.AcceptedExtensions);
+        Assert.Equal(2, restored.FilenameRules.LotId.MarkerOccurrence);
         Assert.Equal("\t", restored.StructureRules.Delimiter);
         Assert.Equal(["1", "01", "001"], restored.BinRules.GoodBins);
         Assert.Equal(["2", "02"], restored.BinRules.NonRetestFailBins);
