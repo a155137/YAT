@@ -231,7 +231,8 @@ public sealed class DatalogRowParser
         Action<ParsedDatalogRow> onRow,
         Func<string, bool>? includeBin = null,
         IProgress<DatalogParseProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? maxDataRows = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         var sourceName = Path.GetFileName(filePath);
@@ -248,7 +249,8 @@ public sealed class DatalogRowParser
                 onRow,
                 includeBin,
                 progress,
-                cancellationToken);
+                cancellationToken,
+                maxDataRows);
         }
         catch (DatalogOpenException ex)
         {
@@ -280,12 +282,17 @@ public sealed class DatalogRowParser
         Action<ParsedDatalogRow> onRow,
         Func<string, bool>? includeBin = null,
         IProgress<DatalogParseProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? maxDataRows = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(structure);
         ArgumentNullException.ThrowIfNull(onRow);
+        if (maxDataRows is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxDataRows), "maxDataRows must be positive when specified.");
+        }
 
         var profileValidation = _validator.Validate(profile);
         if (!profileValidation.IsValid)
@@ -328,6 +335,11 @@ public sealed class DatalogRowParser
         {
             while (true)
             {
+                if (maxDataRows is { } rowLimit && processedRows >= rowLimit)
+                {
+                    break;
+                }
+
                 cancellationToken.ThrowIfCancellationRequested();
                 var line = _tokenizer.ReadBoundedLine(reader, cancellationToken);
                 if (line is null)

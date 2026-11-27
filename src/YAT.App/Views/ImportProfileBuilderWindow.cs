@@ -30,13 +30,16 @@ internal sealed class ImportProfileBuilderWindow : Window
         DataContext = viewModel;
 
         Title = viewModel.WindowTitle;
-        Width = 860;
-        Height = 640;
-        MinWidth = 760;
-        MinHeight = 520;
+        Width = 1220;
+        Height = 720;
+        MinWidth = 960;
+        MinHeight = 580;
         CanResize = true;
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        var previewPane = new ImportProfileSamplePreviewPane(this, viewModel.Preview);
+        var topSampleBar = previewPane.BuildTopSampleBar();
 
         var tabs = new TabControl
         {
@@ -44,9 +47,9 @@ internal sealed class ImportProfileBuilderWindow : Window
             Items =
             {
                 new TabItem { Name = "GeneralTab", Header = "General", Content = WrapScroll(BuildGeneralTab(viewModel)) },
-                new TabItem { Name = "FilenameTab", Header = "Filename Rules", Content = WrapScroll(BuildFilenameTab(viewModel)) },
-                new TabItem { Name = "StructureTab", Header = "Datalog Structure", Content = WrapScroll(BuildStructureTab(viewModel)) },
-                new TabItem { Name = "ColumnsTab", Header = "Column & Composite", Content = WrapScroll(BuildColumnsTab(viewModel)) },
+                new TabItem { Name = "FilenameTab", Header = "Filename", Content = WrapScroll(BuildFilenameTab(viewModel)) },
+                new TabItem { Name = "StructureTab", Header = "Structure", Content = WrapScroll(BuildStructureTab(viewModel)) },
+                new TabItem { Name = "ColumnsTab", Header = "Columns", Content = WrapScroll(BuildColumnsTab(viewModel)) },
                 new TabItem { Name = "BinMissingTab", Header = "Bin & Missing", Content = WrapScroll(BuildBinMissingTab(viewModel)) }
             }
         };
@@ -54,11 +57,29 @@ internal sealed class ImportProfileBuilderWindow : Window
         {
             Setters =
             {
-                new Setter(FontSizeProperty, 15.0),
-                new Setter(PaddingProperty, new Thickness(12, 6)),
-                new Setter(MinHeightProperty, 36.0)
+                new Setter(FontSizeProperty, 13.5),
+                new Setter(PaddingProperty, new Thickness(10, 5)),
+                new Setter(MinHeightProperty, 32.0)
             }
         });
+
+        var splitter = new GridSplitter
+        {
+            Width = 6,
+            ResizeDirection = GridResizeDirection.Columns
+        };
+
+        var splitGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("540,Auto,*"),
+            ColumnSpacing = 6
+        };
+        splitGrid.Children.Add(tabs);
+        Grid.SetColumn(splitter, 1);
+        splitGrid.Children.Add(splitter);
+        var rightPreview = previewPane.BuildPreviewPanel();
+        Grid.SetColumn(rightPreview, 2);
+        splitGrid.Children.Add(rightPreview);
 
         var validationBanner = CreateErrorBanner("ValidationSummaryBanner", "ValidationSummaryText", nameof(ImportProfileBuilderViewModel.ValidationSummary), viewModel);
 
@@ -131,15 +152,19 @@ internal sealed class ImportProfileBuilderWindow : Window
 
         var root = new Grid
         {
-            Margin = new Thickness(16, 14),
-            RowDefinitions = new RowDefinitions("*,Auto,Auto"),
+            Margin = new Thickness(14, 12),
+            RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"),
             RowSpacing = 10
         };
-        root.Children.Add(tabs);
-        Grid.SetRow(validationBanner, 1);
+        root.Children.Add(topSampleBar);
+        Grid.SetRow(splitGrid, 1);
+        root.Children.Add(splitGrid);
+        Grid.SetRow(validationBanner, 2);
         root.Children.Add(validationBanner);
-        Grid.SetRow(footerGrid, 2);
+        Grid.SetRow(footerGrid, 3);
         root.Children.Add(footerGrid);
+
+        Closed += (_, _) => viewModel.Dispose();
 
         Content = root;
     }

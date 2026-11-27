@@ -553,6 +553,74 @@ public sealed class DatalogRowParserTests : IDisposable
         }
     }
 
+    [Fact]
+    public void ParseReaderAndParseFileWithMaxDataRowsPreserveBehaviorAndStopAtBoundary()
+    {
+        var validContent = """
+            Test_Name,HARD_BIN,SITE_NUM,IGNORE_ME,T1
+            DATA_START,1,0,9,1.5
+            DATA_START,1,0,9,2.5
+            DATA_START,1,0,9,3.5
+            DATA_START,1,0,9,4.5
+            """;
+        var profile = CreateProfile(siteColumn: new ColumnSelector { Kind = ColumnSelectorKind.HeaderName, HeaderName = "SITE_NUM" });
+        var validScan = ScanText(profile, validContent);
+
+        var unlimitedRows = new List<double?>();
+        using (var sr = new StringReader(validContent))
+        {
+            var res = _parser.ParseReader(sr, "valid.csv", profile, validScan, ["T1"], r => unlimitedRows.Add(r.Measurements.Span[0]), cancellationToken: Token);
+            Assert.True(res.IsSuccess);
+            Assert.Equal(4, res.ProcessedRowCount);
+            Assert.Equal([1.5, 2.5, 3.5, 4.5], unlimitedRows);
+        }
+
+        // Invalid row after maxDataRows (row 3) must not be parsed when maxDataRows = 2.
+        var invalidAfterLimitContent = """
+            Test_Name,HARD_BIN,SITE_NUM,IGNORE_ME,T1
+            DATA_START,1,0,9,1.5
+            DATA_START,1,0,9,2.5
+            DATA_START,1,0,9,NOT_A_NUMBER
+            DATA_START,1,0,9,4.5
+            """;
+        var invalidScan = ScanText(profile, invalidAfterLimitContent);
+
+        var boundedRows = new List<double?>();
+        using (var sr = new StringReader(invalidAfterLimitContent))
+        {
+            var res = _parser.ParseReader(sr, "bounded.csv", profile, invalidScan, ["T1"], r => boundedRows.Add(r.Measurements.Span[0]), cancellationToken: Token, maxDataRows: 2);
+            Assert.True(res.IsSuccess);
+            Assert.Equal(2, res.ProcessedRowCount);
+            Assert.Equal([1.5, 2.5], boundedRows);
+        }
+
+        // Unlimited parsing on the same content fails at the invalid row.
+        using (var sr = new StringReader(invalidAfterLimitContent))
+        {
+            var res = _parser.ParseReader(sr, "bounded.csv", profile, invalidScan, ["T1"], _ => { }, cancellationToken: Token, maxDataRows: null);
+            Assert.False(res.IsSuccess);
+            Assert.Equal(DatalogParseErrorCode.InvalidNumericValue, res.Diagnostics[0].Code);
+        }
+
+        // Zero and negative maxDataRows are rejected on both ParseReader and ParseFile.
+        using (var sr = new StringReader(validContent))
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                _parser.ParseReader(sr, "valid.csv", profile, validScan, ["T1"], _ => { }, cancellationToken: Token, maxDataRows: 0));
+        }
+
+        var zipPath = CreateInputFile(isZip: true, "bounded_zip", invalidAfterLimitContent);
+        var zipScan = ScanFile(profile, zipPath);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            _parser.ParseFile(zipPath, profile, zipScan, ["T1"], _ => { }, cancellationToken: Token, maxDataRows: -1));
+
+        var zipRows = new List<double?>();
+        var zipRes = _parser.ParseFile(zipPath, profile, zipScan, ["T1"], r => zipRows.Add(r.Measurements.Span[0]), cancellationToken: Token, maxDataRows: 1);
+        Assert.True(zipRes.IsSuccess);
+        Assert.Equal([1.5], zipRows);
+        File.Delete(zipPath);
+    }
+
     private string CreateInputFile(bool isZip, string stem, string content)
     {
         if (!isZip)

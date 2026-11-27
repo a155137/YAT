@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using YAT.Application.FtImport;
 using YAT.Application.ImportProfiles;
 using YAT.app.ImportProfiles;
 
@@ -14,13 +17,19 @@ public enum DelimiterPreset
     Custom
 }
 
-// ViewModel for the Visual FT Import Profile Builder (FT-02.2).
+// ViewModel for the Visual FT Import Profile Builder (FT-02.2 / FT-02.3).
 // Operates strictly on an isolated draft; uses ImportProfileValidator as the sole validation authority.
-public sealed partial class ImportProfileBuilderViewModel : ObservableObject
+public sealed partial class ImportProfileBuilderViewModel : ObservableObject, IDisposable
 {
     private readonly ImportProfileValidator _validator = new();
+    private bool _suppressAutoRefresh;
 
-    public ImportProfileBuilderViewModel(ImportProfileEditorRequest request, Func<Guid>? newId = null)
+    public ImportProfileBuilderViewModel(
+        ImportProfileEditorRequest request,
+        Func<Guid>? newId = null,
+        DatalogSamplePreviewService? previewService = null,
+        Action<Action>? previewUiDispatch = null,
+        TimeSpan? previewDebounce = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -57,7 +66,12 @@ public sealed partial class ImportProfileBuilderViewModel : ObservableObject
         {
             InitializeNewDraft();
         }
+
+        Preview = new ImportProfileSamplePreviewViewModel(this, previewService, previewUiDispatch, previewDebounce);
+        SubscribeDraftChanges();
     }
+
+    public ImportProfileSamplePreviewViewModel Preview { get; }
 
     public ImportProfileEditorMode Mode { get; }
 
@@ -74,7 +88,7 @@ public sealed partial class ImportProfileBuilderViewModel : ObservableObject
     public string SchemaVersionText => $"v{SchemaVersion}";
 
     public string ValidationScopeNote =>
-        "Validation checks Profile configuration consistency only. Compatibility with real datalog files will be verified with sample preview in FT-02.3.";
+        "Configuration validation checks rule consistency. Sample validation inspects a bounded sample only (not a full-file guarantee).";
 
     public string MissingPolicyNote =>
         "The selected policy applies to missing measurement cells in present columns. Columns absent from a source file always remain missing (never zero-filled).";
@@ -350,6 +364,119 @@ public sealed partial class ImportProfileBuilderViewModel : ObservableObject
     {
         ValidationSummary = message;
         SavedProfile = null;
+    }
+
+    internal void RunSuppressed(Action action)
+    {
+        _suppressAutoRefresh = true;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _suppressAutoRefresh = false;
+        }
+    }
+
+    public void Dispose() => Preview.Dispose();
+
+    private void SubscribeDraftChanges()
+    {
+        PropertyChanged += OnDraftPropertyChanged;
+        AcceptedExtensions.CollectionChanged += OnDraftCollectionChanged;
+        IgnoredColumns.CollectionChanged += OnIgnoredColumnsChanged;
+        CompositeFields.CollectionChanged += OnCompositeFieldsChanged;
+        GoodBins.CollectionChanged += OnDraftCollectionChanged;
+        NonRetestFailBins.CollectionChanged += OnDraftCollectionChanged;
+        CustomMissingMarkers.CollectionChanged += OnDraftCollectionChanged;
+
+        foreach (var child in new INotifyPropertyChanged[]
+        {
+            LotIdField, TestStageField, RetestRoleField, RetestRoundField, FilePartField,
+            HeaderRow, DataStartRow, UnitRow, TargetRow, LslRow, UslRow,
+            BinColumn, SiteColumn
+        })
+        {
+            child.PropertyChanged += OnDraftPropertyChanged;
+        }
+
+        foreach (var col in IgnoredColumns)
+        {
+            col.PropertyChanged += OnDraftPropertyChanged;
+        }
+
+        foreach (var comp in CompositeFields)
+        {
+            HookCompositeDraft(comp);
+        }
+    }
+
+    private void HookCompositeDraft(CompositeFieldDraft comp)
+    {
+        comp.PropertyChanged += OnDraftPropertyChanged;
+        comp.SourceColumn.PropertyChanged += OnDraftPropertyChanged;
+        comp.OutputNames.CollectionChanged += OnDraftCollectionChanged;
+    }
+
+    private void OnIgnoredColumnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is not null)
+        {
+            foreach (ColumnSelectorDraft col in e.NewItems)
+            {
+                col.PropertyChanged += OnDraftPropertyChanged;
+            }
+        }
+
+        if (e.OldItems is not null)
+        {
+            foreach (ColumnSelectorDraft col in e.OldItems)
+            {
+                col.PropertyChanged -= OnDraftPropertyChanged;
+            }
+        }
+
+        TriggerPreviewRefresh();
+    }
+
+    private void OnCompositeFieldsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is not null)
+        {
+            foreach (CompositeFieldDraft comp in e.NewItems)
+            {
+                HookCompositeDraft(comp);
+            }
+        }
+
+        TriggerPreviewRefresh();
+    }
+
+    private void OnDraftPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ValidationSummary) or nameof(HasValidationErrors)
+            or nameof(GeneralErrors) or nameof(FilenameErrors) or nameof(StructureErrors)
+            or nameof(ColumnsErrors) or nameof(BinMissingErrors)
+            or nameof(NewExtensionText) or nameof(NewGoodBinText) or nameof(NewNonRetestFailBinText)
+            or nameof(NewMissingMarkerText) or nameof(CompositeFieldDraft.NewOutputName))
+        {
+            return;
+        }
+
+        TriggerPreviewRefresh();
+    }
+
+    private void OnDraftCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => TriggerPreviewRefresh();
+
+    private void TriggerPreviewRefresh()
+    {
+        if (_suppressAutoRefresh)
+        {
+            return;
+        }
+
+        Preview.RequestRefresh(immediate: false);
     }
 
     private void InitializeNewDraft()
