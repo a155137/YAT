@@ -69,6 +69,7 @@ internal sealed class Replacement
     // Throws InstallFailedException when the installation failed (Restored: the old release is back).
     public void Install(InstallPlan plan, StagedRelease staged)
     {
+        EnsureNoProtectedPaths(plan.Moves, plan.CreatedDirectories);
         var journal = InstallJournal.For(plan);
         try
         {
@@ -197,6 +198,12 @@ internal sealed class Replacement
 
         foreach (var directory in journal.CreatedDirectories)
         {
+            if (ReleaseInstallation.IsProtected(directory))
+            {
+                failures.Add($"Protected directory '{directory}' cannot be removed during rollback.");
+                continue;
+            }
+
             DeleteIfEmpty(ReleaseInstallation.PathOf(_installation, directory));
         }
 
@@ -288,7 +295,13 @@ internal sealed class Replacement
                 var parts = move.Path.Split('/');
                 for (var depth = parts.Length - 1; depth >= 1; depth--)
                 {
-                    DeleteIfEmpty(ReleaseInstallation.PathOf(_installation, string.Join('/', parts.Take(depth))));
+                    var relative = string.Join('/', parts.Take(depth));
+                    if (ReleaseInstallation.IsProtected(relative))
+                    {
+                        continue;
+                    }
+
+                    DeleteIfEmpty(ReleaseInstallation.PathOf(_installation, relative));
                 }
             }
 
@@ -397,8 +410,59 @@ internal sealed class Replacement
         }
     }
 
-    private static void DeleteIfEmpty(string folder)
+    private static void EnsureNoProtectedPaths(IReadOnlyList<PlannedMove> moves, IReadOnlyList<string> createdDirectories)
     {
+        if (moves.FirstOrDefault(move => ReleaseInstallation.IsProtected(move.Path)) is { } badMove)
+        {
+            throw new UpdaterException($"The installation plan targets protected path '{badMove.Path}'.");
+        }
+
+        if (createdDirectories.FirstOrDefault(ReleaseInstallation.IsProtected) is { } badDir)
+        {
+            throw new UpdaterException($"The installation plan targets protected directory '{badDir}'.");
+        }
+    }
+
+    private bool OverlapsProtectedUserDataOrRoot(string folder)
+    {
+        var fullFolder = NormalizeDirPath(folder);
+        var installRoot = NormalizeDirPath(_installation);
+        var protectedRoot = NormalizeDirPath(ReleaseInstallation.UserDataFolder(_installation));
+
+        // Reject installation root or any ancestor of installation root (which is also an ancestor of UserData).
+        if (string.Equals(fullFolder, installRoot, StringComparison.OrdinalIgnoreCase)
+            || IsStrictDescendantOf(installRoot, fullFolder))
+        {
+            return true;
+        }
+
+        // Reject UserData itself, any descendant of UserData, or any ancestor of UserData.
+        return string.Equals(fullFolder, protectedRoot, StringComparison.OrdinalIgnoreCase)
+            || IsStrictDescendantOf(fullFolder, protectedRoot)
+            || IsStrictDescendantOf(protectedRoot, fullFolder);
+    }
+
+    private static string NormalizeDirPath(string path) =>
+        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static bool IsStrictDescendantOf(string candidate, string root)
+    {
+        var fullCandidate = NormalizeDirPath(candidate);
+        var fullRoot = NormalizeDirPath(root);
+        var prefix = fullRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? fullRoot
+            : fullRoot + Path.DirectorySeparatorChar;
+        return fullCandidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(fullCandidate, fullRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal void DeleteIfEmpty(string folder)
+    {
+        if (OverlapsProtectedUserDataOrRoot(folder) || !IsStrictDescendantOf(folder, _installation))
+        {
+            return;
+        }
+
         try
         {
             var dirInfo = new DirectoryInfo(folder);
@@ -413,8 +477,13 @@ internal sealed class Replacement
         }
     }
 
-    private static void DeleteTree(string folder)
+    internal void DeleteTree(string folder)
     {
+        if (OverlapsProtectedUserDataOrRoot(folder) || !IsStrictDescendantOf(folder, ReleaseInstallation.WorkFolder(_installation)))
+        {
+            throw new UpdaterException($"Refusing to delete protected or out-of-scope directory '{folder}'.");
+        }
+
         var dirInfo = new DirectoryInfo(folder);
         if (!dirInfo.Exists || dirInfo.LinkTarget is not null || dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {

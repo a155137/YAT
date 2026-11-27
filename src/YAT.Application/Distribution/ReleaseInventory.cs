@@ -42,6 +42,11 @@ public sealed class ReleaseInventory
                 throw new ArgumentException("The inventory does not list itself.", nameof(files));
             }
 
+            if (ReleaseInstallation.IsUserData(path))
+            {
+                throw new ArgumentException($"'{path}' is inside the protected '{ReleaseInstallation.UserDataFolderName}/' directory.", nameof(files));
+            }
+
             if (!seen.Add(path))
             {
                 throw new ArgumentException($"'{path}' is listed twice.", nameof(files));

@@ -20,10 +20,15 @@ public static class ReleaseInstallation
 
     public const string WorkFolderName = ".yat-update";
 
+    // Portable user-owned data directory (FT-00C): never packaged, owned, overwritten, moved, or deleted by releases/updater.
+    public const string UserDataFolderName = "UserData";
+
     // The one runtime releases are made for.
     public const string Rid = "win-x64";
 
     public static string WorkFolder(string installation) => Path.Combine(installation, WorkFolderName);
+
+    public static string UserDataFolder(string installation) => Path.Combine(installation, UserDataFolderName);
 
     public static string Executable(string installation) => Path.Combine(installation, ExecutableName);
 
@@ -45,12 +50,28 @@ public static class ReleaseInstallation
 
     public static string LogPath(string installation) => Path.Combine(WorkFolder(installation), "update.log");
 
-    // A release path inside the installation's own work folder, which no release may own.
-    public static bool IsReserved(string releasePath)
+    // A release path inside the installation's own work folder (.yat-update/), which no release may own.
+    public static bool IsReserved(string releasePath) => IsTopLevelFolder(releasePath, WorkFolderName);
+
+    // A release path targeting the portable user-owned UserData/ directory or any descendant, which no release or updater may touch.
+    public static bool IsUserData(string releasePath) => IsTopLevelFolder(releasePath, UserDataFolderName);
+
+    // Any path inside a release installation that releases and updater mutations must never own, modify, move, or delete.
+    public static bool IsProtected(string releasePath) => IsReserved(releasePath) || IsUserData(releasePath);
+
+    private static bool IsTopLevelFolder(string releasePath, string folderName)
     {
         ArgumentNullException.ThrowIfNull(releasePath);
-        return string.Equals(releasePath, WorkFolderName, StringComparison.OrdinalIgnoreCase)
-            || releasePath.StartsWith(WorkFolderName + "/", StringComparison.OrdinalIgnoreCase);
+        var unified = releasePath.Replace('\\', '/');
+        var trimmed = unified.TrimEnd('/');
+        if (trimmed.Length == 0)
+        {
+            return false;
+        }
+
+        var slash = trimmed.IndexOf('/');
+        var firstSegment = (slash < 0 ? trimmed : trimmed[..slash]).TrimEnd('.', ' ');
+        return string.Equals(firstSegment, folderName, StringComparison.OrdinalIgnoreCase);
     }
 
     // The installation's path of a release path.

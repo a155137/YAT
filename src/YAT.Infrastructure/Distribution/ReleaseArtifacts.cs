@@ -26,6 +26,15 @@ public static class ReleaseArtifacts
     public static ReleaseInventory Scan(string releaseDirectory, ReleaseVersion version, string rid)
     {
         var root = Path.GetFullPath(releaseDirectory);
+        foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly))
+        {
+            var relativeDir = Path.GetRelativePath(root, directory);
+            if (ReleaseInstallation.IsProtected(relativeDir))
+            {
+                throw new InvalidOperationException($"The release folder contains the protected directory: {relativeDir}.");
+            }
+        }
+
         var files = new List<ReleaseFile>();
         foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
         {
@@ -42,6 +51,11 @@ public static class ReleaseArtifacts
 
             var path = ReleasePath.Normalize(Path.GetRelativePath(root, file))
                 ?? throw new InvalidOperationException($"'{file}' cannot be a release path.");
+            if (ReleaseInstallation.IsProtected(path))
+            {
+                throw new InvalidOperationException($"The release contains a protected path: {path}.");
+            }
+
             if (string.Equals(path, ReleaseInventory.FileName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;

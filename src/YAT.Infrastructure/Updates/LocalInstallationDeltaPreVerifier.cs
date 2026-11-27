@@ -188,9 +188,9 @@ public sealed class LocalInstallationDeltaPreVerifier : ILocalDeltaPreVerifier
             return false;
         }
 
-        if (inventory.Files.Any(file => ReleaseInstallation.IsReserved(file.Path)))
+        if (inventory.Files.Any(file => ReleaseInstallation.IsProtected(file.Path)))
         {
-            problem = "Local yat-files.json claims a reserved updater path.";
+            problem = "Local yat-files.json claims a protected updater or UserData path.";
             inventory = null;
             return false;
         }

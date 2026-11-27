@@ -67,6 +67,11 @@ internal sealed record InstalledRelease(string Folder, ReleaseInventory Inventor
             throw new UpdaterException($"The installed release claims {reserved.Path}, which belongs to the updater.");
         }
 
+        if (inventory.Files.FirstOrDefault(file => ReleaseInstallation.IsUserData(file.Path)) is { } userData)
+        {
+            throw new UpdaterException($"The installed release claims {userData.Path}, which belongs to the protected '{ReleaseInstallation.UserDataFolderName}/' directory.");
+        }
+
         var inventorySha256 = Convert.ToHexStringLower(SHA256.HashData(bytes));
         return new InstalledRelease(Path.GetFullPath(installation), inventory, inventorySha256);
     }

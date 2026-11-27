@@ -52,6 +52,16 @@ internal sealed class InstallPlan
 
     public static InstallPlan Create(InstalledRelease installed, StagedRelease staged, UpdaterLog log)
     {
+        if (installed.Inventory.Files.FirstOrDefault(file => ReleaseInstallation.IsProtected(file.Path)) is { } protectedOld)
+        {
+            throw new UpdaterException($"The installed release claims protected path '{protectedOld.Path}'.");
+        }
+
+        if (staged.Inventory.Files.FirstOrDefault(file => ReleaseInstallation.IsProtected(file.Path)) is { } protectedNew)
+        {
+            throw new UpdaterException($"The new release claims protected path '{protectedNew.Path}'.");
+        }
+
         var installation = installed.Folder;
         var oldFiles = installed.Inventory.Files.ToDictionary(file => file.Path, StringComparer.OrdinalIgnoreCase);
         var newPaths = staged.Inventory.Files.Select(file => file.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -197,6 +207,11 @@ internal sealed class InstallPlan
         for (var depth = 1; depth < parts.Length; depth++)
         {
             var relative = string.Join('/', parts.Take(depth));
+            if (ReleaseInstallation.IsProtected(relative))
+            {
+                throw new UpdaterException($"The path '{releasePath}' traverses protected folder '{relative}'.");
+            }
+
             var path = ReleaseInstallation.PathOf(installation, relative);
             if (Directory.Exists(path))
             {

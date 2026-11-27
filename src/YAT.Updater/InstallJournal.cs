@@ -104,18 +104,18 @@ internal sealed record InstallJournal(
                     element.GetProperty("path").GetString()!,
                     element.GetProperty("size").GetInt64(),
                     element.GetProperty("sha256").GetString()!);
-                if (ReleasePath.Normalize(move.Path) != move.Path || ReleaseInstallation.IsReserved(move.Path))
+                if (ReleasePath.Normalize(move.Path) != move.Path || ReleaseInstallation.IsProtected(move.Path))
                 {
-                    throw new UpdaterException($"The installation journal {path} names '{move.Path}', which is not a release path.");
+                    throw new UpdaterException($"The installation journal {path} names '{move.Path}', which is not a permitted release path.");
                 }
 
                 moves.Add(move);
             }
 
             var directories = root.GetProperty("createdDirectories").EnumerateArray().Select(element => element.GetString()!).ToList();
-            if (directories.FirstOrDefault(directory => ReleasePath.Normalize(directory) != directory || ReleaseInstallation.IsReserved(directory)) is { } bad)
+            if (directories.FirstOrDefault(directory => ReleasePath.Normalize(directory) != directory || ReleaseInstallation.IsProtected(directory)) is { } bad)
             {
-                throw new UpdaterException($"The installation journal {path} names '{bad}', which is not a release path.");
+                throw new UpdaterException($"The installation journal {path} names '{bad}', which is not a permitted release path.");
             }
 
             return new InstallJournal(

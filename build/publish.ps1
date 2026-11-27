@@ -309,6 +309,13 @@ if ($preferences.Count -gt 0) {
     throw "The release contains user preference files: $($preferences.Name -join ', ')."
 }
 
+# Portable user data (UserData/) is user-owned and must never enter a release package or inventory (FT-00C).
+$protectedUserData = @(Get-ChildItem -LiteralPath $release -Force |
+    Where-Object { $_.Name -ieq 'UserData' -or $_.Name -ieq '.yat-update' })
+if ($protectedUserData.Count -gt 0) {
+    throw "The release folder contains protected path(s): $($protectedUserData.FullName -join ', '). Remove them from build outputs without deleting user files."
+}
+
 $symbols = @(Get-ChildItem -LiteralPath $release -Recurse -File -Filter '*.pdb')
 if ($symbols.Count -gt 0) {
     throw "The release still contains debug symbols: $($symbols.Name -join ', ')."

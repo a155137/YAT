@@ -269,9 +269,19 @@ internal sealed class StagedRelease
             throw new UpdaterException($"The delta package claims {reserved.Path}, which belongs to the updater.");
         }
 
+        if (inventory.Files.FirstOrDefault(file => ReleaseInstallation.IsUserData(file.Path)) is { } userData)
+        {
+            throw new UpdaterException($"The delta package claims {userData.Path}, which belongs to the protected '{ReleaseInstallation.UserDataFolderName}/' directory.");
+        }
+
         if (delta.RemovedFiles.FirstOrDefault(ReleaseInstallation.IsReserved) is { } removedReserved)
         {
             throw new UpdaterException($"The delta package removes {removedReserved}, which belongs to the updater.");
+        }
+
+        if (delta.RemovedFiles.FirstOrDefault(ReleaseInstallation.IsUserData) is { } removedUserData)
+        {
+            throw new UpdaterException($"The delta package removes {removedUserData}, which belongs to the protected '{ReleaseInstallation.UserDataFolderName}/' directory.");
         }
 
         if (!inventory.Files.Any(file => file.Path == ReleaseInstallation.ExecutableName))
@@ -413,6 +423,11 @@ internal sealed class StagedRelease
             throw new UpdaterException($"The update package claims {reserved.Path}, which belongs to the updater.");
         }
 
+        if (inventory.Files.FirstOrDefault(file => ReleaseInstallation.IsUserData(file.Path)) is { } userData)
+        {
+            throw new UpdaterException($"The update package claims {userData.Path}, which belongs to the protected '{ReleaseInstallation.UserDataFolderName}/' directory.");
+        }
+
         if (!inventory.Files.Any(file => file.Path == ReleaseInstallation.ExecutableName))
         {
             throw new UpdaterException($"The update package has no {ReleaseInstallation.ExecutableName}.");
@@ -485,12 +500,17 @@ internal sealed class StagedRelease
         return new StagedRelease(version, root, inventory, json);
     }
 
-    // The path of a release path inside a folder - which must stay inside it.
+    // The path of a release path inside a folder - which must stay inside it and never target protected paths.
     public static string Inside(string root, string releasePath)
     {
         if (ReleasePath.Normalize(releasePath) != releasePath)
         {
             throw new UpdaterException($"'{releasePath}' is not a release path.");
+        }
+
+        if (ReleaseInstallation.IsProtected(releasePath))
+        {
+            throw new UpdaterException($"'{releasePath}' targets a protected path and cannot be modified by the updater.");
         }
 
         var path = Path.GetFullPath(ReleaseInstallation.PathOf(root, releasePath));

@@ -347,14 +347,30 @@ public static class ReleasePackageVerifier
             }
 
             var relative = entry.FullName[top.Length..];
-            if (relative.Length == 0 || relative.EndsWith('/'))
+            if (relative.Length == 0)
             {
+                continue;
+            }
+
+            if (relative.EndsWith('/'))
+            {
+                if (ReleaseInstallation.IsUserData(relative))
+                {
+                    problems.Add($"The package contains a protected user data directory: {relative}.");
+                }
+
                 continue;
             }
 
             if (entry.FullName.Contains('\\') || ReleasePath.Normalize(relative) != relative)
             {
                 problems.Add($"The package entry '{entry.FullName}' is not a safe release path.");
+                continue;
+            }
+
+            if (ReleaseInstallation.IsUserData(relative))
+            {
+                problems.Add($"The package contains a protected user data path: {relative}.");
                 continue;
             }
 

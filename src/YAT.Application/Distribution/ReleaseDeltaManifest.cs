@@ -213,6 +213,11 @@ public sealed class ReleaseDeltaManifest
                 throw new ArgumentException($"'{path}' is inside the reserved updater folder.", paramName);
             }
 
+            if (ReleaseInstallation.IsUserData(path))
+            {
+                throw new ArgumentException($"'{path}' is inside the protected '{ReleaseInstallation.UserDataFolderName}/' directory.", paramName);
+            }
+
             var fileName = path.Split('/')[^1];
             if (ReleasePackageVerifier.IsUserSettingsFile(fileName))
             {
