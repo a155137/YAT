@@ -65,7 +65,11 @@ public partial class App : AvaloniaApplication
             };
             // Started by the updater after it installed this version (Task #051.C): said once.
             var updated = Composition.TakeInstalledUpdateNotice();
-            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates, openGraphs);
+            var importProfiles = Composition.CreateImportProfileManager(
+                () => new AvaloniaImportProfileManagerDialogs(mainWindow),
+                new AvaloniaImportProfileManagerPresenter(mainWindow),
+                canOpen: () => !lifecycle.IsBusy && lifecycle.Project?.IsBusy != true);
+            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates, openGraphs, importProfiles);
 
             mainWindow.DataContext = shell;
             desktop.MainWindow = mainWindow;

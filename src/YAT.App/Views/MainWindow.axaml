@@ -106,6 +106,8 @@
                 <MenuItem Header="_Save" InputGesture="Ctrl+S" Command="{Binding SaveCommand}" />
                 <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Command="{Binding SaveAsCommand}" />
                 <Separator />
+                <MenuItem Name="FtImportProfilesMenuItem" Header="_FT Import Profiles..." Command="{Binding OpenImportProfileManagerCommand}" />
+                <Separator />
                 <!-- Closes the window: the same close path (and save prompt) as the title bar. -->
                 <MenuItem Header="E_xit" Click="OnExitClick" />
             </MenuItem>

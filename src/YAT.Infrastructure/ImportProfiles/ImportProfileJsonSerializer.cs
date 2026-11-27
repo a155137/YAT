@@ -5,6 +5,13 @@ using YAT.Application.ImportProfiles;
 
 namespace YAT.Infrastructure.ImportProfiles;
 
+public sealed class JsonImportProfileSerializer : IImportProfileSerializer
+{
+    public byte[] Serialize(ImportProfile profile) => ImportProfileJsonSerializer.Serialize(profile);
+
+    public ImportProfile Deserialize(ReadOnlySpan<byte> utf8Json) => ImportProfileJsonSerializer.Deserialize(utf8Json);
+}
+
 // Explicit System.Text.Json serialization for ImportProfile (FT-01A).
 // Preserves exact string values (including leading-zero Bins and custom missing markers) and rejects unsupported schema versions.
 public static class ImportProfileJsonSerializer

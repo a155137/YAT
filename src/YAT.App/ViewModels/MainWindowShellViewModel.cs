@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using YAT.Application.Graphs;
 using YAT.app.Analyses;
 using YAT.app.Graphs;
+using YAT.app.ImportProfiles;
 using YAT.app.Lifecycle;
 using YAT.app.Updates;
 
@@ -22,7 +23,8 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         DescriptiveStatisticsController statistics,
         CapabilityAnalysisController capability,
         UpdateCheckController? updates = null,
-        OpenGraphsViewModel? openGraphs = null)
+        OpenGraphsViewModel? openGraphs = null,
+        ImportProfileManagerController? importProfiles = null)
     {
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(graphs);
@@ -34,6 +36,7 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         Capability = capability;
         Updates = updates;
         OpenGraphs = openGraphs ?? new OpenGraphsViewModel();
+        ImportProfiles = importProfiles;
         Lifecycle.ProjectReplaced += OnProjectReplaced;
         ObserveProject();
     }
@@ -56,6 +59,9 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
     // composition opens no graph windows.
     public OpenGraphsViewModel OpenGraphs { get; }
 
+    // File > FT Import Profiles... (FT-02.1); null when this composition has no profile manager.
+    public ImportProfileManagerController? ImportProfiles { get; }
+
     public MainWindowViewModel? Project => Lifecycle.Project;
 
     internal bool UseMetadataOnlyGridLoad
@@ -77,6 +83,11 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
     private Task CheckForUpdatesAsync() => Updates?.CheckForUpdatesAsync() ?? Task.CompletedTask;
 
     private bool CanCheckForUpdates() => Updates is not null;
+
+    [RelayCommand(CanExecute = nameof(CanOpenImportProfileManager))]
+    private Task OpenImportProfileManagerAsync() => ImportProfiles?.OpenAsync() ?? Task.CompletedTask;
+
+    private bool CanOpenImportProfileManager() => ImportProfiles is not null;
 
     [RelayCommand]
     private Task NewProjectAsync() => Lifecycle.NewProjectAsync();

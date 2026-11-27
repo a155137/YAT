@@ -26,6 +26,8 @@ public sealed class JsonImportProfileStore : IImportProfileStore
 
     public string DirectoryPath { get; }
 
+    string? IImportProfileStore.StorageDirectoryPath => DirectoryPath;
+
     // Test-only fault injection for atomic write verification. Always null in production.
     internal Action<ImportProfileWritePhase>? WritePhaseHook { get; set; }
 

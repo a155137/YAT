@@ -2,8 +2,17 @@ using YAT.Application.ImportProfiles;
 
 namespace YAT.Application.Abstractions.ImportProfiles;
 
+public interface IImportProfileSerializer
+{
+    byte[] Serialize(ImportProfile profile);
+
+    ImportProfile Deserialize(ReadOnlySpan<byte> utf8Json);
+}
+
 public interface IImportProfileStore
 {
+    string? StorageDirectoryPath => null;
+
     ImportProfileStoreSnapshot Enumerate();
 
     ImportProfile? Load(Guid id);

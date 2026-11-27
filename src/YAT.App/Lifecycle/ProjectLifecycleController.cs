@@ -59,6 +59,9 @@ public sealed class ProjectLifecycleController
 
     public string? ProjectFilePath => _workspace.ProjectFilePath;
 
+    // Whether a lifecycle transition (New, Open, Save, Save As, Close) is running or the controller has shut down.
+    public bool IsBusy => _shutDown || _gate.CurrentCount == 0;
+
     // Startup: a new untitled project.
     public Task<bool> StartAsync() =>
         RunLifecycleAsync(() => ReplaceProjectAsync(activating => _workspace.CreateTemporaryProjectAsync(CancellationToken.None, activating), null));

@@ -1,3 +1,4 @@
+using YAT.Application.Abstractions.ImportProfiles;
 using YAT.Application.Analyses;
 using YAT.Application.Exceptions;
 using YAT.Application.Features.Projects.CreateProject;
@@ -16,9 +17,11 @@ using YAT.app.Clipboard;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Rendering;
 using YAT.app.Graphs.Export;
+using YAT.app.ImportProfiles;
 using YAT.app.Lifecycle;
 using YAT.app.Updates;
 using YAT.app.ViewModels;
+using YAT.Infrastructure.ImportProfiles;
 using YAT.Infrastructure.Persistence.DuckDb;
 using YAT.Infrastructure.Persistence.InMemory;
 using YAT.Infrastructure.Settings;
@@ -204,14 +207,39 @@ public sealed class CompositionRoot
         return new CapabilityAnalysisController(dialogs, results, new CapabilityAnalysisBuilder());
     }
 
+    public IImportProfileStore CreateImportProfileStore(string? directoryPath = null) =>
+        directoryPath is null ? new JsonImportProfileStore() : new JsonImportProfileStore(directoryPath);
+
+    public IImportProfileSerializer CreateImportProfileSerializer() => new JsonImportProfileSerializer();
+
+    public ImportProfileManagerController CreateImportProfileManager(
+        Func<IImportProfileManagerDialogs> dialogsFactory,
+        IImportProfileManagerPresenter presenter,
+        IImportProfileStore? store = null,
+        IImportProfileSerializer? serializer = null,
+        IImportProfileEditor? editor = null,
+        Func<bool>? canOpen = null)
+    {
+        ArgumentNullException.ThrowIfNull(dialogsFactory);
+        ArgumentNullException.ThrowIfNull(presenter);
+        return new ImportProfileManagerController(
+            store ?? CreateImportProfileStore(),
+            serializer ?? CreateImportProfileSerializer(),
+            dialogsFactory,
+            presenter,
+            editor,
+            canOpen);
+    }
+
     public MainWindowShellViewModel CreateMainWindowShellViewModel(
         ProjectLifecycleController lifecycle,
         GraphSetupController graphs,
         DescriptiveStatisticsController statistics,
         CapabilityAnalysisController capability,
         UpdateCheckController? updates = null,
-        OpenGraphsViewModel? openGraphs = null) =>
-        new(lifecycle, graphs, statistics, capability, updates, openGraphs);
+        OpenGraphsViewModel? openGraphs = null,
+        ImportProfileManagerController? importProfiles = null) =>
+        new(lifecycle, graphs, statistics, capability, updates, openGraphs, importProfiles);
 
     // The update connection for the application's lifetime (Task #051.B): one HttpClient, the update information at
     // manifestUrl (by default the address Directory.Build.props gives the build) and packages kept under updatesRoot (by
