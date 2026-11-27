@@ -8,6 +8,7 @@ using YAT.Application.Features.Worksheets.CreateWorksheet;
 using YAT.Application.Features.Worksheets.DeleteWorksheetColumns;
 using YAT.Application.Features.Worksheets.RenameWorksheet;
 using YAT.Application.Filtering;
+using YAT.Application.FtImport;
 using YAT.Application.Graphs;
 using YAT.Application.Ingestion;
 using YAT.Application.Queries;
@@ -48,6 +49,7 @@ public sealed class MainWindowSession
     private readonly AnalysisDataQueryService _analysisData;
     private readonly Guid? _projectId;
     private readonly IAtomicWorksheetCreator? _atomicWorksheetCreator;
+    private readonly FtStreamingImportService _ftStreamingImport = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _retired;
 
@@ -165,7 +167,20 @@ public sealed class MainWindowSession
         string worksheetName,
         IReadOnlyList<WorksheetColumnDefinition> columns,
         Action<IRawDataRowWriter> writeRows,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        CreateWorksheetWithStreamingDataCoreAsync(
+            worksheetName,
+            columns,
+            writeRows,
+            onPostCommitNotificationError: null,
+            cancellationToken);
+
+    private async Task<CreatedWorksheetResult> CreateWorksheetWithStreamingDataCoreAsync(
+        string worksheetName,
+        IReadOnlyList<WorksheetColumnDefinition> columns,
+        Action<IRawDataRowWriter> writeRows,
+        Action<Exception>? onPostCommitNotificationError,
+        CancellationToken cancellationToken)
     {
         if (_projectId is not { } projectId || _atomicWorksheetCreator is null)
         {
@@ -173,11 +188,64 @@ public sealed class MainWindowSession
         }
 
         var request = new AtomicWorksheetCreateRequest(projectId, worksheetName, columns);
-        return RunModifyingAsync(
+        var committed = await RunExclusiveAsync(
             () => Task.Run(
                 () => _atomicWorksheetCreator.CreateWorksheetAsync(request, writeRows, cancellationToken),
                 cancellationToken),
             cancellationToken);
+
+        try
+        {
+            ProjectModified?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex) when (onPostCommitNotificationError is not null)
+        {
+            onPostCommitNotificationError(ex);
+        }
+
+        return committed;
+    }
+
+    // Atomically imports all selected FT datalog files from a prepared FT-03.2 plan into one new Worksheet,
+    // off the UI thread, reusing CreateWorksheetWithStreamingDataCoreAsync for busy-state gating and commit-only
+    // ProjectModified semantics. Internal to YAT.App import controllers so MainWindowSession's public UI surface
+    // stays limited to UI commands and Domain metadata. UI publication and worksheet activation belong to FT-04.
+    // Once the Worksheet transaction commits, post-commit notification failures never misreport it as uncommitted.
+    internal async Task<FtStreamingImportResult> ImportFtDatalogAsync(
+        string worksheetName,
+        FtPreparedImportPlan preparedPlan,
+        IProgress<FtImportProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        Exception? notificationError = null;
+        var result = await _ftStreamingImport.ImportAsync(
+            (name, cols, writeRows, ct) => CreateWorksheetWithStreamingDataCoreAsync(
+                name,
+                cols,
+                writeRows,
+                ex => notificationError = ex,
+                ct),
+            worksheetName,
+            preparedPlan,
+            progress,
+            cancellationToken);
+
+        if (result.IsSuccess && notificationError is not null)
+        {
+            var warning = new FtImportDiagnostic(
+                FtImportDiagnosticSeverity.Warning,
+                FtImportDiagnosticCode.ProgressObserverFailed,
+                $"Post-commit ProjectModified handler threw {notificationError.GetType().Name}: {notificationError.Message}");
+            var warnings = result.Warnings.Concat([warning]).ToArray();
+            var all = result.AllDiagnostics.Concat([warning]).ToArray();
+            return result with
+            {
+                Warnings = Array.AsReadOnly(warnings),
+                AllDiagnostics = Array.AsReadOnly(all)
+            };
+        }
+
+        return result;
     }
 
     // Pastes clipboard text into the worksheet column-wise, starting at the active column's index, or after the last

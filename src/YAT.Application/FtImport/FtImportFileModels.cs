@@ -38,7 +38,12 @@ public enum FtImportDiagnosticCode
     ReservedColumnNameConflict,
     IncompatibleWorksheetColumnName,
     MeasurementColumnRoleConflict,
-    SourceFileChangedDuringScan
+    SourceFileChangedDuringScan,
+    SourceFileStaleOrMissing,
+    RowParseFailed,
+    ZeroRetainedRows,
+    WorksheetCreationFailed,
+    ProgressObserverFailed
 }
 
 public sealed record FtImportDiagnostic(
