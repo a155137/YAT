@@ -16,7 +16,7 @@ internal sealed class ImportProfileManagerWindow : Window
         ArgumentNullException.ThrowIfNull(viewModel);
         DataContext = viewModel;
 
-        Title = "FT Import Profile Manager";
+        Title = "FT Profile Manager";
         Width = 840;
         Height = 540;
         MinWidth = 760;

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using YAT.Application.Graphs;
 using YAT.app.Analyses;
+using YAT.app.FtImport;
 using YAT.app.Graphs;
 using YAT.app.ImportProfiles;
 using YAT.app.Lifecycle;
@@ -24,7 +25,8 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         CapabilityAnalysisController capability,
         UpdateCheckController? updates = null,
         OpenGraphsViewModel? openGraphs = null,
-        ImportProfileManagerController? importProfiles = null)
+        ImportProfileManagerController? importProfiles = null,
+        FtImportWizardController? ftImportWizard = null)
     {
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(graphs);
@@ -37,6 +39,7 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
         Updates = updates;
         OpenGraphs = openGraphs ?? new OpenGraphsViewModel();
         ImportProfiles = importProfiles;
+        FtImportWizard = ftImportWizard;
         Lifecycle.ProjectReplaced += OnProjectReplaced;
         ObserveProject();
     }
@@ -61,6 +64,9 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
 
     // File > FT Import Profiles... (FT-02.1); null when this composition has no profile manager.
     public ImportProfileManagerController? ImportProfiles { get; }
+
+    // File > Import FT Datalog... (FT-04); null when this composition has no FT import wizard.
+    public FtImportWizardController? FtImportWizard { get; }
 
     public MainWindowViewModel? Project => Lifecycle.Project;
 
@@ -88,6 +94,11 @@ public sealed partial class MainWindowShellViewModel : ViewModelBase
     private Task OpenImportProfileManagerAsync() => ImportProfiles?.OpenAsync() ?? Task.CompletedTask;
 
     private bool CanOpenImportProfileManager() => ImportProfiles is not null;
+
+    [RelayCommand(CanExecute = nameof(CanImportFtDatalog))]
+    private Task ImportFtDatalogAsync() => FtImportWizard?.OpenAsync() ?? Task.CompletedTask;
+
+    private bool CanImportFtDatalog() => FtImportWizard is not null && Project?.CurrentProject is not null;
 
     [RelayCommand]
     private Task NewProjectAsync() => Lifecycle.NewProjectAsync();

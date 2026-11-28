@@ -14,6 +14,7 @@ using YAT.Application.Queries;
 using YAT.Application.Updates;
 using YAT.app.Analyses;
 using YAT.app.Clipboard;
+using YAT.app.FtImport;
 using YAT.app.Graphs;
 using YAT.app.Graphs.Rendering;
 using YAT.app.Graphs.Export;
@@ -232,6 +233,25 @@ public sealed class CompositionRoot
             canOpen);
     }
 
+    public FtImportWizardController CreateFtImportWizard(
+        ProjectLifecycleController lifecycle,
+        Func<IFtImportWizardDialogs> dialogsFactory,
+        IFtImportWizardPresenter presenter,
+        IImportProfileStore? store = null,
+        Func<bool>? canOpen = null)
+    {
+        ArgumentNullException.ThrowIfNull(lifecycle);
+        ArgumentNullException.ThrowIfNull(dialogsFactory);
+        ArgumentNullException.ThrowIfNull(presenter);
+        return new FtImportWizardController(
+            store ?? CreateImportProfileStore(),
+            dialogsFactory,
+            presenter,
+            () => lifecycle.CurrentSession,
+            () => lifecycle.Project,
+            canOpen);
+    }
+
     public MainWindowShellViewModel CreateMainWindowShellViewModel(
         ProjectLifecycleController lifecycle,
         GraphSetupController graphs,
@@ -239,8 +259,9 @@ public sealed class CompositionRoot
         CapabilityAnalysisController capability,
         UpdateCheckController? updates = null,
         OpenGraphsViewModel? openGraphs = null,
-        ImportProfileManagerController? importProfiles = null) =>
-        new(lifecycle, graphs, statistics, capability, updates, openGraphs, importProfiles);
+        ImportProfileManagerController? importProfiles = null,
+        FtImportWizardController? ftImportWizard = null) =>
+        new(lifecycle, graphs, statistics, capability, updates, openGraphs, importProfiles, ftImportWizard);
 
     // The update connection for the application's lifetime (Task #051.B): one HttpClient, the update information at
     // manifestUrl (by default the address Directory.Build.props gives the build) and packages kept under updatesRoot (by

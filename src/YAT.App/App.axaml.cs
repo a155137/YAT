@@ -65,14 +65,23 @@ public partial class App : AvaloniaApplication
             };
             // Started by the updater after it installed this version (Task #051.C): said once.
             var updated = Composition.TakeInstalledUpdateNotice();
+            var profileStore = Composition.CreateImportProfileStore();
             var profileManagerPresenter = new AvaloniaImportProfileManagerPresenter(mainWindow);
             var profileEditor = new AvaloniaImportProfileEditor(() => profileManagerPresenter.ActiveWindow ?? mainWindow);
             var importProfiles = Composition.CreateImportProfileManager(
                 () => new AvaloniaImportProfileManagerDialogs(profileManagerPresenter.ActiveWindow ?? mainWindow),
                 profileManagerPresenter,
+                store: profileStore,
                 editor: profileEditor,
                 canOpen: () => !lifecycle.IsBusy && lifecycle.Project?.IsBusy != true);
-            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates, openGraphs, importProfiles);
+            var ftWizardPresenter = new AvaloniaFtImportWizardPresenter(mainWindow);
+            var ftImportWizard = Composition.CreateFtImportWizard(
+                lifecycle,
+                () => new AvaloniaFtImportWizardDialogs(() => ftWizardPresenter.ActiveWindow ?? mainWindow),
+                ftWizardPresenter,
+                store: profileStore,
+                canOpen: () => !lifecycle.IsBusy && lifecycle.Project?.IsBusy != true);
+            var shell = Composition.CreateMainWindowShellViewModel(lifecycle, graphs, statistics, capability, updates, openGraphs, importProfiles, ftImportWizard);
 
             mainWindow.DataContext = shell;
             desktop.MainWindow = mainWindow;

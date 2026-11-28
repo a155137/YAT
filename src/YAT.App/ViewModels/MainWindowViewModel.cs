@@ -101,6 +101,27 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedWorksheet = Worksheets.FirstOrDefault(worksheet => worksheet.Id == preferredWorksheetId) ?? Worksheets.FirstOrDefault();
     }
 
+    // Publishes and activates a newly committed FT-imported worksheet without re-running the import.
+    // If UI publication fails, recovers by refreshing project metadata from storage.
+    internal async Task PublishImportedWorksheetAsync(Worksheet worksheet, IReadOnlyList<WorksheetColumn> columns)
+    {
+        ArgumentNullException.ThrowIfNull(worksheet);
+        ArgumentNullException.ThrowIfNull(columns);
+
+        try
+        {
+            _columnsByWorksheet[worksheet.Id] = new ObservableCollection<WorksheetColumn>(columns);
+            Worksheets.Add(worksheet);
+            ProjectExplorer.AddWorksheet(worksheet);
+            SelectedWorksheet = worksheet;
+            ErrorMessage = null;
+        }
+        catch
+        {
+            await LoadProjectAsync(preferredWorksheetId: worksheet.Id);
+        }
+    }
+
     // Legacy startup for the in-memory test composition only (production startup uses LoadProjectAsync): an untitled
     // Project with Sheet1 selected, created through the same commands a user would run. Does nothing once a Project exists.
     public async Task CreateDefaultWorkspaceAsync()

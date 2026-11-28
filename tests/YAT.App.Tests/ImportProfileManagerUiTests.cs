@@ -142,7 +142,7 @@ public sealed class ImportProfileManagerUiTests : IDisposable
 
                     var menuItem = mainWindow.FindControl<MenuItem>("FtImportProfilesMenuItem");
                     Assert.NotNull(menuItem);
-                    Assert.Equal("_FT Import Profiles...", menuItem.Header);
+                    Assert.Equal("_FT Profile Manager...", menuItem.Header);
                     Assert.NotNull(menuItem.Command);
                     Assert.True(menuItem.Command.CanExecute(null));
 
